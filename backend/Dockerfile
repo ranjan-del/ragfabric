@@ -1,4 +1,4 @@
-# Backend image for the Enterprise RAG Knowledge Assistant (FastAPI).
+# Backend image for the RagFabric (FastAPI).
 FROM python:3.11-slim
 
 WORKDIR /app

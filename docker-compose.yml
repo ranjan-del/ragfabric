@@ -1,4 +1,4 @@
-# Full-stack local orchestration for the Enterprise RAG Knowledge Assistant.
+# Full-stack local orchestration for the RagFabric.
 #
 # Brings up the whole system with a single command:
 #   docker compose up --build

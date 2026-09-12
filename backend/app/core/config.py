@@ -33,7 +33,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    app_name: str = "enterprise-rag-knowledge-assistant"
+    app_name: str = "ragfabric"
     version: str = "1.0.0"
 
     # "development" (default) or "production". Production turns on the safety

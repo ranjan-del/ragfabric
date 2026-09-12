@@ -1,1 +1,1 @@
-"""Enterprise RAG Knowledge Assistant backend package."""
+"""RagFabric backend package."""

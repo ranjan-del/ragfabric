@@ -1,4 +1,4 @@
-# Frontend image for the Enterprise RAG Knowledge Assistant (Angular).
+# Frontend image for the RagFabric (Angular).
 
 # Build stage
 FROM node:20-alpine AS build

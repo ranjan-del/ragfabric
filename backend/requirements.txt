@@ -1,4 +1,4 @@
-# Backend dependencies for the Enterprise RAG Knowledge Assistant.
+# Backend dependencies for the RagFabric.
 
 # Web framework + server
 fastapi
