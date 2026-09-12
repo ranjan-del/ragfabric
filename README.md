@@ -15,7 +15,7 @@
 > **Status: planning and early build.** The repository currently contains the v1 single strategy
 > assistant (working, tested, offline first). RagFabric is being built on top of it phase by phase.
 > See [ROADMAP.md](ROADMAP.md) for what exists and what is next. Nothing in this README claims a feature
-> that is not marked as shipped in the roadmap. Repository renamed from `ragfabric` to `ragfabric` on 2026-09-13; old links redirect. Documentation lives in [docs/](docs/README.md).
+> that is not marked as shipped in the roadmap. Repository renamed from `enterprise-rag-knowledge-assistant` to `ragfabric` on 2026-09-13; old links redirect. Documentation lives in [docs/](docs/README.md).
 
 ---
 
