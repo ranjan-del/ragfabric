@@ -8,14 +8,14 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg"></a>
-  <a href="https://github.com/ranjan-del/enterprise-rag-knowledge-assistant/actions"><img alt="CI" src="https://github.com/ranjan-del/enterprise-rag-knowledge-assistant/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/ranjan-del/ragfabric/actions"><img alt="CI" src="https://github.com/ranjan-del/ragfabric/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Status: pre-alpha" src="https://img.shields.io/badge/status-pre--alpha-orange">
 </p>
 
 > **Status: planning and early build.** The repository currently contains the v1 single strategy
 > assistant (working, tested, offline first). RagFabric is being built on top of it phase by phase.
 > See [ROADMAP.md](ROADMAP.md) for what exists and what is next. Nothing in this README claims a feature
-> that is not marked as shipped in the roadmap. Repository will be renamed to `ragfabric` at v0.1.
+> that is not marked as shipped in the roadmap. Repository renamed from `ragfabric` to `ragfabric` on 2026-09-13; old links redirect. Documentation lives in [docs/](docs/README.md).
 
 ---
 
@@ -273,7 +273,20 @@ own questions over your own corpus.
 ## Benchmark results
 
 **No results yet.** Numbers appear here only when produced by `make eval` on a tagged commit. This section
-is generated, never typed. Until Phase 8 ships it stays empty on purpose.
+is generated, never typed. Until v0.5.0 ships it stays empty on purpose.
+
+## Documentation
+
+| Read | For |
+|---|---|
+| [docs/getting-started.md](docs/getting-started.md) | Install and first question |
+| [docs/architecture.md](docs/architecture.md) | Layers, request flow, data model |
+| [docs/traditional-rag.md](docs/traditional-rag.md), [vectorless-rag.md](docs/vectorless-rag.md), [agentic-rag.md](docs/agentic-rag.md), [graph-rag.md](docs/graph-rag.md) | One document per strategy: what, why, internals, trade offs, failure modes |
+| [docs/routing.md](docs/routing.md) | Router decision, signals, fallbacks |
+| [docs/evaluation.md](docs/evaluation.md) | Dataset, metrics, `make eval`, complexity score |
+| [docs/configuration.md](docs/configuration.md), [providers.md](docs/providers.md) | `ragfabric.yaml`, environment, provider and store matrix |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | Symptoms, causes, fixes |
+| [docs/adr](docs/adr), [docs/design](docs/design) | Decisions and the full design |
 
 ## Technology stack
 
@@ -294,8 +307,8 @@ Two compose profiles. `lite` is three services and is enough for Traditional and
 `full` adds Chroma and Neo4j for all four.
 
 ```bash
-git clone https://github.com/ranjan-del/enterprise-rag-knowledge-assistant.git
-cd enterprise-rag-knowledge-assistant
+git clone https://github.com/ranjan-del/ragfabric.git
+cd ragfabric
 cp .env.example .env            # add your provider key, or use Ollama with no key
 docker compose --profile lite up --build
 # or
@@ -304,7 +317,7 @@ docker compose --profile full up --build
 
 Then open the UI, sign in with the bootstrap admin from your `.env`, upload documents, and ask.
 
-> The profiles above land in Phase 1. Today the repository runs the v1 assistant with `docker compose up`
+> The profiles above land in v0.1.0. Today the repository runs the v1 assistant with `docker compose up`
 > as described in [What works today](#what-works-today-v1).
 
 ## Configuration
@@ -354,7 +367,7 @@ docs                     concepts, guides, ADRs, design, benchmarks
 examples                 minimal integrations
 ```
 
-This layout is introduced in Phase 1. Until then the v1 `backend/` and `frontend/` folders remain.
+This layout is introduced in v0.1.0 (Phase 1). Until then the v1 `backend/` and `frontend/` folders remain.
 Design details: [docs/design/2026-09-13-ragfabric-design.md](docs/design/2026-09-13-ragfabric-design.md)
 and the ADRs in [docs/adr](docs/adr).
 
@@ -389,9 +402,16 @@ why the test suite stays green without secrets.
 
 ## Roadmap and future improvements
 
-See [ROADMAP.md](ROADMAP.md). Releases: v0.1 Engine (Traditional and Vectorless, CLI, access control,
-Python SDK, console), v0.2 Intelligence (Agentic, Graph, router, evaluation, dashboards), v0.3 Platform
-(reference UI with Compare and Trace, TypeScript SDK, connectors, docs site, deployment guides).
+See [ROADMAP.md](ROADMAP.md) and [CHANGELOG.md](CHANGELOG.md).
+
+| Release | Theme |
+|---|---|
+| v0.1.0 | Initial RAG engine: interfaces, providers, ingestion, access control, Traditional and Vectorless RAG, CLI, Python SDK, console |
+| v0.2.0 | Agentic retrieval with LangGraph |
+| v0.3.0 | Graph retrieval with Neo4j |
+| v0.4.0 | Adaptive router with fallbacks |
+| v0.5.0 | Evaluation framework, dashboards, generated benchmarks |
+| v1.0.0 | Production release: reference UI with Compare and Trace, TypeScript SDK, connectors, hardening, docs site, deployment guides |
 
 Later: OIDC and SAML, multi tenant workspaces, more connectors and stores, community summaries for Graph
 RAG, a Helm chart.

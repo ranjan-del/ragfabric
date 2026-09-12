@@ -1,7 +1,7 @@
 {
-  "name": "enterprise-rag-knowledge-assistant-frontend",
+  "name": "ragfabric-frontend",
   "version": "1.0.0",
-  "description": "Angular frontend for the Enterprise RAG Knowledge Assistant.",
+  "description": "Angular frontend for the RagFabric.",
   "scripts": {
     "ng": "ng",
     "start": "ng serve",

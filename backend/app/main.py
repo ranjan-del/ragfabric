@@ -1,4 +1,4 @@
-"""FastAPI application entrypoint for the Enterprise RAG Knowledge Assistant.
+"""FastAPI application entrypoint for the RagFabric.
 
 Wires the API routers together, configures CORS for the Angular frontend, and on
 startup: creates the database tables, seeds a bootstrap admin (if configured), and

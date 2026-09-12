@@ -146,8 +146,16 @@ is empty or confidence is low; `fallback_from` is recorded.
 
 ## 11. Releases
 
-v0.1 Engine (phases 1 to 4), v0.2 Intelligence (5 to 8), v0.3 Platform (9 to 10). Semantic versioning,
-tagged releases with generated changelogs, container images on GHCR.
+| Release | Theme | Phases |
+|---|---|---|
+| v0.1.0 | Initial RAG engine | 1 to 4 |
+| v0.2.0 | Agentic retrieval | 5 |
+| v0.3.0 | Graph retrieval | 6 |
+| v0.4.0 | Adaptive router | 7 |
+| v0.5.0 | Evaluation framework | 8 |
+| v1.0.0 | Production release | 9 and 10 |
+
+Semantic versioning, tagged releases with generated changelogs, container images on GHCR.
 
 ## 12. Open questions
 
