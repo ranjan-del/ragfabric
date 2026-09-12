@@ -32,3 +32,15 @@ npm-debug.log*
 # Frontend test artifacts
 coverage/
 out-tsc/
+
+# Local planning notes and scratch (never committed)
+MEMORY*.md
+*.local.md
+.notes/
+.scratch/
+
+# Secrets and keys (belt and braces; .env already excluded above)
+*.pem
+*.key
+*.p12
+secrets/
