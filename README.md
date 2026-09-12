@@ -426,3 +426,12 @@ through [SECURITY.md](SECURITY.md).
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+In plain words: use it commercially, modify it, host it, combine it with proprietary code, all without
+paying or publishing your changes. Keep the license and copyright notices when you redistribute, and
+state what you changed. Every contributor also grants a patent license, so no contributor can later sue
+users over their own contribution. The name RagFabric is not licensed for your own products.
+
+Contributors sign a one time [Contributor License Agreement](CLA.md) by posting one sentence on their
+first pull request; a GitHub Action checks it. Full explanation, including why Apache 2.0 rather than MIT
+or a copyleft license, in [docs/licensing.md](docs/licensing.md).

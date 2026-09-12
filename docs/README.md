@@ -12,6 +12,7 @@
 | [evaluation.md](evaluation.md) | Question set, metrics, `make eval`, complexity score | Concept complete; implementation v0.5.0 |
 | [configuration.md](configuration.md) | `ragfabric.yaml`, environment, pricing | Planned shape; v0.1.0 |
 | [providers.md](providers.md) | LLM, embedding, store and connector implementations | Planned matrix; v0.1.0 onward |
+| [licensing.md](licensing.md) | Apache 2.0 in plain words, why not MIT or copyleft, the CLA | Current |
 | [troubleshooting.md](troubleshooting.md) | Common failures and how to diagnose them | Grows with each release |
 | [design/](design/) | Full design document | Approved 2026-09-13 |
 | [adr/](adr/) | Architecture decision records | Accepted |

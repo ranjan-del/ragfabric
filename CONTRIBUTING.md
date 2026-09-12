@@ -9,7 +9,8 @@ phase is tracked as a GitHub issue under a milestone. The fastest way to help is
 2. Create a branch in your fork: `feat/<area>-<short-name>`, `fix/...`, `docs/...`.
 3. Open a pull request against `main` using the PR template. Link the roadmap issue it advances.
 4. CI must pass (backend tests, migration round trip against PostgreSQL, frontend tests and build).
-5. A maintainer reviews. Small, focused PRs are reviewed fastest.
+5. On your first pull request, sign the [CLA](CLA.md) by posting the sentence the CLA bot asks for. It is a one time step.
+6. A maintainer reviews. Small, focused PRs are reviewed fastest.
 
 `main` is protected: pull request required, status checks required, no force pushes, linear history.
 
