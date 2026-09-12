@@ -1,0 +1,16 @@
+name: Feature request
+description: Propose a provider, store, connector, strategy or UI change
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes: { label: Problem, description: What can you not do today }
+    validations: { required: true }
+  - type: textarea
+    id: proposal
+    attributes: { label: Proposal, description: Which interface would it implement (LLMProvider, VectorStore, Connector, RetrieverStrategy ...) }
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [core engine, server / API, CLI, SDK, console (admin UI), assistant (reference UI), deploy, evaluation, docs]
