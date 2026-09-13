@@ -20,6 +20,7 @@
             ],
             "tsConfig": "tsconfig.app.json",
             "styles": [
+              "src/tailwind.css",
               "src/styles.scss"
             ],
             "assets": []
@@ -59,6 +60,7 @@
             "karmaConfig": "karma.conf.js",
             "assets": [],
             "styles": [
+              "src/tailwind.css",
               "src/styles.scss"
             ],
             "scripts": []
