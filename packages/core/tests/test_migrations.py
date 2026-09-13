@@ -18,11 +18,31 @@ from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import create_engine, inspect
 
+from ragfabric_core import models  # noqa: F401  (registers every table)
 from ragfabric_core.db.migrate import alembic_config as _alembic_config
-from ragfabric_core.models import document, user  # noqa: F401  (registers the tables)
 from ragfabric_core.models.base import Base
 
-EXPECTED_TABLES = {"users", "collections", "documents", "chunks", "query_logs"}
+EXPECTED_TABLES = {
+    "users",
+    "collections",
+    "documents",
+    "chunks",
+    "query_logs",
+    "groups",
+    "group_members",
+    "collection_grants",
+    "document_overrides",
+    "api_keys",
+    "audit_log",
+    "conversations",
+    "messages",
+    "retrieval_runs",
+    "sources",
+    "evaluation_runs",
+    "evaluation_results",
+    "entities",
+    "relationships",
+}
 
 
 def _migrated_engine(tmp_path):

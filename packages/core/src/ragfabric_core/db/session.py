@@ -46,8 +46,8 @@ def init_db() -> None:
     if not get_settings().auto_create_tables:
         return
 
-    # Imported for their side effect of registering tables on Base.metadata.
-    from ragfabric_core.models import document, user  # noqa: F401
+    # Imported for its side effect of registering every table on Base.metadata.
+    from ragfabric_core import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
 

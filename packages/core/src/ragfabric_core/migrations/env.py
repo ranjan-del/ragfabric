@@ -17,12 +17,11 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from ragfabric_core.config import get_settings
-
-# Importing the model modules has the side effect of registering every table on
+# Importing the models package has the side effect of registering every table on
 # Base.metadata. Without it, autogenerate would see an empty schema and cheerfully
 # emit a migration that drops all the tables.
-from ragfabric_core.models import document, user  # noqa: F401
+from ragfabric_core import models  # noqa: F401
+from ragfabric_core.config import get_settings
 from ragfabric_core.models.base import Base
 
 config = context.config
