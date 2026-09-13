@@ -1,4 +1,4 @@
-# ragfabric.yaml
+# ragfabric.example.yaml
 # Copy to ragfabric.yaml and edit. Every key is optional; defaults are shown.
 # Secrets never go here: OPENAI_API_KEY, ANTHROPIC_API_KEY, DATABASE_URL, JWT_SECRET,
 # NEO4J_PASSWORD come from the environment (.env.example lists them).
