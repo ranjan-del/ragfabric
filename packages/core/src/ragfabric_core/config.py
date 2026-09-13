@@ -14,6 +14,8 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from ragfabric_core import __version__
+
 # Placeholder secrets that ship in source control. None of them may ever sign a
 # real token: anyone who has read the repository could mint an admin token.
 INSECURE_SECRETS = {"change-me", "change-me-for-production", "secret", ""}
@@ -34,7 +36,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     app_name: str = "ragfabric"
-    version: str = "1.0.0"
+    version: str = __version__
 
     # "development" (default) or "production". Production turns on the safety
     # rails in model_post_init below.

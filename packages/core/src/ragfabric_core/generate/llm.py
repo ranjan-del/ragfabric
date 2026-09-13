@@ -26,7 +26,7 @@ from ragfabric_core.ingest.embed import content_tokens
 
 # Model id kept as a constant so it is easy to find and change. Only used on the
 # optional online path.
-CLAUDE_MODEL = "claude-sonnet-4-5"
+CLAUDE_MODEL = "claude-sonnet-5"
 
 # Sentence boundary: end punctuation followed by whitespace, OR a newline. The
 # newline arm matters because CSV and DOCX text arrives as unpunctuated lines,

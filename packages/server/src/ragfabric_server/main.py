@@ -1,4 +1,4 @@
-"""FastAPI application entrypoint for the RagFabric.
+"""FastAPI application entrypoint for RagFabric.
 
 Wires the API routers together, configures CORS for the Angular frontend, and on
 startup: creates the database tables, seeds a bootstrap admin (if configured), and
@@ -74,7 +74,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=settings.version,
-    description="Internal company knowledge system (enterprise RAG).",
+    description="RagFabric API: self hosted, measurement first retrieval augmented generation.",
     lifespan=lifespan,
 )
 
