@@ -8,9 +8,6 @@ the same space if they were produced by the same function.
 Metadata filters (collection / document) let a search be scoped to a single
 collection or a single document, which is how the "Collections" feature and
 per-document search are implemented.
-
-MEMORY.md checklist:
-- [x] Retriever + search: semantic + metadata filter; organised into collections
 """
 
 from __future__ import annotations

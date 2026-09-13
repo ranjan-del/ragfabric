@@ -12,9 +12,6 @@ An optional Anthropic Claude backend can be enabled by setting ``ANTHROPIC_API_K
 in the environment; if the key is absent or the call fails for any reason, we fall
 back to the extractive answer so the pipeline never hard-crashes. Secrets are read
 from the environment only, never hardcoded.
-
-MEMORY.md checklist:
-- [x] Answer generation with confidence, citations, highlighted text, source document
 """
 
 from __future__ import annotations

@@ -1,8 +1,4 @@
-"""Analytics routes powering the dashboard tiles and usage view.
-
-MEMORY.md checklist:
-- [x] Dashboard: documents, users, search, analytics, collections
-"""
+"""Analytics routes powering the dashboard tiles and usage view."""
 
 from __future__ import annotations
 

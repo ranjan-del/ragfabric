@@ -3,9 +3,6 @@
 Collections group related documents so search can be scoped to a subset of the
 knowledge base. Deleting a collection cascades to its documents; the deleted
 documents' vectors are also removed from the in-memory index.
-
-MEMORY.md checklist:
-- [x] Retriever + search: organised into collections
 """
 
 from __future__ import annotations

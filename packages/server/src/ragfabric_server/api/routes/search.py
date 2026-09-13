@@ -5,10 +5,6 @@
   document, and logs the question for analytics.
 - ``POST /semantic`` and ``POST /hybrid`` return raw ranked chunks for callers
   that want to build their own UI over the results.
-
-MEMORY.md checklist:
-- [x] Retriever + search: semantic, metadata filter, hybrid; organised into collections
-- [x] Answer generation with confidence, citations, highlighted text, source document
 """
 
 from __future__ import annotations

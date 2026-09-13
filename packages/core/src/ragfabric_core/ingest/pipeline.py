@@ -11,10 +11,6 @@ keeping the SQL database and the in-memory vector index in sync:
 Chunk embeddings are persisted as JSON on the ``chunks`` table, so the in-memory
 index can be rebuilt from the database on startup (see
 ``InMemoryVectorStore.rebuild_from_db``).
-
-MEMORY.md checklist:
-- [x] Multi-format upload + parsers (PDF, DOCX, PPTX, TXT, CSV)
-- [x] Ingestion pipeline: parse -> chunk -> embed -> vector DB
 """
 
 from __future__ import annotations

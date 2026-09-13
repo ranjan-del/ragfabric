@@ -2,9 +2,6 @@
 
 Covers the admin controls from MEMORY.md: list and manage users' roles/activation,
 bump document versions, and hard-delete any document regardless of owner.
-
-MEMORY.md checklist:
-- [x] Admin: upload, delete, versioning, permissions
 """
 
 from __future__ import annotations

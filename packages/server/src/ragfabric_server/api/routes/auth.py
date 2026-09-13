@@ -6,9 +6,6 @@
   Swagger "Authorize" button and standard clients work out of the box.
 - ``GET /me`` returns the current authenticated user.
 - ``POST /logout`` is a no-op for stateless JWTs (kept for client symmetry).
-
-MEMORY.md checklist:
-- [x] Auth + user management (roles/permissions)
 """
 
 from __future__ import annotations

@@ -25,9 +25,6 @@ indexes into a string that is ALSO in the payload (``answer`` for the top-level
 highlights, ``citation.snippet`` for the per-citation ones). Offsets into a
 string the client never receives cannot be checked and cannot be rendered, so
 they are worth no more than a placeholder.
-
-MEMORY.md checklist:
-- [x] Answer generation with confidence, citations, highlighted text, source document
 """
 
 from __future__ import annotations

@@ -1,8 +1,4 @@
-"""Pydantic schemas for search and cited answers.
-
-MEMORY.md checklist:
-- [x] Answer generation with confidence, citations, highlighted text, source document
-"""
+"""Pydantic schemas for search and cited answers."""
 
 from __future__ import annotations
 

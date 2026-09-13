@@ -4,10 +4,6 @@ Uploading a file runs the full ingestion pipeline (parse -> chunk -> embed ->
 persist -> index) synchronously and returns the created document with its
 ingestion status and chunk count. Deleting a document removes its rows and its
 vectors from the in-memory index.
-
-MEMORY.md checklist:
-- [x] Multi-format upload + parsers (PDF, DOCX, PPTX, TXT, CSV)
-- [x] Ingestion pipeline: parse -> chunk -> embed -> vector DB
 """
 
 from __future__ import annotations

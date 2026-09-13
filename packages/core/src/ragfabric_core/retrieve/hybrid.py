@@ -13,9 +13,6 @@ before fusing, so neither scale dominates the other. ``alpha`` comes from
 The lexical score is the overlap coefficient between the query tokens and the
 chunk tokens — simple, dependency-free, and reproducible, which keeps the whole
 path offline and testable.
-
-MEMORY.md checklist:
-- [x] Retriever + search: hybrid
 """
 
 from __future__ import annotations
