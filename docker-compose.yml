@@ -4,6 +4,11 @@
 # Full profile:             docker compose --profile full up --build
 #   adds chroma and neo4j for all four strategies.
 # Secrets and connection strings come from .env (copy .env.example).
+#
+# Ports are published on loopback (127.0.0.1) by default. To expose the stack on
+# a network, change the bind address on the ports you need AND set
+# ENVIRONMENT=production, a real JWT_SECRET, and your own FIRST_ADMIN_* in .env,
+# because the development defaults seed admin@example.com.
 
 name: ragfabric
 
@@ -15,7 +20,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragfabric}
       POSTGRES_DB: ${POSTGRES_DB:-ragfabric}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:
@@ -28,7 +33,7 @@ services:
     image: redis:8.8-alpine
     command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -55,7 +60,7 @@ services:
       - ./ragfabric.yaml:/app/ragfabric.yaml:ro
       - uploads:/app/data/uploads
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,14 +72,15 @@ services:
       context: .
       dockerfile: deploy/docker/ui.Dockerfile
     ports:
-      - "4200:80"
+      - "127.0.0.1:4200:80"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:80/ >/dev/null || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 12
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
   chroma:
     image: chromadb/chroma:1.5.9
@@ -82,7 +88,7 @@ services:
     environment:
       ANONYMIZED_TELEMETRY: "false"
     ports:
-      - "8001:8000"
+      - "127.0.0.1:8001:8000"
     volumes:
       - chroma_data:/data
     healthcheck:
@@ -99,8 +105,8 @@ services:
       NEO4J_server_memory_heap_max__size: 1G
       NEO4J_server_memory_pagecache_size: 512M
     ports:
-      - "7474:7474"
-      - "7687:7687"
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
     volumes:
       - neo4j_data:/data
     healthcheck:
