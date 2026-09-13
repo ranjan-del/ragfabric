@@ -49,44 +49,64 @@ The `Reranker` interface is not part of Phase 1; it arrives with Traditional RAG
 
 ## Vector stores (`VectorStore`)
 
+Interface: Phase 1 (shipped). No implementation exists yet under `stores/` other than the interface itself.
+
 | Store | Status | Notes |
 |---|---|---|
-| PostgreSQL pgvector | v0.1.0 | Lite profile default, one less service |
-| Chroma | v0.1.0 | Full profile |
+| PostgreSQL pgvector | v0.1.0 (planned, Phase 3) | Lite profile default, one less service |
+| Chroma | v0.1.0 (planned, Phase 3) | Full profile |
 | Qdrant, Weaviate, Milvus | later | |
 
 All stores accept an access filter and metadata filters and apply them before ranking.
 
 ## Lexical stores (`LexicalStore`)
 
+Interface: Phase 1 (shipped).
+
 | Store | Status |
 |---|---|
-| PostgreSQL full text (`tsvector`, GIN) | v0.1.0 |
-| In process BM25 (`rank_bm25`), rebuilt from the database | v0.1.0 |
+| PostgreSQL full text (`tsvector`, GIN) | v0.1.0 (planned, Phase 4) |
+| In process BM25 (`rank_bm25`), rebuilt from the database | v0.1.0 (planned, Phase 4) |
 | OpenSearch | later |
 
 ## Graph stores (`GraphStore`)
 
+Interface: Phase 1 (shipped).
+
 | Store | Status |
 |---|---|
-| Neo4j 5 | v0.3.0 |
+| Neo4j 5 | v0.3.0 (planned, Phase 6) |
 | none | v0.1.0 (Graph RAG disabled) |
 | Memgraph, PostgreSQL adjacency tables | later |
 
 ## Cache (`Cache`)
 
-Redis (default) or in memory. Used for embedding cache, answer cache, rate limiting and the ingestion
-queue.
+Interface: Phase 1 (shipped).
+
+| Store | Status |
+|---|---|
+| Redis / memory cache | v0.1.0 (planned, Phase 2) |
+
+Used for embedding cache, answer cache, rate limiting and the ingestion queue.
 
 ## Auth (`AuthProvider`)
 
-Local users with JWT and hashed API keys in v0.1.0. OIDC and SAML planned for the production release.
+Interface: Phase 1 (shipped).
+
+| Kind | Status |
+|---|---|
+| Local users with JWT | Phase 1 (shipped, v1 auth) |
+| API keys | v0.1.0 (planned, Phase 2) |
+
+OIDC and SAML planned for the production release.
 
 ## Connectors (`Connector`)
 
+Interface: Phase 1 (shipped).
+
 | Connector | Status |
 |---|---|
-| Upload | v0.1.0 |
+| Upload | Phase 1 (shipped, v1 upload) |
 | Watched folder | v1.0.0 |
 | Google Drive | v1.0.0 |
 | Slack, Jira, Confluence, S3 | later |

@@ -43,7 +43,7 @@ Legend: `[x]` merged to main, `[~]` in progress, `[ ]` not started.
 - [ ] Index fan-out: vector, lexical, graph queue, as background workers on Redis
 - [ ] Groups, collection grants, per-document overrides, scoped API keys, audit log
 - [ ] Access filter applied inside every store query
-- [ ] CLI: extend with ingest, users, keys (init, version, config validate, db, serve exist since Phase 1)
+- [ ] CLI: add init, ingest, users, keys (version, config validate, db upgrade/downgrade and serve exist since Phase 1)
 - [ ] OpenTelemetry spans on every ingestion and retrieval step
 
 ### Phase 3: Traditional RAG
