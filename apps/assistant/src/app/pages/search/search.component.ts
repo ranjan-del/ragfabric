@@ -1,5 +1,5 @@
 import { Component, OnInit, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
@@ -10,7 +10,7 @@ import { AnswerResponse, Collection } from '../../models';
 
 @Component({
     selector: 'app-search',
-    imports: [CommonModule, FormsModule, RouterLink],
+    imports: [FormsModule, RouterLink],
     templateUrl: './search.component.html',
     styleUrl: './search.component.scss'
 })

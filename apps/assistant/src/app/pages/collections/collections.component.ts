@@ -1,5 +1,5 @@
 import { Component, OnInit, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { FormsModule } from '@angular/forms';
 
 import { CollectionService } from '../../services/collection.service';
@@ -7,7 +7,7 @@ import { Collection } from '../../models';
 
 @Component({
     selector: 'app-collections',
-    imports: [CommonModule, FormsModule],
+    imports: [FormsModule],
     templateUrl: './collections.component.html',
     styleUrl: './collections.component.scss'
 })

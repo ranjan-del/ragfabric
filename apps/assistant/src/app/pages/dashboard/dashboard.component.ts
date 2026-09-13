@@ -1,5 +1,5 @@
 import { Component, OnInit, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 import { RouterLink } from '@angular/router';
 
 import { AnalyticsService } from '../../services/analytics.service';
@@ -8,7 +8,7 @@ import { AnalyticsOverview, UsageStats } from '../../models';
 
 @Component({
     selector: 'app-dashboard',
-    imports: [CommonModule, RouterLink],
+    imports: [RouterLink],
     templateUrl: './dashboard.component.html',
     styleUrl: './dashboard.component.scss'
 })

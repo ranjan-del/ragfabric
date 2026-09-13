@@ -1,12 +1,12 @@
 import { Component, OnInit, computed, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+
 
 import { AnalyticsService } from '../../services/analytics.service';
 import { AnalyticsOverview, UsageStats } from '../../models';
 
 @Component({
     selector: 'app-analytics',
-    imports: [CommonModule],
+    imports: [],
     templateUrl: './analytics.component.html',
     styleUrl: './analytics.component.scss'
 })
