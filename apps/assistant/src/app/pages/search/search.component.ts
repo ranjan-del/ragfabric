@@ -9,11 +9,10 @@ import { CollectionService } from '../../services/collection.service';
 import { AnswerResponse, Collection } from '../../models';
 
 @Component({
-  selector: 'app-search',
-  standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink],
-  templateUrl: './search.component.html',
-  styleUrl: './search.component.scss',
+    selector: 'app-search',
+    imports: [CommonModule, FormsModule, RouterLink],
+    templateUrl: './search.component.html',
+    styleUrl: './search.component.scss'
 })
 export class SearchComponent implements OnInit {
   query = '';

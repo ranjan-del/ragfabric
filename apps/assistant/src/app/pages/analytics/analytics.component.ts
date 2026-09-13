@@ -5,11 +5,10 @@ import { AnalyticsService } from '../../services/analytics.service';
 import { AnalyticsOverview, UsageStats } from '../../models';
 
 @Component({
-  selector: 'app-analytics',
-  standalone: true,
-  imports: [CommonModule],
-  templateUrl: './analytics.component.html',
-  styleUrl: './analytics.component.scss',
+    selector: 'app-analytics',
+    imports: [CommonModule],
+    templateUrl: './analytics.component.html',
+    styleUrl: './analytics.component.scss'
 })
 export class AnalyticsComponent implements OnInit {
   overview = signal<AnalyticsOverview | null>(null);

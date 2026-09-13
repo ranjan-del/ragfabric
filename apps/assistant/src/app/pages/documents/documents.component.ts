@@ -7,11 +7,10 @@ import { CollectionService } from '../../services/collection.service';
 import { Collection, DocumentItem } from '../../models';
 
 @Component({
-  selector: 'app-documents',
-  standalone: true,
-  imports: [CommonModule, FormsModule],
-  templateUrl: './documents.component.html',
-  styleUrl: './documents.component.scss',
+    selector: 'app-documents',
+    imports: [CommonModule, FormsModule],
+    templateUrl: './documents.component.html',
+    styleUrl: './documents.component.scss'
 })
 export class DocumentsComponent implements OnInit {
   readonly accept = '.pdf,.docx,.pptx,.txt,.csv';

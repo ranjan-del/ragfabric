@@ -6,11 +6,10 @@ import { AuthService } from '../../services/auth.service';
 import { User } from '../../models';
 
 @Component({
-  selector: 'app-admin',
-  standalone: true,
-  imports: [CommonModule],
-  templateUrl: './admin.component.html',
-  styleUrl: './admin.component.scss',
+    selector: 'app-admin',
+    imports: [CommonModule],
+    templateUrl: './admin.component.html',
+    styleUrl: './admin.component.scss'
 })
 export class AdminComponent implements OnInit {
   users = signal<User[]>([]);

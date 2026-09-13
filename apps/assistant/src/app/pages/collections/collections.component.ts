@@ -6,11 +6,10 @@ import { CollectionService } from '../../services/collection.service';
 import { Collection } from '../../models';
 
 @Component({
-  selector: 'app-collections',
-  standalone: true,
-  imports: [CommonModule, FormsModule],
-  templateUrl: './collections.component.html',
-  styleUrl: './collections.component.scss',
+    selector: 'app-collections',
+    imports: [CommonModule, FormsModule],
+    templateUrl: './collections.component.html',
+    styleUrl: './collections.component.scss'
 })
 export class CollectionsComponent implements OnInit {
   collections = signal<Collection[]>([]);
