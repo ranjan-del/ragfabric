@@ -9,7 +9,7 @@ Two things are worth reading here rather than skipping as boilerplate:
 2. `target_metadata` is the application's own `Base.metadata`, populated by
    importing the models. That is what lets `alembic revision --autogenerate`
    diff the models against the live schema, and what lets the migration test in
-   tests/test_migrations.py assert that the two have not drifted apart.
+   packages/core/tests/test_migrations.py assert that the two have not drifted apart.
 """
 
 from logging.config import fileConfig
@@ -18,17 +18,18 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from ragfabric_core.config import get_settings
-from ragfabric_core.models.base import Base
 
 # Importing the model modules has the side effect of registering every table on
 # Base.metadata. Without it, autogenerate would see an empty schema and cheerfully
 # emit a migration that drops all the tables.
 from ragfabric_core.models import document, user  # noqa: F401
+from ragfabric_core.models.base import Base
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
 
 def database_url() -> str:
     """The database these migrations run against.

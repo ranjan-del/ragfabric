@@ -14,20 +14,20 @@ from fastapi.testclient import TestClient
 
 from ragfabric_core.db.session import SessionLocal
 from ragfabric_core.ingest.embed import HashingEmbedder
-from ragfabric_server.main import app
 from ragfabric_core.models.document import Chunk
 from ragfabric_core.store.vector_store import InMemoryVectorStore, get_store
+from ragfabric_server.main import app
 
 HANDBOOK = (
-    "Company Leave Policy. Full time employees receive twenty five paid vacation "
-    "days each year. Unused leave may be carried over to the next year up to a "
-    "maximum of five days. Managers approve leave requests two weeks in advance."
-).encode("utf-8")
+    b"Company Leave Policy. Full time employees receive twenty five paid vacation "
+    b"days each year. Unused leave may be carried over to the next year up to a "
+    b"maximum of five days. Managers approve leave requests two weeks in advance."
+)
 
 RUNBOOK = (
-    "Incident Runbook. Page the on call engineer through the alerting channel. "
-    "Severity one incidents require a written postmortem within five working days."
-).encode("utf-8")
+    b"Incident Runbook. Page the on call engineer through the alerting channel. "
+    b"Severity one incidents require a written postmortem within five working days."
+)
 
 
 def _record(chunk_id, text, embedder, **overrides):
@@ -193,9 +193,7 @@ def test_rebuild_restores_the_index_after_a_simulated_restart(client, auth_heade
     assert [c["chunk_id"] for c in after["citations"]] == [
         c["chunk_id"] for c in before["citations"]
     ]
-    assert [c["score"] for c in after["citations"]] == [
-        c["score"] for c in before["citations"]
-    ]
+    assert [c["score"] for c in after["citations"]] == [c["score"] for c in before["citations"]]
 
 
 def test_rebuild_is_idempotent(client, auth_headers):
@@ -274,9 +272,7 @@ def test_application_startup_rebuilds_the_index_by_itself(client, auth_headers):
     with TestClient(app) as restarted:
         assert len(get_store()) == indexed
         # The same token still works, so the query goes through the normal path.
-        after = restarted.post(
-            "/api/search/query", json=question, headers=auth_headers
-        ).json()
+        after = restarted.post("/api/search/query", json=question, headers=auth_headers).json()
 
     assert after["answer"] == before["answer"]
     assert [c["chunk_id"] for c in after["citations"]] == [
@@ -307,9 +303,7 @@ def test_admin_can_rebuild_the_index_over_http(client, admin_headers):
 
 
 def test_index_rebuild_requires_admin(client, auth_headers):
-    assert (
-        client.post("/api/admin/index/rebuild", headers=auth_headers).status_code == 403
-    )
+    assert client.post("/api/admin/index/rebuild", headers=auth_headers).status_code == 403
 
 
 def test_health_reports_the_live_index_size(client, auth_headers):

@@ -11,9 +11,9 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
-from ragfabric_core.security import ACCESS, JWTError, decode_token
 from ragfabric_core.db.session import get_db
 from ragfabric_core.models.user import User
+from ragfabric_core.security import ACCESS, JWTError, decode_token
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login", auto_error=False)
 
@@ -33,8 +33,8 @@ def get_current_user(
         raise _credentials_error
     try:
         payload = decode_token(token)
-    except JWTError:
-        raise _credentials_error
+    except JWTError as exc:
+        raise _credentials_error from exc
 
     if payload.get("type") != ACCESS:
         raise _credentials_error

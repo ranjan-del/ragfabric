@@ -29,12 +29,8 @@ class Collection(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String, index=True, nullable=False)
     description: Mapped[str] = mapped_column(String, default="", nullable=False)
-    owner_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id"), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utcnow, nullable=False
-    )
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
     documents: Mapped[list["Document"]] = relationship(
         back_populates="collection", cascade="all, delete-orphan"
@@ -58,13 +54,9 @@ class Document(Base):
     status: Mapped[str] = mapped_column(String, default="processing", nullable=False)
     num_chunks: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     error: Mapped[str] = mapped_column(String, default="", nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utcnow, nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
-    collection: Mapped["Collection | None"] = relationship(
-        back_populates="documents"
-    )
+    collection: Mapped["Collection | None"] = relationship(back_populates="documents")
     chunks: Mapped[list["Chunk"]] = relationship(
         back_populates="document", cascade="all, delete-orphan"
     )
@@ -74,9 +66,7 @@ class Chunk(Base):
     __tablename__ = "chunks"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    document_id: Mapped[int] = mapped_column(
-        ForeignKey("documents.id"), nullable=False, index=True
-    )
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"), nullable=False, index=True)
     collection_id: Mapped[int | None] = mapped_column(
         ForeignKey("collections.id"), nullable=True, index=True
     )
@@ -96,15 +86,11 @@ class QueryLog(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    collection_id: Mapped[int | None] = mapped_column(
-        ForeignKey("collections.id"), nullable=True
-    )
+    collection_id: Mapped[int | None] = mapped_column(ForeignKey("collections.id"), nullable=True)
     question: Mapped[str] = mapped_column(String, nullable=False)
     confidence: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     # Document ids the answer actually cited, stored as a JSON list. Without
     # this, "most referenced documents" on the analytics page can only be
     # approximated by chunk count, which measures document SIZE, not usage.
     cited_document_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utcnow, nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)

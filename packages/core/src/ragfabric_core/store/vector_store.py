@@ -56,15 +56,13 @@ class InMemoryVectorStore:
             [np.asarray(r["vector"], dtype=np.float32).reshape(-1) for r in records]
         )
         if vectors.shape[1] != self.dim:
-            raise ValueError(
-                f"vector dim {vectors.shape[1]} does not match store dim {self.dim}"
-            )
+            raise ValueError(f"vector dim {vectors.shape[1]} does not match store dim {self.dim}")
 
         # Rows already materialised in ``_vectors``. Anything at or beyond this
         # index is still staged in ``new_rows`` and has no matrix row yet.
         base = self._vectors.shape[0]
         new_rows: list[np.ndarray] = []
-        for record, vector in zip(records, vectors):
+        for record, vector in zip(records, vectors, strict=True):
             meta = {k: v for k, v in record.items() if k != "vector"}
             chunk_id = meta.get("chunk_id")
             existing = self._row_by_chunk.get(chunk_id) if chunk_id is not None else None
@@ -99,9 +97,7 @@ class InMemoryVectorStore:
         trusting the caller means an unexpected key cannot silently narrow the
         candidate set to nothing and make a document look missing.
         """
-        active = {
-            k: v for k, v in filters.items() if v is not None and k in FILTERABLE
-        }
+        active = {k: v for k, v in filters.items() if v is not None and k in FILTERABLE}
         if not active:
             return list(range(len(self._meta)))
         return [
@@ -168,16 +164,10 @@ class InMemoryVectorStore:
 
     def delete_document(self, document_id: int) -> None:
         """Drop every chunk belonging to a document (on document deletion)."""
-        keep = [
-            i
-            for i, meta in enumerate(self._meta)
-            if meta.get("document_id") != document_id
-        ]
+        keep = [i for i, meta in enumerate(self._meta) if meta.get("document_id") != document_id]
         if len(keep) == len(self._meta):
             return
-        self._vectors = (
-            self._vectors[keep] if keep else np.zeros((0, self.dim), dtype=np.float32)
-        )
+        self._vectors = self._vectors[keep] if keep else np.zeros((0, self.dim), dtype=np.float32)
         self._meta = [self._meta[i] for i in keep]
         # Row indices shifted, so the chunk_id lookup has to be rebuilt or every
         # later upsert would overwrite the wrong row.

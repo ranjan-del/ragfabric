@@ -13,14 +13,14 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from ragfabric_core.db.session import get_db
-from ragfabric_server.deps import require_role
 from ragfabric_core.ingest.parser import SUPPORTED_FORMATS
 from ragfabric_core.ingest.pipeline import reingest_document
 from ragfabric_core.models.document import Document
 from ragfabric_core.models.user import Role, User
+from ragfabric_core.store.vector_store import get_store
+from ragfabric_server.deps import require_role
 from ragfabric_server.schemas.document import DocumentOut
 from ragfabric_server.schemas.user import PermissionUpdate, UserOut
-from ragfabric_core.store.vector_store import get_store
 
 router = APIRouter()
 
@@ -46,9 +46,7 @@ def set_permissions(
     """Update a user's role and/or active status (admin only)."""
     user = db.get(User, user_id)
     if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="User not found."
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
     if payload.role is not None:
         if payload.role not in _VALID_ROLES:
             raise HTTPException(
@@ -82,9 +80,7 @@ async def create_version(
     """
     document = db.get(Document, document_id)
     if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found."
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
 
     if file is None:
         document.version += 1
@@ -142,9 +138,7 @@ def admin_delete_document(
     """Hard-delete any document and its vectors (admin override)."""
     document = db.get(Document, document_id)
     if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found."
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
     db.delete(document)
     db.commit()
     get_store().delete_document(document_id)

@@ -34,7 +34,7 @@ def _build_store(docs: list[str], embedder: HashingEmbedder) -> InMemoryVectorSt
             "chunk_index": i,
             "text": text,
         }
-        for i, (text, vec) in enumerate(zip(docs, vectors))
+        for i, (text, vec) in enumerate(zip(docs, vectors, strict=True))
     ]
     store.upsert(records)
     return store
@@ -190,7 +190,7 @@ def test_answer_text_is_lifted_from_the_cited_chunk():
     markers = [int(m) for m in re.findall(r"\[(\d+)\]", result["answer"])]
     assert quotes and len(quotes) == len(markers)
 
-    for quote, marker in zip(quotes, markers):
+    for quote, marker in zip(quotes, markers, strict=True):
         source = result["citations"][marker - 1]
         chunk = next(c for c in retrieved if c["chunk_id"] == source["chunk_id"])
         # Whitespace is collapsed when rendering, so compare on collapsed text.
@@ -281,9 +281,7 @@ def test_citation_highlights_are_relative_to_the_snippet():
     citation = result["citations"][0]
     assert citation["highlights"]
     for span in citation["highlights"]:
-        assert (
-            citation["snippet"][span["start"] : span["end"]].lower() == span["term"]
-        )
+        assert citation["snippet"][span["start"] : span["end"]].lower() == span["term"]
 
 
 def test_supporting_span_marks_the_sentence_the_answer_quoted():
@@ -348,8 +346,7 @@ def test_snippet_window_follows_the_supporting_sentence_into_a_long_chunk():
     """
     filler = "This paragraph is preamble about office logistics. " * 8
     chunk_text_body = (
-        filler + "Severity one incidents require a written postmortem within "
-        "five working days."
+        filler + "Severity one incidents require a written postmortem within five working days."
     )
     assert len(filler) > 240  # the sentence really is out of reach of a prefix
 
@@ -383,9 +380,7 @@ def test_answer_highlights_index_into_the_answer_text():
     result = build_answer(query, retriever.retrieve(query, top_k=1))
     assert result["highlights"]
     for span in result["highlights"]:
-        assert (
-            result["answer"][span["start"] : span["end"]].lower() == span["term"]
-        )
+        assert result["answer"][span["start"] : span["end"]].lower() == span["term"]
 
 
 def test_hybrid_exposes_both_component_scores():

@@ -17,12 +17,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ragfabric_core.db.session import get_db
-from ragfabric_server.deps import get_current_user
 from ragfabric_core.generate.answer import build_answer
 from ragfabric_core.models.document import QueryLog
 from ragfabric_core.models.user import User
 from ragfabric_core.retrieve.hybrid import HybridRetriever
 from ragfabric_core.retrieve.retriever import Retriever
+from ragfabric_server.deps import get_current_user
 from ragfabric_server.schemas.search import AnswerResponse, SearchRequest, SearchResults
 
 router = APIRouter()

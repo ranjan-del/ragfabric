@@ -19,6 +19,7 @@ ragfabric = { workspace = true }
 dev = [
   "ragfabric-core",
   "ragfabric-server",
+  "ragfabric",
   "pytest>=9.1",
   "httpx>=0.28",
   "ruff>=0.16",
@@ -39,6 +40,9 @@ src = ["packages/core/src", "packages/server/src", "packages/cli/src"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"packages/server/src/ragfabric_server/**" = ["B008"]
 
 [tool.importlinter]
 root_packages = ["ragfabric_core", "ragfabric_server", "ragfabric_cli"]

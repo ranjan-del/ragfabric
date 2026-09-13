@@ -25,8 +25,8 @@ os.environ.pop("ANTHROPIC_API_KEY", None)  # force the offline answer path
 from fastapi.testclient import TestClient  # noqa: E402
 
 from ragfabric_core.db.session import Base, engine  # noqa: E402
-from ragfabric_server.main import app  # noqa: E402
 from ragfabric_core.store.vector_store import get_store  # noqa: E402
+from ragfabric_server.main import app  # noqa: E402
 
 
 @pytest.fixture()
@@ -44,9 +44,7 @@ def client() -> Iterator[TestClient]:
 def _register_and_login(client: TestClient, email: str, password: str = "password123") -> str:
     """Register a user (ignore duplicates) and return a bearer token."""
     client.post("/api/auth/register", json={"email": email, "password": password})
-    resp = client.post(
-        "/api/auth/login", data={"username": email, "password": password}
-    )
+    resp = client.post("/api/auth/login", data={"username": email, "password": password})
     assert resp.status_code == 200, resp.text
     return resp.json()["access_token"]
 

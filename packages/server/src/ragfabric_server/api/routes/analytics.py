@@ -11,10 +11,10 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ragfabric_core.db.session import get_db
-from ragfabric_server.deps import get_current_user
 from ragfabric_core.models.document import Chunk, Collection, Document, QueryLog
 from ragfabric_core.models.user import User
 from ragfabric_core.store.vector_store import get_store
+from ragfabric_server.deps import get_current_user
 
 router = APIRouter()
 
@@ -31,9 +31,7 @@ def overview(
         "chunks": db.query(Chunk).count(),
         "users": db.query(User).count(),
         "queries": db.query(QueryLog).count(),
-        "ready_documents": db.query(Document)
-        .filter(Document.status == "ready")
-        .count(),
+        "ready_documents": db.query(Document).filter(Document.status == "ready").count(),
         # Live index size. Comparing this against ``chunks`` is the quickest way
         # to spot the vector index drifting out of sync with the database.
         "indexed_vectors": len(get_store()),
@@ -46,9 +44,7 @@ def usage(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     """Recent questions, most-indexed documents, and most-cited documents."""
-    recent = (
-        db.query(QueryLog).order_by(QueryLog.created_at.desc()).limit(10).all()
-    )
+    recent = db.query(QueryLog).order_by(QueryLog.created_at.desc()).limit(10).all()
     recent_queries = [
         {
             "question": log.question,
@@ -86,9 +82,7 @@ def usage(
             "filename": names.get(document_id, "(deleted)"),
             "citations": count,
         }
-        for document_id, count in sorted(
-            counts.items(), key=lambda kv: (-kv[1], kv[0])
-        )[:5]
+        for document_id, count in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
     ]
 
     return {

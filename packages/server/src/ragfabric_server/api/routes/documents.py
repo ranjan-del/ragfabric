@@ -16,13 +16,13 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy.orm import Session
 
 from ragfabric_core.db.session import get_db
-from ragfabric_server.deps import get_current_user
 from ragfabric_core.ingest.parser import SUPPORTED_FORMATS
 from ragfabric_core.ingest.pipeline import ingest_document
 from ragfabric_core.models.document import Collection, Document
 from ragfabric_core.models.user import Role, User
-from ragfabric_server.schemas.document import DocumentList, DocumentOut
 from ragfabric_core.store.vector_store import get_store
+from ragfabric_server.deps import get_current_user
+from ragfabric_server.schemas.document import DocumentList, DocumentOut
 
 router = APIRouter()
 
@@ -65,9 +65,7 @@ async def upload_document(
             ),
         )
     if collection_id is not None and db.get(Collection, collection_id) is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found."
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found.")
 
     data = await file.read()
     if not data:
@@ -94,9 +92,7 @@ def get_document(
     """Return a single document's detail and ingestion status."""
     document = db.get(Document, document_id)
     if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found."
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
     return document
 
 
@@ -109,9 +105,7 @@ def delete_document(
     """Delete a document (owner or admin) and drop its vectors from the index."""
     document = db.get(Document, document_id)
     if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found."
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
     if current_user.role != Role.ADMIN.value and document.owner_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

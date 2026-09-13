@@ -30,9 +30,7 @@ def production(**overrides) -> Settings:
 
 
 class TestSigningSecret:
-    @pytest.mark.parametrize(
-        "placeholder", ["change-me", "change-me-for-production", "secret", ""]
-    )
+    @pytest.mark.parametrize("placeholder", ["change-me", "change-me-for-production", "secret", ""])
     def test_refuses_to_boot_on_a_placeholder_secret(self, placeholder):
         with pytest.raises(RuntimeError, match="JWT_SECRET"):
             production(jwt_secret=placeholder)

@@ -18,6 +18,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from ragfabric_core.config import get_settings
+from ragfabric_core.db.session import SessionLocal, init_db
+from ragfabric_core.models.user import Role, User
+from ragfabric_core.security import hash_password
+from ragfabric_core.store.vector_store import get_store
 from ragfabric_server.api.routes import (
     admin,
     analytics,
@@ -26,11 +31,6 @@ from ragfabric_server.api.routes import (
     documents,
     search,
 )
-from ragfabric_core.config import get_settings
-from ragfabric_core.security import hash_password
-from ragfabric_core.db.session import SessionLocal, init_db
-from ragfabric_core.models.user import Role, User
-from ragfabric_core.store.vector_store import get_store
 
 settings = get_settings()
 logger = logging.getLogger(__name__)

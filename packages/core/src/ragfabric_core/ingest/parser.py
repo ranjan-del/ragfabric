@@ -120,7 +120,6 @@ def parse(filename: str, data: bytes) -> str:
     parser = PARSERS.get(ext)
     if parser is None:
         raise ValueError(
-            f"Unsupported format: {ext or filename!r}. "
-            f"Supported: {', '.join(SUPPORTED_FORMATS)}."
+            f"Unsupported format: {ext or filename!r}. Supported: {', '.join(SUPPORTED_FORMATS)}."
         )
     return parser(data)

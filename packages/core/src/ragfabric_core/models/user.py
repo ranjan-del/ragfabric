@@ -14,7 +14,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from ragfabric_core.models.base import Base, utcnow
 
 
-class Role(str, enum.Enum):
+class Role(enum.StrEnum):
     """Allowed roles. Inherits from str so it serialises cleanly to JSON."""
 
     ADMIN = "admin"
@@ -29,6 +29,4 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String, nullable=False)
     role: Mapped[str] = mapped_column(String, default=Role.USER.value, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=utcnow, nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)

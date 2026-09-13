@@ -17,10 +17,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
-from ragfabric_core.security import create_access_token, hash_password, verify_password
 from ragfabric_core.db.session import get_db
-from ragfabric_server.deps import get_current_user
 from ragfabric_core.models.user import Role, User
+from ragfabric_core.security import create_access_token, hash_password, verify_password
+from ragfabric_server.deps import get_current_user
 from ragfabric_server.schemas.user import Token, UserCreate, UserOut
 
 router = APIRouter()
@@ -61,9 +61,7 @@ def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
     if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled."
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is disabled.")
     return Token(access_token=create_access_token(user.id))
 
 

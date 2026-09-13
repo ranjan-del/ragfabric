@@ -7,16 +7,16 @@ search, cited answers, collections, analytics, and admin controls.
 from __future__ import annotations
 
 VACATION_DOC = (
-    "Company Leave Policy. Full time employees receive twenty five paid "
-    "vacation days each year. Unused leave may be carried over to the next "
-    "year up to a maximum of five days. Sick leave is separate and unlimited."
-).encode("utf-8")
+    b"Company Leave Policy. Full time employees receive twenty five paid "
+    b"vacation days each year. Unused leave may be carried over to the next "
+    b"year up to a maximum of five days. Sick leave is separate and unlimited."
+)
 
 SECURITY_DOC = (
-    "Security Guidelines. All administrator accounts must use multi factor "
-    "authentication. Passwords rotate every ninety days. Report incidents to "
-    "the security team immediately."
-).encode("utf-8")
+    b"Security Guidelines. All administrator accounts must use multi factor "
+    b"authentication. Passwords rotate every ninety days. Report incidents to "
+    b"the security team immediately."
+)
 
 
 def _upload(client, headers, filename, data, collection_id=None):
@@ -24,9 +24,7 @@ def _upload(client, headers, filename, data, collection_id=None):
     payload = {}
     if collection_id is not None:
         payload["collection_id"] = str(collection_id)
-    return client.post(
-        "/api/documents/upload", files=files, data=payload, headers=headers
-    )
+    return client.post("/api/documents/upload", files=files, data=payload, headers=headers)
 
 
 def test_health(client):
@@ -36,13 +34,19 @@ def test_health(client):
 
 
 def test_register_login_and_me(client):
-    assert client.post(
-        "/api/auth/register", json={"email": "jane@example.com", "password": "secret123"}
-    ).status_code == 201
+    assert (
+        client.post(
+            "/api/auth/register", json={"email": "jane@example.com", "password": "secret123"}
+        ).status_code
+        == 201
+    )
     # Duplicate registration is rejected.
-    assert client.post(
-        "/api/auth/register", json={"email": "jane@example.com", "password": "secret123"}
-    ).status_code == 409
+    assert (
+        client.post(
+            "/api/auth/register", json={"email": "jane@example.com", "password": "secret123"}
+        ).status_code
+        == 409
+    )
 
     login = client.post(
         "/api/auth/login", data={"username": "jane@example.com", "password": "secret123"}
@@ -57,12 +61,8 @@ def test_register_login_and_me(client):
 
 
 def test_login_rejects_bad_password(client):
-    client.post(
-        "/api/auth/register", json={"email": "bob@example.com", "password": "secret123"}
-    )
-    resp = client.post(
-        "/api/auth/login", data={"username": "bob@example.com", "password": "wrong"}
-    )
+    client.post("/api/auth/register", json={"email": "bob@example.com", "password": "secret123"})
+    resp = client.post("/api/auth/login", data={"username": "bob@example.com", "password": "wrong"})
     assert resp.status_code == 401
 
 
@@ -172,9 +172,7 @@ def test_delete_document_removes_from_index(client, auth_headers):
 
 def test_analytics_overview(client, auth_headers):
     _upload(client, auth_headers, "leave.txt", VACATION_DOC)
-    client.post(
-        "/api/search/query", json={"query": "vacation"}, headers=auth_headers
-    )
+    client.post("/api/search/query", json={"query": "vacation"}, headers=auth_headers)
     overview = client.get("/api/analytics/overview", headers=auth_headers)
     assert overview.status_code == 200
     data = overview.json()
@@ -194,9 +192,7 @@ def test_admin_controls(client, admin_headers, auth_headers):
     # Admin can bump a document version.
     up = _upload(client, admin_headers, "leave.txt", VACATION_DOC)
     doc_id = up.json()["id"]
-    bumped = client.post(
-        f"/api/admin/documents/{doc_id}/versions", headers=admin_headers
-    )
+    bumped = client.post(f"/api/admin/documents/{doc_id}/versions", headers=admin_headers)
     assert bumped.status_code == 200
     assert bumped.json()["version"] == 2
 
@@ -210,7 +206,9 @@ def test_search_can_be_filtered_by_document_format(client, auth_headers):
     _upload(client, auth_headers, "leave.txt", VACATION_DOC)
     client.post(
         "/api/documents/upload",
-        files={"file": ("staff.csv", make_csv(["name", "leave"], [["Ada", "vacation"]]), "text/csv")},
+        files={
+            "file": ("staff.csv", make_csv(["name", "leave"], [["Ada", "vacation"]]), "text/csv")
+        },
         headers=auth_headers,
     )
 
@@ -285,9 +283,7 @@ def test_query_response_carries_used_flags_and_snippet_highlights(client, auth_h
     assert highlighted
     for citation in highlighted:
         for span in citation["highlights"]:
-            assert (
-                citation["snippet"][span["start"] : span["end"]].lower() == span["term"]
-            )
+            assert citation["snippet"][span["start"] : span["end"]].lower() == span["term"]
 
 
 def test_every_offset_in_the_response_indexes_into_the_response(client, auth_headers):
@@ -363,9 +359,9 @@ def test_new_version_replaces_content_and_reindexes(client, admin_headers):
     assert before["citations"]
 
     revised = (
-        "Company Leave Policy version two. Full time employees now receive "
-        "thirty paid sabbatical days each year."
-    ).encode("utf-8")
+        b"Company Leave Policy version two. Full time employees now receive "
+        b"thirty paid sabbatical days each year."
+    )
     bumped = client.post(
         f"/api/admin/documents/{doc_id}/versions",
         files={"file": ("handbook.txt", revised, "text/plain")},
@@ -396,9 +392,7 @@ def test_new_version_replaces_content_and_reindexes(client, admin_headers):
 
 def test_new_version_without_a_file_only_bumps_the_counter(client, admin_headers):
     doc = _upload(client, admin_headers, "handbook.txt", VACATION_DOC).json()
-    bumped = client.post(
-        f"/api/admin/documents/{doc['id']}/versions", headers=admin_headers
-    )
+    bumped = client.post(f"/api/admin/documents/{doc['id']}/versions", headers=admin_headers)
     assert bumped.status_code == 200
     assert bumped.json()["version"] == 2
     assert bumped.json()["num_chunks"] == doc["num_chunks"]
@@ -406,9 +400,7 @@ def test_new_version_without_a_file_only_bumps_the_counter(client, admin_headers
 
 def test_versioning_requires_admin(client, auth_headers):
     doc = _upload(client, auth_headers, "handbook.txt", VACATION_DOC).json()
-    resp = client.post(
-        f"/api/admin/documents/{doc['id']}/versions", headers=auth_headers
-    )
+    resp = client.post(f"/api/admin/documents/{doc['id']}/versions", headers=auth_headers)
     assert resp.status_code == 403
 
 
@@ -436,9 +428,7 @@ def test_usage_counts_documents_the_answers_actually_cited(client, auth_headers)
 
 def test_usage_lists_recent_questions(client, auth_headers):
     _upload(client, auth_headers, "leave.txt", VACATION_DOC)
-    client.post(
-        "/api/search/query", json={"query": "carry over rules"}, headers=auth_headers
-    )
+    client.post("/api/search/query", json={"query": "carry over rules"}, headers=auth_headers)
     usage = client.get("/api/analytics/usage", headers=auth_headers).json()
     assert usage["recent_queries"][0]["question"] == "carry over rules"
 
@@ -447,9 +437,7 @@ def test_usage_lists_recent_questions(client, auth_headers):
 
 
 def test_admin_can_disable_a_user_and_block_their_token(client, admin_headers):
-    client.post(
-        "/api/auth/register", json={"email": "temp@example.com", "password": "secret123"}
-    )
+    client.post("/api/auth/register", json={"email": "temp@example.com", "password": "secret123"})
     login = client.post(
         "/api/auth/login", data={"username": "temp@example.com", "password": "secret123"}
     )
@@ -483,7 +471,5 @@ def test_admin_rejects_an_unknown_role(client, admin_headers):
 
 def test_users_cannot_delete_another_users_document(client, auth_headers, admin_headers):
     owned_by_admin = _upload(client, admin_headers, "leave.txt", VACATION_DOC).json()
-    resp = client.delete(
-        f"/api/documents/{owned_by_admin['id']}", headers=auth_headers
-    )
+    resp = client.delete(f"/api/documents/{owned_by_admin['id']}", headers=auth_headers)
     assert resp.status_code == 403

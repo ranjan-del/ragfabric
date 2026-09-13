@@ -67,9 +67,7 @@ def test_parse_pptx_extracts_every_slide_with_breaks():
 
 def test_parse_txt_and_csv():
     assert parse("notes.txt", make_txt("hello world")) == "hello world"
-    csv_text = parse(
-        "staff.csv", make_csv(["name", "role"], [["Ada", "engineer"]])
-    )
+    csv_text = parse("staff.csv", make_csv(["name", "role"], [["Ada", "engineer"]]))
     assert "name: Ada" in csv_text
     assert "role: engineer" in csv_text
 

@@ -19,8 +19,8 @@ from alembic.migration import MigrationContext
 from sqlalchemy import create_engine, inspect
 
 from ragfabric_core.db.migrate import alembic_config as _alembic_config
-from ragfabric_core.models.base import Base
 from ragfabric_core.models import document, user  # noqa: F401  (registers the tables)
+from ragfabric_core.models.base import Base
 
 EXPECTED_TABLES = {"users", "collections", "documents", "chunks", "query_logs"}
 

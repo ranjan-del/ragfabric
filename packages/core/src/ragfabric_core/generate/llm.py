@@ -248,9 +248,7 @@ def generate(
             max_tokens=1024,
             messages=[{"role": "user", "content": build_prompt(question, context)}],
         )
-        text = "".join(
-            block.text for block in response.content if block.type == "text"
-        ).strip()
+        text = "".join(block.text for block in response.content if block.type == "text").strip()
         return text or extractive_answer(question, chunks, support=support)
     except Exception:
         # Any failure (missing SDK, network, auth) degrades gracefully offline.
@@ -274,6 +272,4 @@ class LLMClient:
         chunks: list[dict] | None = None,
         support: list[dict] | None = None,
     ) -> str:
-        return generate(
-            question, context, chunks=chunks, model=self.model, support=support
-        )
+        return generate(question, context, chunks=chunks, model=self.model, support=support)

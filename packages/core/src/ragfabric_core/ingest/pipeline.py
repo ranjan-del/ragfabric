@@ -27,7 +27,6 @@ from ragfabric_core.ingest.embed import get_embedder
 from ragfabric_core.models.document import Chunk, Document
 from ragfabric_core.store.vector_store import get_store
 
-
 EMPTY_TEXT_NOTE = (
     "Parsed successfully but no extractable text was found "
     "(scanned or image-only file?). Nothing was indexed."
@@ -70,7 +69,7 @@ def _index_content(db: Session, document: Document, data: bytes) -> Document:
     vectors = embedder.embed([c["text"] for c in chunks])
 
     store_records: list[dict] = []
-    for chunk_meta, vector in zip(chunks, vectors):
+    for chunk_meta, vector in zip(chunks, vectors, strict=True):
         embedding = vector.tolist()
         chunk_row = Chunk(
             document_id=document.id,
@@ -154,9 +153,7 @@ def reingest_document(
     before the new ones are written, otherwise stale text from the previous
     revision would keep surfacing in search results forever.
     """
-    db.query(Chunk).filter(Chunk.document_id == document.id).delete(
-        synchronize_session=False
-    )
+    db.query(Chunk).filter(Chunk.document_id == document.id).delete(synchronize_session=False)
     get_store().delete_document(document.id)
 
     document.filename = filename

@@ -1,0 +1,19 @@
+[project]
+name = "ragfabric"
+version = "0.1.0a0"
+description = "RagFabric: self hosted, measurement first RAG platform. Installs the engine, the API and the ragfabric command."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "ragfabric-core",
+  "ragfabric-server",
+  "typer>=0.27",
+]
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ragfabric_cli"]

@@ -22,9 +22,7 @@ settings = get_settings()
 
 # SQLite needs check_same_thread=False when used from FastAPI's threadpool.
 # Postgres does not, so only add it for sqlite URLs.
-connect_args = (
-    {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-)
+connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
 
 engine = create_engine(
     settings.database_url,

@@ -93,15 +93,9 @@ def make_pdf(pages: list[str]) -> bytes:
     font_number = add(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
 
     for text in pages:
-        stream = (
-            f"BT /F1 12 Tf 72 720 Td ({_pdf_escape(text)}) Tj ET".encode("latin-1")
-        )
+        stream = f"BT /F1 12 Tf 72 720 Td ({_pdf_escape(text)}) Tj ET".encode("latin-1")
         content_number = add(
-            b"<< /Length "
-            + str(len(stream)).encode()
-            + b" >>\nstream\n"
-            + stream
-            + b"\nendstream"
+            b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"\nendstream"
         )
         page_number = add(
             b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
