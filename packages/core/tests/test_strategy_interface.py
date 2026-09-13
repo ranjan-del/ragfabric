@@ -145,6 +145,8 @@ def test_legacy_hybrid_strategy_meets_the_contract(monkeypatch):
                     "char_start": 5,
                     "char_end": 21,
                     "filename": "hr.pdf",
+                    "format": "pdf",
+                    "hybrid_score": 0.51,
                 },
             ][:top_k]
 
@@ -154,4 +156,6 @@ def test_legacy_hybrid_strategy_meets_the_contract(monkeypatch):
     result = assert_strategy_contract(strategy, "leave", make_ctx(params=StrategyParams(top_k=3)))
     assert result.retrieval_calls == 1 and result.llm_calls == 0
     assert result.chunks[0].metadata["filename"] == "hr.pdf"
+    assert result.chunks[0].metadata["format"] == "pdf"
+    assert result.chunks[0].metadata["hybrid_score"] == 0.51
     assert result.trace[0].name == "hybrid_search"
