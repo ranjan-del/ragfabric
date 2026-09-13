@@ -31,6 +31,8 @@ ingestion:
   chunk_size: 600
   chunk_overlap: 80
   retain_originals: true
+  uploads_dir: data/uploads   # where retained originals are stored (a volume in compose)
+  indexing: inline            # inline | queue (queue needs Redis and `ragfabric worker`)
 
 strategies:
   traditional: { top_k: 8, similarity_threshold: 0.25, rerank: none, max_context_tokens: 6000 }
