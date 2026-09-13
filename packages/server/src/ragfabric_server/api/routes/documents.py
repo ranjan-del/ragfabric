@@ -9,11 +9,13 @@ vectors from the in-memory index.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from ragfabric_core.db.session import get_db
 from ragfabric_core.ingest.parser import SUPPORTED_FORMATS
 from ragfabric_core.ingest.pipeline import ingest_document
+from ragfabric_core.ingest.storage import get_storage
 from ragfabric_core.models.document import Collection, Document
 from ragfabric_core.models.user import Role, User
 from ragfabric_core.store.vector_store import get_store
@@ -92,6 +94,31 @@ def get_document(
     return document
 
 
+@router.get("/{document_id}/download")
+def download_document(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> FileResponse:
+    """Return the retained original file, if the deployment keeps originals."""
+    document = db.get(Document, document_id)
+    if document is None or not document.storage_path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Original not available.")
+    try:
+        path = get_storage().path_for(document.storage_path)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Original not available."
+        ) from exc
+    if not path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Original not available.")
+    return FileResponse(
+        path,
+        filename=document.filename,
+        media_type=document.content_type or "application/octet-stream",
+    )
+
+
 @router.delete("/{document_id}", status_code=status.HTTP_200_OK)
 def delete_document(
     document_id: int,
@@ -110,4 +137,5 @@ def delete_document(
     db.delete(document)  # cascades to chunks
     db.commit()
     get_store().delete_document(document_id)
+    get_storage().delete(document_id)
     return {"detail": "Document deleted.", "id": document_id}

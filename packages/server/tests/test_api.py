@@ -493,3 +493,22 @@ def test_ingest_records_document_type_and_sections(client, auth_headers):
     with SessionLocal() as db:
         sections = {c.section for c in db.query(Chunk).filter(Chunk.document_id == doc["id"]).all()}
     assert "1. Intro" in sections and "2. Leave" in sections
+
+
+def test_upload_retains_the_original_and_download_returns_it(client, auth_headers):
+    from ragfabric_core.testing.fixtures import make_txt
+
+    data = make_txt("retained body")
+    doc = client.post(
+        "/api/documents/upload",
+        files={"file": ("keep.txt", data, "text/plain")},
+        headers=auth_headers,
+    ).json()
+    assert doc["storage_path"] == f"{doc['id']}/keep.txt"
+    r = client.get(f"/api/documents/{doc['id']}/download", headers=auth_headers)
+    assert r.status_code == 200 and r.content == data
+    assert r.headers["content-disposition"].endswith('filename="keep.txt"')
+    client.delete(f"/api/documents/{doc['id']}", headers=auth_headers)
+    assert (
+        client.get(f"/api/documents/{doc['id']}/download", headers=auth_headers).status_code == 404
+    )

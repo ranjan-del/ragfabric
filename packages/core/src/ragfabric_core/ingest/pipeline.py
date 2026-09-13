@@ -21,6 +21,7 @@ from ragfabric_core.ingest import parser
 from ragfabric_core.ingest.chunk import chunk_text
 from ragfabric_core.ingest.clean import clean_text, document_type_for
 from ragfabric_core.ingest.embed import get_embedder
+from ragfabric_core.ingest.storage import get_storage
 from ragfabric_core.models.document import Chunk, Document
 from ragfabric_core.runtime import get_config
 from ragfabric_core.store.vector_store import get_store
@@ -138,6 +139,8 @@ def ingest_document(
     )
     db.add(document)
     db.flush()  # assign document.id without committing yet
+    if get_config().ingestion.retain_originals:
+        document.storage_path = get_storage().save(document.id, filename, data)
     return _index_content(db, document, data)
 
 
@@ -161,6 +164,9 @@ def reingest_document(
     get_store().delete_document(document.id)
 
     document.filename = filename
+    get_storage().delete(document.id)
+    if get_config().ingestion.retain_originals:
+        document.storage_path = get_storage().save(document.id, filename, data)
     document.format = _extension(filename)
     document.document_type = document_type_for(document.format)
     document.content_type = content_type or document.content_type

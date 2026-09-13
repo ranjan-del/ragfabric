@@ -14,6 +14,7 @@ class DocumentOut(BaseModel):
     filename: str
     format: str
     document_type: str = ""
+    storage_path: str | None = None
     content_type: str
     status: str
     collection_id: int | None
