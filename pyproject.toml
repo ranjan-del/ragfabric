@@ -17,6 +17,8 @@ ragfabric = { workspace = true }
 
 [dependency-groups]
 dev = [
+  "ragfabric-core",
+  "ragfabric-server",
   "pytest>=9.1",
   "httpx>=0.28",
   "ruff>=0.16",

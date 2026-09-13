@@ -915,6 +915,8 @@ dev = [
     { name = "httpx" },
     { name = "import-linter" },
     { name = "pytest" },
+    { name = "ragfabric-core" },
+    { name = "ragfabric-server" },
     { name = "ruff" },
 ]
 
@@ -925,6 +927,8 @@ dev = [
     { name = "httpx", specifier = ">=0.28" },
     { name = "import-linter", specifier = ">=2.15" },
     { name = "pytest", specifier = ">=9.1" },
+    { name = "ragfabric-core", editable = "packages/core" },
+    { name = "ragfabric-server", editable = "packages/server" },
     { name = "ruff", specifier = ">=0.16" },
 ]
 
