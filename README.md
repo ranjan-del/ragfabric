@@ -360,15 +360,16 @@ packages/sdk-python      typed client
 packages/sdk-typescript  typed client (@ragfabric/sdk)
 apps/console             admin console (Angular)
 apps/assistant           reference end user UI (Angular), restyle or replace
-deploy/compose           lite and full profiles
+docker-compose.yml       lite default, full profile adds Chroma and Neo4j
+deploy/docker            api and ui Dockerfiles, nginx config
 evaluation               corpus, questions.json, runner, latest results
 docs                     concepts, guides, ADRs, design, benchmarks
 examples                 minimal integrations
 ```
 
-`packages/core`, `packages/server`, `packages/cli`, `apps/assistant`, `deploy` and `docs` exist today.
-`packages/sdk-python`, `packages/sdk-typescript`, `apps/console`, `evaluation` and `examples` are created
-by the phases that ship them.
+`packages/core`, `packages/server`, `packages/cli`, `apps/assistant`, `docker-compose.yml`, `deploy/docker`
+and `docs` exist today. `packages/sdk-python`, `packages/sdk-typescript`, `apps/console`, `evaluation` and
+`examples` are created by the phases that ship them.
 
 Design details: [docs/design/2026-09-13-ragfabric-design.md](docs/design/2026-09-13-ragfabric-design.md)
 and the ADRs in [docs/adr](docs/adr).

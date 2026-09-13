@@ -73,6 +73,8 @@ docs                     concepts, guides, ADRs, design docs, benchmarks
 examples                 minimal integrations
 ```
 
+Phase 1 placed the compose file at the repository root and the images under deploy/docker.
+
 Migration path from the v1 layout: `backend/app` moves into `packages/core` and `packages/server`,
 `frontend` becomes `apps/assistant`, tests move with their code. This happens in Phase 1 in one PR so
 history stays followable.
