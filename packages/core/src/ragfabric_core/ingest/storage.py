@@ -16,9 +16,20 @@ from ragfabric_core.runtime import get_config
 
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
+MAX_NAME_LEN = 120
+
 
 def safe_filename(name: str) -> str:
     cleaned = _UNSAFE.sub("_", name).strip("._") or "file"
+    if len(cleaned) > MAX_NAME_LEN:
+        dot = cleaned.rfind(".")
+        if dot > 0:
+            ext = cleaned[dot:][:16]
+            stem = cleaned[:dot][: MAX_NAME_LEN - len(ext)]
+            cleaned = stem + ext
+        else:
+            cleaned = cleaned[:MAX_NAME_LEN]
+        cleaned = cleaned.strip("._") or "file"
     return cleaned
 
 

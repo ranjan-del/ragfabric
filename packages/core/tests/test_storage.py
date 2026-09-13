@@ -13,6 +13,16 @@ def test_save_writes_under_document_id_and_sanitises_the_name(tmp_path):
     assert fs.path_for(rel).resolve().is_relative_to(tmp_path.resolve())
 
 
+def test_long_names_are_capped_but_keep_the_extension(tmp_path):
+    fs = FileStorage(tmp_path)
+    rel = fs.save(9, "a" * 300 + ".pdf", b"x")
+    name = rel.split("/", 1)[1]
+    assert len(name) <= 120 and name.endswith(".pdf") and name.startswith("aaa")
+    assert fs.path_for(rel).read_bytes() == b"x"
+    rel2 = fs.save(9, "b" * 300, b"y")
+    assert len(rel2.split("/", 1)[1]) <= 120
+
+
 def test_delete_removes_the_document_directory(tmp_path):
     fs = FileStorage(tmp_path)
     fs.save(3, "a.txt", b"a")
