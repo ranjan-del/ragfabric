@@ -28,14 +28,14 @@ Legend: `[x]` merged to main, `[~]` in progress, `[ ]` not started.
 ## v0.1.0 Initial RAG engine
 
 ### Phase 1: Architecture, monorepo, interfaces, Docker, database
-- [ ] Monorepo layout: `packages/{core,server,cli,sdk-python,sdk-typescript}`, `apps/{console,assistant}`, `deploy/`, `evaluation/`, `docs/`
-- [ ] `RetrieverStrategy`, `RetrievalResult`, `RetrievedChunk`, `RetrievalContext`
-- [ ] `LLMProvider`, `EmbeddingProvider`, `Reranker`, `VectorStore`, `LexicalStore`, `GraphStore`, `Cache`, `AuthProvider`, `Connector` interfaces
-- [ ] Providers: OpenAI, Anthropic, Ollama, offline test double
-- [ ] `ragfabric.yaml` configuration loader, pricing configuration, cost calculator
-- [ ] Migration 0002: conversations, messages, retrieval_runs, sources, evaluation_runs, evaluation_results, entities, relationships, groups, grants, api_keys, audit_log
-- [ ] Compose profiles: `lite` (Postgres with pgvector, Redis, API, UI) and `full` (adds Chroma, Neo4j)
-- [ ] Python 3.12 via `uv`, Tailwind in the Angular apps
+- [x] Monorepo layout: `packages/{core,server,cli,sdk-python,sdk-typescript}`, `apps/{console,assistant}`, `deploy/`, `evaluation/`, `docs/`
+- [x] `RetrieverStrategy`, `RetrievalResult`, `RetrievedChunk`, `RetrievalContext`
+- [x] `LLMProvider`, `EmbeddingProvider`, `Reranker`, `VectorStore`, `LexicalStore`, `GraphStore`, `Cache`, `AuthProvider`, `Connector` interfaces
+- [x] Providers: OpenAI, Anthropic, Ollama, offline test double
+- [x] `ragfabric.yaml` configuration loader, pricing configuration, cost calculator
+- [x] Migration 0002: conversations, messages, retrieval_runs, sources, evaluation_runs, evaluation_results, entities, relationships, groups, grants, api_keys, audit_log
+- [x] Compose profiles: `lite` (Postgres with pgvector, Redis, API, UI) and `full` (adds Chroma, Neo4j)
+- [x] Python 3.13 via `uv`, Tailwind in the Angular apps
 
 ### Phase 2: Shared ingestion and access control foundation
 - [ ] Cleaning, section detection, document type metadata, retained originals
@@ -43,7 +43,7 @@ Legend: `[x]` merged to main, `[~]` in progress, `[ ]` not started.
 - [ ] Index fan-out: vector, lexical, graph queue, as background workers on Redis
 - [ ] Groups, collection grants, per-document overrides, scoped API keys, audit log
 - [ ] Access filter applied inside every store query
-- [ ] `ragfabric init | ingest | users | keys` CLI commands
+- [ ] CLI: extend with ingest, users, keys (init, version, config validate, db, serve exist since Phase 1)
 - [ ] OpenTelemetry spans on every ingestion and retrieval step
 
 ### Phase 3: Traditional RAG

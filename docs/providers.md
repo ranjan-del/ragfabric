@@ -9,22 +9,30 @@ plus tests; adding one never touches the strategies.
 
 | Provider | Status | Notes |
 |---|---|---|
-| OpenAI | v0.1.0 | Default. Also serves any OpenAI compatible endpoint via `base_url` |
-| Anthropic | v0.1.0 | Claude models |
-| Ollama | v0.1.0 | Local models, no key, the free trial path |
+| OpenAI | Phase 1 (shipped) | Default. Also serves any OpenAI compatible endpoint via `base_url` |
+| Anthropic | Phase 1 (shipped) | Claude models. Temperature is not forwarded to Anthropic models in Phase 1: current Claude models reject it while adaptive thinking is active |
+| Ollama | Phase 1 (shipped) | Local models, no key, the free trial path; served through the OpenAI compatible provider |
 | Gemini, Azure OpenAI, Bedrock | later | Contributions welcome once the interface is stable |
 
 The interface exposes `complete(messages, tools?, response_schema?) -> Completion` with token counts,
 and `stream(...)` for SSE. Token counts come from the provider response, never estimated when the
 provider reports them.
 
+### Default models
+
+| Provider | LLM | Embedding |
+|---|---|---|
+| OpenAI | `gpt-5.4-mini` | `text-embedding-3-small` |
+| Anthropic | `claude-sonnet-5` | (uses OpenAI or Ollama for embeddings) |
+| Ollama | `llama3.2` | `nomic-embed-text` |
+
 ## Embedding providers (`EmbeddingProvider`)
 
 | Provider | Status | Notes |
 |---|---|---|
-| OpenAI `text-embedding-3-*` | v0.1.0 | Default |
-| Ollama (`nomic-embed-text` and others) | v0.1.0 | Local |
-| Offline hashing | v0.1.0 | Test double from v1, deterministic, no network. Not for production use |
+| OpenAI `text-embedding-3-*` | Phase 1 (shipped) | Default |
+| Ollama (`nomic-embed-text` and others) | Phase 1 (shipped) | Local |
+| Offline hashing | Phase 1 (shipped) | Test double from v1, deterministic, no network. Not for production use |
 | Voyage, Cohere, sentence transformers | later | |
 
 Changing the embedding model requires re-indexing; the CLI warns and offers `ragfabric reindex`.

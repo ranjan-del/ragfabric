@@ -126,10 +126,31 @@ PostgreSQL for the built in Trace page and dashboards; exported over OTLP when c
 
 ## Migration from the v1 layout
 
-| v1 | RagFabric |
-|---|---|
-| `backend/app/ingest`, `retrieve`, `generate`, `store` | `packages/core` |
-| `backend/app/api`, `core/security`, `deps`, `main` | `packages/server` |
-| `backend/tests` | split by package |
-| `frontend` | `apps/assistant`, with the admin pages moving to `apps/console` |
-| hashing embedder, extractive generator | kept as offline test doubles in core |
+The move from the v1 `backend/` and `frontend/` layout to the monorepo happened in Phase 1. The v1
+ingestion, retrieval, generation and store code now lives in `packages/core`; the v1 API, security and
+dependency wiring in `packages/server`; the v1 Angular app in `apps/assistant`. The hashing embedder and
+extractive generator are kept as offline test doubles. `packages/core/src/ragfabric_core/` today:
+
+```
+ragfabric_core/
+  auth/            principal.py (Principal, AccessFilter), base.py (AuthProvider)
+  connectors/      base.py (SourceDocument, Connector)
+  db/              migrate.py, session.py
+  generate/        answer.py, llm.py
+  ingest/          chunk.py, embed.py, parser.py, pipeline.py
+  migrations/      alembic.ini, env.py, script.py.mako, versions/0001_initial_schema.py, versions/0002_platform_tables.py
+  models/          base.py, user.py, document.py, access.py, runs.py, evaluation.py, graph.py
+  providers/       base.py, offline.py, openai_compat.py, anthropic_provider.py, registry.py
+  retrieve/        hybrid.py, retriever.py (v1 pipeline, unchanged)
+  store/           vector_store.py (v1 store, unchanged)
+  stores/          base.py (VectorStore, LexicalStore, GraphStore, Cache)
+  strategies/      base.py (StrategyName, RetrievedChunk, TraceSpan, StrategyParams, Budget,
+                   RetrievalContext, RetrievalResult, RetrieverStrategy, StrategyRegistry),
+                   contract.py, legacy.py (LegacyHybridStrategy)
+  testing/         fixtures.py
+  config.py        environment Settings
+  config_file.py   ragfabric.yaml loader, strict validation
+  pricing.py       pricing.yaml    dated, sourced cost data
+  security.py
+  __init__.py
+```
