@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, signal } from '@angular/core';
+import { Component, OnInit, computed, signal, ChangeDetectionStrategy } from '@angular/core';
 
 
 import { AnalyticsService } from '../../services/analytics.service';
@@ -8,6 +8,7 @@ import { AnalyticsOverview, UsageStats } from '../../models';
     selector: 'app-analytics',
     imports: [],
     templateUrl: './analytics.component.html',
+    changeDetection: ChangeDetectionStrategy.Eager,
     styleUrl: './analytics.component.scss'
 })
 export class AnalyticsComponent implements OnInit {

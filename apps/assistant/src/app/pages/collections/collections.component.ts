@@ -1,4 +1,4 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, signal, ChangeDetectionStrategy } from '@angular/core';
 
 import { FormsModule } from '@angular/forms';
 
@@ -9,6 +9,7 @@ import { Collection } from '../../models';
     selector: 'app-collections',
     imports: [FormsModule],
     templateUrl: './collections.component.html',
+    changeDetection: ChangeDetectionStrategy.Eager,
     styleUrl: './collections.component.scss'
 })
 export class CollectionsComponent implements OnInit {

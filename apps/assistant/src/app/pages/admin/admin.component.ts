@@ -1,4 +1,4 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, signal, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
 import { AdminService } from '../../services/admin.service';
@@ -9,6 +9,7 @@ import { User } from '../../models';
     selector: 'app-admin',
     imports: [CommonModule],
     templateUrl: './admin.component.html',
+    changeDetection: ChangeDetectionStrategy.Eager,
     styleUrl: './admin.component.scss'
 })
 export class AdminComponent implements OnInit {

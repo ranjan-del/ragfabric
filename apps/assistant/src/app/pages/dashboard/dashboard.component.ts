@@ -1,4 +1,4 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, signal, ChangeDetectionStrategy } from '@angular/core';
 
 import { RouterLink } from '@angular/router';
 
@@ -10,6 +10,7 @@ import { AnalyticsOverview, UsageStats } from '../../models';
     selector: 'app-dashboard',
     imports: [RouterLink],
     templateUrl: './dashboard.component.html',
+    changeDetection: ChangeDetectionStrategy.Eager,
     styleUrl: './dashboard.component.scss'
 })
 export class DashboardComponent implements OnInit {

@@ -1,4 +1,4 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, signal, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterOutlet, RouterLink, RouterLinkActive, Router } from '@angular/router';
 
@@ -15,6 +15,7 @@ interface NavItem {
     selector: 'app-root',
     imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive],
     templateUrl: './app.component.html',
+    changeDetection: ChangeDetectionStrategy.Eager,
     styleUrl: './app.component.scss'
 })
 export class AppComponent implements OnInit {

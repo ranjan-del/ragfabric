@@ -1,4 +1,4 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, signal, ChangeDetectionStrategy } from '@angular/core';
 
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -12,6 +12,7 @@ import { AnswerResponse, Collection } from '../../models';
     selector: 'app-search',
     imports: [FormsModule, RouterLink],
     templateUrl: './search.component.html',
+    changeDetection: ChangeDetectionStrategy.Eager,
     styleUrl: './search.component.scss'
 })
 export class SearchComponent implements OnInit {

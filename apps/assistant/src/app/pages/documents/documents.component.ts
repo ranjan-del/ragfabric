@@ -1,4 +1,4 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, signal, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
@@ -10,6 +10,7 @@ import { Collection, DocumentItem } from '../../models';
     selector: 'app-documents',
     imports: [CommonModule, FormsModule],
     templateUrl: './documents.component.html',
+    changeDetection: ChangeDetectionStrategy.Eager,
     styleUrl: './documents.component.scss'
 })
 export class DocumentsComponent implements OnInit {
