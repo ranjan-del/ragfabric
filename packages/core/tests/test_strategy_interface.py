@@ -105,6 +105,19 @@ def test_access_filter_restricts_by_document_and_collection():
     assert not f.allows(document_id=99, collection_id=11)
 
 
+def test_access_filter_deny_list_wins_over_an_allowed_collection():
+    f = AccessFilter(collection_ids=frozenset({10}), denied_document_ids=frozenset({1}))
+    assert not f.allows(document_id=1, collection_id=10)
+    assert f.allows(document_id=2, collection_id=10)
+
+
+def test_access_filter_deny_list_wins_even_when_otherwise_unrestricted():
+    f = AccessFilter(denied_document_ids=frozenset({1}))
+    assert not f.is_unrestricted
+    assert not f.allows(document_id=1, collection_id=None)
+    assert f.allows(document_id=2, collection_id=None)
+
+
 def test_registry_round_trip_and_unknown_name():
     registry = StrategyRegistry()
     registry.register(StaticStrategy())
