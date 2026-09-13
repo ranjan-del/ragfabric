@@ -216,6 +216,9 @@ number of retrieval and LLM calls, tokens, latency, a trace and an optional `fal
 citation checking, metrics and evaluation run the same code regardless of which strategy produced it.
 That is what makes the comparison fair.
 
+Phase 1 shipped this interface, the provider and store interfaces, the configuration and cost modules,
+the platform tables and the compose profiles; the four strategies arrive in the following phases.
+
 Dependency direction is strict: UIs depend on the SDK, the SDK on the HTTP contract, the server on the
 engine, the engine on its own interfaces. Provider and store implementations plug in from outside.
 
@@ -292,33 +295,31 @@ is generated, never typed. Until v0.5.0 ships it stays empty on purpose.
 
 | Layer | Choice |
 |---|---|
-| Engine and API | Python 3.12, FastAPI, Pydantic, SQLAlchemy, Alembic |
+| Engine and API | Python 3.13, FastAPI, Pydantic, SQLAlchemy, Alembic |
 | Agents | LangGraph |
-| Stores | PostgreSQL 16 with pgvector, Chroma, Neo4j 5, Redis |
-| Frontend | Angular 17, TypeScript, Tailwind CSS |
-| Tooling | uv, Docker Compose, GitHub Actions, OpenTelemetry |
+| Stores | PostgreSQL 18 with pgvector, Chroma, Neo4j 2026.08 community, Redis |
+| Frontend | Angular 22, TypeScript 6, Tailwind 4 |
+| Tooling | uv, Node 24, Docker Compose, GitHub Actions, OpenTelemetry |
 
 Frameworks are used where they pay for themselves. Retrieval logic is written out and readable rather
 than hidden behind a single library call.
 
 ## Installation
 
-Two compose profiles. `lite` is three services and is enough for Traditional and Vectorless RAG.
-`full` adds Chroma and Neo4j for all four.
+Two compose profiles. `lite` is four services (PostgreSQL with pgvector, Redis, API, UI) and is
+enough for Traditional and Vectorless RAG. `full` adds Chroma and Neo4j for all four.
 
 ```bash
 git clone https://github.com/ranjan-del/ragfabric.git
 cd ragfabric
-cp .env.example .env            # add your provider key, or use Ollama with no key
-docker compose --profile lite up --build
-# or
-docker compose --profile full up --build
+cp .env.example .env && cp ragfabric.example.yaml ragfabric.yaml
+docker compose up --build                  # lite: PostgreSQL with pgvector, Redis, API, UI
+docker compose --profile full up --build   # adds Chroma and Neo4j
 ```
 
 Then open the UI, sign in with the bootstrap admin from your `.env`, upload documents, and ask.
-
-> The profiles above land in v0.1.0. Today the repository runs the v1 assistant with `docker compose up`
-> as described in [What works today](#what-works-today-v1).
+The compose stack listens on localhost only and seeds a development admin; before exposing it on a
+network follow the production notes in docs/configuration.md.
 
 ## Configuration
 
@@ -361,13 +362,17 @@ packages/sdk-python      typed client
 packages/sdk-typescript  typed client (@ragfabric/sdk)
 apps/console             admin console (Angular)
 apps/assistant           reference end user UI (Angular), restyle or replace
-deploy/compose           lite and full profiles
+docker-compose.yml       lite default, full profile adds Chroma and Neo4j
+deploy/docker            api and ui Dockerfiles, nginx config
 evaluation               corpus, questions.json, runner, latest results
 docs                     concepts, guides, ADRs, design, benchmarks
 examples                 minimal integrations
 ```
 
-This layout is introduced in v0.1.0 (Phase 1). Until then the v1 `backend/` and `frontend/` folders remain.
+`packages/core`, `packages/server`, `packages/cli`, `apps/assistant`, `docker-compose.yml`, `deploy/docker`
+and `docs` exist today. `packages/sdk-python`, `packages/sdk-typescript`, `apps/console`, `evaluation` and
+`examples` are created by the phases that ship them.
+
 Design details: [docs/design/2026-09-13-ragfabric-design.md](docs/design/2026-09-13-ragfabric-design.md)
 and the ADRs in [docs/adr](docs/adr).
 
@@ -383,9 +388,10 @@ The current `main` is a complete single strategy assistant that runs offline wit
 - 107 backend tests and 20 frontend tests, CI runs the migrations against real PostgreSQL
 
 ```bash
-cd backend && uv venv --python 3.12 && source .venv/bin/activate && uv pip install -r requirements.txt
-uvicorn app.main:app --reload            # API on :8000
-cd ../frontend && npm ci && npm start     # UI on :4200
+uv sync                       # Python 3.13 workspace: core, server, cli
+uv run ragfabric db upgrade
+uv run ragfabric serve --reload            # API on :8000
+cd apps/assistant && npm ci && npm start   # UI on :4200
 ```
 
 The hashing embedder and extractive generator are kept in RagFabric as the no key test double, which is

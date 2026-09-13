@@ -1,0 +1,61 @@
+@if (auth.isAuthenticated()) {
+<div class="layout min-h-screen">
+  <aside class="sidebar" [class.open]="menuOpen()">
+    <div class="brand">
+      <span class="brand-mark">RAG</span>
+      <span class="brand-name">RagFabric</span>
+    </div>
+
+    <nav class="nav" aria-label="Primary">
+      @for (item of navItems; track item.path) {
+        @if (!item.adminOnly || auth.isAdmin()) {
+        <a
+          class="nav-link"
+          [routerLink]="item.path"
+          routerLinkActive="active"
+          (click)="closeMenu()"
+        >
+          <span class="nav-icon" aria-hidden="true">{{ item.icon }}</span>
+          <span>{{ item.label }}</span>
+        </a>
+        }
+      }
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-chip">
+        <span class="avatar" aria-hidden="true">{{
+          (auth.user()?.email || '?')[0] | uppercase
+        }}</span>
+        <div class="user-meta">
+          <span class="user-email">{{ auth.user()?.email }}</span>
+          <span class="user-role badge badge-brand">{{ auth.user()?.role }}</span>
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm" (click)="logout()">Sign out</button>
+    </div>
+  </aside>
+
+  @if (menuOpen()) {
+  <div class="scrim" (click)="closeMenu()"></div>
+  }
+
+  <div class="main">
+    <header class="topbar">
+      <button
+        class="menu-toggle btn btn-ghost btn-sm"
+        (click)="toggleMenu()"
+        aria-label="Toggle navigation"
+      >
+        ☰
+      </button>
+      <span class="topbar-title">RagFabric</span>
+    </header>
+    <main class="content">
+      <router-outlet></router-outlet>
+    </main>
+  </div>
+</div>
+} @else {
+<router-outlet></router-outlet>
+}

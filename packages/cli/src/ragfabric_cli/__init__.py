@@ -1,0 +1,1 @@
+"""RagFabric command line."""

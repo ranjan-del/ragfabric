@@ -3,15 +3,15 @@
 | Document | What it covers | Status |
 |---|---|---|
 | [getting-started.md](getting-started.md) | Install, first ingest, first question | v1 path works today; RagFabric path lands in v0.1.0 |
-| [architecture.md](architecture.md) | Layers, packages, request flow, data model | Design, implemented from v0.1.0 |
+| [architecture.md](architecture.md) | Layers, packages, request flow, data model | Implemented in Phase 1 |
 | [traditional-rag.md](traditional-rag.md) | Embeddings, vector search, thresholds, reranking | Concept complete; implementation v0.1.0 |
 | [vectorless-rag.md](vectorless-rag.md) | BM25, PostgreSQL full text, fusion | Concept complete; implementation v0.1.0 |
 | [agentic-rag.md](agentic-rag.md) | LangGraph state machine, budgets, verification | Concept complete; implementation v0.2.0 |
 | [graph-rag.md](graph-rag.md) | Extraction, resolution, Neo4j, traversal | Concept complete; implementation v0.3.0 |
 | [routing.md](routing.md) | RouterDecision, signals, fallbacks | Concept complete; implementation v0.4.0 |
 | [evaluation.md](evaluation.md) | Question set, metrics, `make eval`, complexity score | Concept complete; implementation v0.5.0 |
-| [configuration.md](configuration.md) | `ragfabric.yaml`, environment, pricing | Planned shape; v0.1.0 |
-| [providers.md](providers.md) | LLM, embedding, store and connector implementations | Planned matrix; v0.1.0 onward |
+| [configuration.md](configuration.md) | `ragfabric.yaml`, environment, pricing | Implemented in Phase 1 |
+| [providers.md](providers.md) | LLM, embedding, store and connector implementations | Implemented in Phase 1 |
 | [licensing.md](licensing.md) | Apache 2.0 in plain words, why not MIT or copyleft, the CLA | Current |
 | [troubleshooting.md](troubleshooting.md) | Common failures and how to diagnose them | Grows with each release |
 | [design/](design/) | Full design document | Approved 2026-09-13 |

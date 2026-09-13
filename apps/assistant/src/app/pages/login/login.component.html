@@ -1,0 +1,82 @@
+<div class="auth">
+  <section class="auth-hero">
+    <div class="hero-inner">
+      <span class="brand-mark">RAG</span>
+      <h1>RagFabric</h1>
+      <p>
+        Upload your company documents, then ask questions in plain language and
+        get answers with confidence scores, citations, and links back to the
+        source.
+      </p>
+      <ul class="hero-points">
+        <li>Semantic &amp; hybrid retrieval over your own documents</li>
+        <li>Grounded answers with inline citations and highlights</li>
+        <li>Collections, analytics, and admin controls</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="auth-panel">
+    <div class="auth-card card">
+      <h2>{{ mode() === 'login' ? 'Welcome back' : 'Create an account' }}</h2>
+      <p class="muted">
+        {{
+          mode() === 'login'
+            ? 'Sign in to your knowledge base.'
+            : 'Register to start uploading and asking.'
+        }}
+      </p>
+
+      <form (ngSubmit)="submit()" class="auth-form">
+        <div class="field">
+          <label for="email">Email</label>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            autocomplete="email"
+            [(ngModel)]="email"
+            placeholder="you@company.com"
+            required
+          />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            [(ngModel)]="password"
+            placeholder="••••••••"
+            required
+          />
+        </div>
+
+        @if (error()) {
+        <div class="alert alert-error" role="alert">{{ error() }}</div>
+        }
+
+        <button class="btn btn-primary submit" type="submit" [disabled]="loading()">
+          @if (loading()) {
+          <span class="spinner" aria-hidden="true"></span>
+          }
+          {{ mode() === 'login' ? 'Sign in' : 'Create account' }}
+        </button>
+      </form>
+
+      <p class="switch">
+        @if (mode() === 'login') {
+        Don't have an account?
+        <a href="javascript:void(0)" (click)="switchMode('register')">Register</a>
+        } @else { Already have an account?
+        <a href="javascript:void(0)" (click)="switchMode('login')">Sign in</a>
+        }
+      </p>
+
+      <p class="demo-hint muted">
+        Demo admin: <code>admin&#64;example.com</code> / <code>adminpass123</code>
+      </p>
+    </div>
+  </section>
+</div>

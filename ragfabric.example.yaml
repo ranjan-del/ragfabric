@@ -1,0 +1,52 @@
+# ragfabric.example.yaml
+# Phase 1: validated by `ragfabric config validate`; the API starts reading this file in Phase 2.
+# Copy to ragfabric.yaml and edit. Every key is optional; defaults are shown.
+# Secrets never go here: OPENAI_API_KEY, ANTHROPIC_API_KEY, DATABASE_URL, JWT_SECRET,
+# NEO4J_PASSWORD come from the environment (.env.example lists them).
+
+llm:
+  provider: openai            # openai | anthropic | ollama | offline
+  model: gpt-5.4-mini         # anthropic default: claude-sonnet-5, ollama default: llama3.2
+  base_url: null              # ollama or any OpenAI compatible endpoint, e.g. http://localhost:11434/v1
+
+embeddings:
+  provider: openai            # openai | ollama | offline
+  model: text-embedding-3-small
+  dim: null                   # inferred for known models
+
+reranker:
+  kind: none                  # none | llm | cross_encoder
+
+vector_store:
+  kind: pgvector              # pgvector (lite profile) | chroma (full profile) | memory (tests)
+lexical_store:
+  kind: postgres_fts          # postgres_fts | bm25
+graph_store:
+  kind: neo4j
+  enabled: false              # true needs the full compose profile
+cache:
+  kind: redis                 # redis | memory
+
+ingestion:
+  chunk_size: 600
+  chunk_overlap: 80
+  retain_originals: true
+
+strategies:
+  traditional: { top_k: 8, similarity_threshold: 0.25, rerank: none, max_context_tokens: 6000 }
+  vectorless:  { top_k: 8, phrase_boost: 2.0, identifier_boost: 3.0 }
+  agentic:     { max_iterations: 4, max_cost_usd: 0.10, max_latency_ms: 30000 }
+  graph:       { max_hops: 2, max_nodes: 200 }
+
+router:
+  mode: auto                  # auto | manual
+  min_confidence: 0.6
+  classifier_model: null      # defaults to llm.model
+
+limits:
+  max_upload_mb: 50
+  allowed_types: [pdf, docx, pptx, txt, csv, md]
+  rate_limit_per_minute: 60
+
+telemetry:
+  otlp_endpoint: null         # off by default; e.g. http://otel-collector:4318

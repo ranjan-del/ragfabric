@@ -1,0 +1,11 @@
+# .dockerignore (repo root)
+.git
+.venv
+**/__pycache__
+**/*.pyc
+**/node_modules
+**/dist
+**/.angular
+.env
+MEMORY*.md
+docs

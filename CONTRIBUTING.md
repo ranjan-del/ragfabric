@@ -37,8 +37,17 @@ phase is tracked as a GitHub issue under a milestone. The fastest way to help is
 
 ## Development setup
 
-See the Installation section of the README. In short: `uv` for Python 3.12, Node 20+, Docker for the
-services, `make dev` to start the lite profile, `make test` to run everything the CI runs.
+```bash
+uv sync                                   # installs core, server, cli into .venv on Python 3.13
+uv run pytest                             # every package's tests
+uv run ruff check packages && uv run lint-imports
+cd apps/assistant && npm ci && npm test   # Angular specs (needs Chrome)
+docker compose up --build                 # lite profile on Docker Desktop, OrbStack or Podman
+```
+
+## Keep every surface in sync
+
+A change to scope, behaviour, naming or plan updates README, ROADMAP, CHANGELOG, the relevant `docs/*.md`, the phase issue and, for plan changes, the Roadmap discussion, in the same pull request. Reviewers check this before anything else.
 
 ## Commit messages
 

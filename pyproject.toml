@@ -1,0 +1,61 @@
+[project]
+name = "ragfabric-workspace"
+version = "0.0.0"
+description = "Workspace root for RagFabric. Not published. Install `ragfabric` instead."
+requires-python = ">=3.13,<3.14"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+ragfabric-core = { workspace = true }
+ragfabric-server = { workspace = true }
+ragfabric = { workspace = true }
+
+[dependency-groups]
+dev = [
+  "ragfabric-core",
+  "ragfabric-server",
+  "ragfabric",
+  "pytest>=9.1",
+  "httpx>=0.28",
+  "ruff>=0.16",
+  "import-linter>=2.15",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["packages/core/tests", "packages/server/tests", "packages/cli/tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
+markers = ["integration: needs a live provider or a running service; skipped by default in CI"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["packages/core/src", "packages/server/src", "packages/cli/src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"packages/server/src/ragfabric_server/**" = ["B008"]
+"packages/cli/src/ragfabric_cli/**" = ["B008"]
+
+[tool.importlinter]
+root_packages = ["ragfabric_core", "ragfabric_server", "ragfabric_cli"]
+
+[[tool.importlinter.contracts]]
+name = "core has no upward imports"
+type = "forbidden"
+source_modules = ["ragfabric_core"]
+forbidden_modules = ["ragfabric_server", "ragfabric_cli"]
+
+[[tool.importlinter.contracts]]
+name = "server does not import the cli"
+type = "forbidden"
+source_modules = ["ragfabric_server"]
+forbidden_modules = ["ragfabric_cli"]

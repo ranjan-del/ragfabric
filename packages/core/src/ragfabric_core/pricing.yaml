@@ -1,0 +1,53 @@
+# Prices in USD per one million tokens. Every entry carries the date it was read
+# and the page it was read from. Cost shown anywhere in RagFabric is an estimate
+# from this file. Update it when providers change prices; nothing is hard coded.
+currency: USD
+unit: per_million_tokens
+models:
+  openai/gpt-5.4-mini*:
+    input: 0.75
+    output: 4.50
+    as_of: 2026-09-13
+    source: https://developers.openai.com/api/docs/pricing
+  openai/gpt-5.4*:
+    input: 2.50
+    output: 15.00
+    as_of: 2026-09-13
+    source: https://developers.openai.com/api/docs/pricing
+  openai/gpt-4.1-mini*:
+    input: 0.40
+    output: 1.60
+    as_of: 2026-09-13
+    source: https://developers.openai.com/api/docs/pricing
+  openai/text-embedding-3-small:
+    embedding: 0.02
+    as_of: 2026-09-13
+    source: https://developers.openai.com/api/docs/pricing
+  openai/text-embedding-3-large:
+    embedding: 0.13
+    as_of: 2026-09-13
+    source: https://developers.openai.com/api/docs/pricing
+  anthropic/claude-sonnet-5*:
+    input: 2.00
+    output: 10.00
+    as_of: 2026-09-13
+    source: https://claude.com/pricing
+  anthropic/claude-haiku-4-5*:
+    input: 1.00
+    output: 5.00
+    as_of: 2026-09-13
+    source: https://claude.com/pricing
+  ollama/*:
+    input: 0
+    output: 0
+    embedding: 0
+    as_of: 2026-09-13
+    source: local inference has no per token price; hardware cost is not modelled
+    note: local
+  offline/*:
+    input: 0
+    output: 0
+    embedding: 0
+    as_of: 2026-09-13
+    source: offline test doubles
+    note: test double
