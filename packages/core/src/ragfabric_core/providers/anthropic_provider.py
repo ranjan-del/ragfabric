@@ -5,7 +5,9 @@ have to: the system prompt is a separate parameter, ``max_tokens`` is required,
 the response is a list of content blocks, and usage is reported as
 ``input_tokens`` and ``output_tokens``. Structured output in Phase 1 is a
 system instruction to answer with JSON matching the schema; Phase 5 upgrades
-this to tool use when the agent needs guaranteed shapes.
+this to tool use when the agent needs guaranteed shapes. The temperature argument is
+accepted for interface parity and not forwarded: current Claude models reject sampling
+parameters while adaptive thinking is active, which is the default.
 """
 
 from __future__ import annotations
@@ -50,7 +52,6 @@ class AnthropicProvider:
         kwargs: dict[str, Any] = {
             "model": model or self.default_model,
             "max_tokens": max_tokens,
-            "temperature": temperature,
             "messages": [
                 {"role": m.role, "content": m.content} for m in messages if m.role != "system"
             ],

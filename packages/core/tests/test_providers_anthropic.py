@@ -47,7 +47,7 @@ def test_system_messages_become_the_system_parameter():
     assert (
         sent["model"] == "claude-sonnet-5"
         and sent["max_tokens"] == 64
-        and sent["temperature"] == 0.3
+        and "temperature" not in sent
     )
     assert out.text == "12 days" and (out.input_tokens, out.output_tokens) == (30, 3)
     assert out.finish_reason == "end_turn" and out.provider == "anthropic"
