@@ -26,8 +26,12 @@ class Group(Base):
 class GroupMember(Base):
     __tablename__ = "group_members"
 
-    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    group_id: Mapped[int] = mapped_column(
+        ForeignKey("groups.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
 
@@ -38,9 +42,11 @@ class CollectionGrant(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    group_id: Mapped[int] = mapped_column(ForeignKey("groups.id"), nullable=False, index=True)
+    group_id: Mapped[int] = mapped_column(
+        ForeignKey("groups.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     collection_id: Mapped[int] = mapped_column(
-        ForeignKey("collections.id"), nullable=False, index=True
+        ForeignKey("collections.id", ondelete="CASCADE"), nullable=False, index=True
     )
     # "read" | "write"
     permission: Mapped[str] = mapped_column(String, default="read", nullable=False)
@@ -51,9 +57,15 @@ class DocumentOverride(Base):
     __tablename__ = "document_overrides"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id"), nullable=False, index=True)
-    group_id: Mapped[int | None] = mapped_column(ForeignKey("groups.id"), nullable=True)
-    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    group_id: Mapped[int | None] = mapped_column(
+        ForeignKey("groups.id", ondelete="CASCADE"), nullable=True
+    )
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True
+    )
     # "deny" | "read"
     permission: Mapped[str] = mapped_column(String, default="deny", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)

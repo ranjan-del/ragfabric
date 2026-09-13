@@ -29,7 +29,7 @@ class EvaluationResult(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     evaluation_run_id: Mapped[int] = mapped_column(
-        ForeignKey("evaluation_runs.id"), nullable=False, index=True
+        ForeignKey("evaluation_runs.id", ondelete="CASCADE"), nullable=False, index=True
     )
     question_id: Mapped[str] = mapped_column(String, nullable=False)
     question_type: Mapped[str] = mapped_column(String, nullable=False, index=True)

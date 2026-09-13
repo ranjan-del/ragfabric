@@ -27,7 +27,7 @@ class ChatMessage(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     conversation_id: Mapped[int] = mapped_column(
-        ForeignKey("conversations.id"), nullable=False, index=True
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True
     )
     # "user" | "assistant"
     role: Mapped[str] = mapped_column(String, nullable=False)
@@ -78,11 +78,13 @@ class Source(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     retrieval_run_id: Mapped[int] = mapped_column(
-        ForeignKey("retrieval_runs.id"), nullable=False, index=True
+        ForeignKey("retrieval_runs.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    chunk_id: Mapped[int | None] = mapped_column(ForeignKey("chunks.id"), nullable=True)
+    chunk_id: Mapped[int | None] = mapped_column(
+        ForeignKey("chunks.id", ondelete="SET NULL"), nullable=True
+    )
     document_id: Mapped[int | None] = mapped_column(
-        ForeignKey("documents.id"), nullable=True, index=True
+        ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True
     )
     rank: Mapped[int] = mapped_column(Integer, nullable=False)
     score: Mapped[float | None] = mapped_column(Float, nullable=True)

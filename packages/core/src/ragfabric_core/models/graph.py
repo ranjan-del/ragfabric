@@ -29,10 +29,10 @@ class Relationship(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source_entity_id: Mapped[int] = mapped_column(
-        ForeignKey("entities.id"), nullable=False, index=True
+        ForeignKey("entities.id", ondelete="CASCADE"), nullable=False, index=True
     )
     target_entity_id: Mapped[int] = mapped_column(
-        ForeignKey("entities.id"), nullable=False, index=True
+        ForeignKey("entities.id", ondelete="CASCADE"), nullable=False, index=True
     )
     relation_type: Mapped[str] = mapped_column(String, nullable=False, index=True)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
