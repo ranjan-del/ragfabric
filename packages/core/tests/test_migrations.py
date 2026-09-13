@@ -80,6 +80,14 @@ def test_migrations_match_the_models(tmp_path):
     )
 
 
+def test_0003_adds_section_document_type_and_storage_path(tmp_path):
+    engine, _ = _migrated_engine(tmp_path)
+    cols = {c["name"] for c in inspect(engine).get_columns("chunks")}
+    assert "section" in cols
+    dcols = {c["name"] for c in inspect(engine).get_columns("documents")}
+    assert {"document_type", "storage_path"} <= dcols
+
+
 def test_downgrade_removes_every_table(tmp_path):
     """A migration that cannot be rolled back is not a migration."""
     db_url = f"sqlite:///{tmp_path / 'roundtrip.db'}"

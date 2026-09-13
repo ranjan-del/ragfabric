@@ -19,8 +19,10 @@ from sqlalchemy.orm import Session
 
 from ragfabric_core.ingest import parser
 from ragfabric_core.ingest.chunk import chunk_text
+from ragfabric_core.ingest.clean import clean_text, document_type_for
 from ragfabric_core.ingest.embed import get_embedder
 from ragfabric_core.models.document import Chunk, Document
+from ragfabric_core.runtime import get_config
 from ragfabric_core.store.vector_store import get_store
 
 EMPTY_TEXT_NOTE = (
@@ -42,7 +44,11 @@ def _index_content(db: Session, document: Document, data: bytes) -> Document:
     """
     try:
         text = parser.parse(document.filename, data)
-        chunks = chunk_text(text)
+        text = clean_text(text)
+        cfg = get_config().ingestion
+        chunks = chunk_text(
+            text, chunk_size=cfg.chunk_size, overlap=cfg.chunk_overlap, sections=True
+        )
     except Exception as exc:  # unsupported format, corrupt file, etc.
         document.status = "failed"
         document.error = str(exc)[:500]
@@ -76,6 +82,7 @@ def _index_content(db: Session, document: Document, data: bytes) -> Document:
             char_end=chunk_meta["char_end"],
             text=chunk_meta["text"],
             embedding=embedding,
+            section=chunk_meta.get("section"),
         )
         db.add(chunk_row)
         db.flush()  # assign chunk_row.id for the vector-store record
@@ -124,6 +131,7 @@ def ingest_document(
         filename=filename,
         content_type=content_type,
         format=_extension(filename),
+        document_type=document_type_for(_extension(filename)),
         collection_id=collection_id,
         owner_id=owner_id,
         status="processing",
@@ -154,6 +162,7 @@ def reingest_document(
 
     document.filename = filename
     document.format = _extension(filename)
+    document.document_type = document_type_for(document.format)
     document.content_type = content_type or document.content_type
     document.version += 1
     document.status = "processing"

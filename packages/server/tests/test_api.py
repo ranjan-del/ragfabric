@@ -473,3 +473,23 @@ def test_users_cannot_delete_another_users_document(client, auth_headers, admin_
     owned_by_admin = _upload(client, admin_headers, "leave.txt", VACATION_DOC).json()
     resp = client.delete(f"/api/documents/{owned_by_admin['id']}", headers=auth_headers)
     assert resp.status_code == 403
+
+
+def test_ingest_records_document_type_and_sections(client, auth_headers):
+    from ragfabric_core.testing.fixtures import make_txt
+
+    data = make_txt("1. Intro\n" + "alpha " * 200 + "\n2. Leave\n" + "beta " * 200)
+    r = client.post(
+        "/api/documents/upload",
+        files={"file": ("notes.txt", data, "text/plain")},
+        headers=auth_headers,
+    )
+    assert r.status_code == 201, r.text
+    doc = r.json()
+    assert doc["document_type"] == "text"
+    from ragfabric_core.db.session import SessionLocal
+    from ragfabric_core.models.document import Chunk
+
+    with SessionLocal() as db:
+        sections = {c.section for c in db.query(Chunk).filter(Chunk.document_id == doc["id"]).all()}
+    assert "1. Intro" in sections and "2. Leave" in sections

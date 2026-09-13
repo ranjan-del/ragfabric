@@ -45,6 +45,12 @@ class Document(Base):
     content_type: Mapped[str] = mapped_column(String, default="", nullable=False)
     # File extension used to route to the right parser (pdf/docx/pptx/txt/csv).
     format: Mapped[str] = mapped_column(String, default="", nullable=False)
+    # document | presentation | table | text | other, derived from the extension
+    document_type: Mapped[str] = mapped_column(
+        String, server_default="", default="", nullable=False
+    )
+    # Relative path of the retained original under ingestion.uploads_dir, if kept
+    storage_path: Mapped[str | None] = mapped_column(String, nullable=True)
     collection_id: Mapped[int | None] = mapped_column(
         ForeignKey("collections.id"), nullable=True, index=True
     )
@@ -77,6 +83,8 @@ class Chunk(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
     # L2-normalised embedding stored as a JSON list of floats.
     embedding: Mapped[list] = mapped_column(JSON, nullable=False)
+    # Nearest preceding heading detected before this chunk, if any.
+    section: Mapped[str | None] = mapped_column(String, nullable=True)
 
     document: Mapped["Document"] = relationship(back_populates="chunks")
 
