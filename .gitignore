@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# local configuration (copy of ragfabric.example.yaml)
+ragfabric.yaml
+
 # OS
 .DS_Store
 
