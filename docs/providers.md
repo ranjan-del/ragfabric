@@ -14,9 +14,10 @@ plus tests; adding one never touches the strategies.
 | Ollama | Phase 1 (shipped) | Local models, no key, the free trial path; served through the OpenAI compatible provider |
 | Gemini, Azure OpenAI, Bedrock | later | Contributions welcome once the interface is stable |
 
-The interface exposes `complete(messages, tools?, response_schema?) -> Completion` with token counts,
-and `stream(...)` for SSE. Token counts come from the provider response, never estimated when the
-provider reports them.
+The interface exposes `complete(messages, *, model=None, max_tokens=1024, temperature=0.0,
+json_schema=None) -> Completion`. There is no `tools` parameter and no `stream(...)` method in
+Phase 1; streaming arrives in Phase 3. Token counts come from the provider response, never
+estimated when the provider reports them.
 
 ### Default models
 
@@ -35,7 +36,8 @@ provider reports them.
 | Offline hashing | Phase 1 (shipped) | Test double from v1, deterministic, no network. Not for production use |
 | Voyage, Cohere, sentence transformers | later | |
 
-Changing the embedding model requires re-indexing; the CLI warns and offers `ragfabric reindex`.
+Changing the embedding model requires re-indexing; re-indexing after an embedding model change
+arrives with the CLI `ingest` command in Phase 2.
 
 ## Rerankers (`Reranker`)
 
@@ -113,7 +115,7 @@ Interface: Phase 1 (shipped).
 
 ## Writing a provider
 
-1. Implement the interface in `packages/core/ragfabric/providers/<name>.py`.
+1. Implement the interface in `packages/core/src/ragfabric_core/providers/<name>.py`.
 2. Register it in the provider registry with its configuration schema.
 3. Add unit tests with recorded responses and one integration test marked `integration`.
 4. Document it here with its status.

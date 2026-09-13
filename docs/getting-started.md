@@ -12,12 +12,16 @@
 | Node | 24 | For the Angular apps |
 | An LLM provider | any of OpenAI, Anthropic, Ollama | Ollama needs no key; quality depends on the local model |
 
-## Run the v1 assistant today
+## Run RagFabric
+
+The compose stack runs the v1 assistant today.
 
 ```bash
 git clone https://github.com/ranjan-del/ragfabric.git
 cd ragfabric
-docker compose up --build
+cp .env.example .env && cp ragfabric.example.yaml ragfabric.yaml
+docker compose up --build                  # lite: PostgreSQL with pgvector, Redis, API, UI
+docker compose --profile full up --build   # adds Chroma and Neo4j
 ```
 
 Backend on `http://localhost:8000` (OpenAPI at `/docs`), frontend on `http://localhost:4200`. Sign in with
@@ -31,14 +35,6 @@ uv sync
 uv run ragfabric db upgrade
 uv run ragfabric serve --reload
 cd apps/assistant && npm ci && npm start
-```
-
-## Run RagFabric
-
-```bash
-cp .env.example .env && cp ragfabric.example.yaml ragfabric.yaml
-docker compose up --build                  # lite: PostgreSQL with pgvector, Redis, API, UI
-docker compose --profile full up --build   # adds Chroma and Neo4j
 ```
 
 The CLI that exists today:

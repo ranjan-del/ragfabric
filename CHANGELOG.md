@@ -42,6 +42,7 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 - README rewritten for RagFabric; roadmap, design document and ADRs 0001 to 0005 added.
 - Repository governance: CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, CODEOWNERS, issue and PR templates, Dependabot.
 - `main` protected: pull request and green CI required, no force pushes, linear history.
+- v1 vector store and pipeline `zip()` calls now pass `strict=True`, which turns a silent length mismatch into an error.
 
 ## [1.0.0 of the v1 assistant] - 2026-08-16
 

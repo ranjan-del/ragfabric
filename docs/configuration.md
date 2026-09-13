@@ -1,6 +1,8 @@
 # Configuration
 
-> Status: implemented in Phase 1; strategy blocks are read by the phases that ship them.
+> Status: the file, its validation and `ragfabric config validate` shipped in Phase 1. The running
+> API does not read it yet; Phases 2 and 3 wire `llm`, `embeddings` and the store blocks into the
+> runtime.
 
 ## Principles
 
@@ -96,6 +98,17 @@ number.
 |---|---|---|
 | `lite` | postgres (pgvector), redis, api, ui | Traditional, Vectorless, Agentic |
 | `full` | lite plus chroma, neo4j | all four |
+
+## Exposing the stack
+
+`docker-compose.yml` publishes every port on loopback (`127.0.0.1`) by default, so the stack is
+reachable only from the machine it runs on. To expose it on a network:
+
+1. Change the bind address on the ports you need in `docker-compose.yml` (for example
+   `"0.0.0.0:8000:8000"`).
+2. Set `ENVIRONMENT=production` in `.env`.
+3. Set a real `JWT_SECRET` and your own `FIRST_ADMIN_EMAIL` / `FIRST_ADMIN_PASSWORD` in `.env`,
+   because the development defaults seed `admin@example.com`.
 
 ## Precedence
 

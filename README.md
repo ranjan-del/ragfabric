@@ -306,8 +306,8 @@ than hidden behind a single library call.
 
 ## Installation
 
-Two compose profiles. `lite` is three services and is enough for Traditional and Vectorless RAG.
-`full` adds Chroma and Neo4j for all four.
+Two compose profiles. `lite` is four services (PostgreSQL with pgvector, Redis, API, UI) and is
+enough for Traditional and Vectorless RAG. `full` adds Chroma and Neo4j for all four.
 
 ```bash
 git clone https://github.com/ranjan-del/ragfabric.git
@@ -318,6 +318,8 @@ docker compose --profile full up --build   # adds Chroma and Neo4j
 ```
 
 Then open the UI, sign in with the bootstrap admin from your `.env`, upload documents, and ask.
+The compose stack listens on localhost only and seeds a development admin; before exposing it on a
+network follow the production notes in docs/configuration.md.
 
 ## Configuration
 
