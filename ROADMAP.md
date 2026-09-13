@@ -28,9 +28,9 @@ Legend: `[x]` merged to main, `[~]` in progress, `[ ]` not started.
 ## v0.1.0 Initial RAG engine
 
 ### Phase 1: Architecture, monorepo, interfaces, Docker, database
-- [x] Monorepo layout: `packages/{core,server,cli,sdk-python,sdk-typescript}`, `apps/{console,assistant}`, `deploy/`, `evaluation/`, `docs/`
+- [x] Monorepo layout: `packages/{core,server,cli}`, `apps/assistant`, `deploy/`, `docs/` (the SDK packages, `apps/console` and `evaluation/` are created by the phases that ship them)
 - [x] `RetrieverStrategy`, `RetrievalResult`, `RetrievedChunk`, `RetrievalContext`
-- [x] `LLMProvider`, `EmbeddingProvider`, `Reranker`, `VectorStore`, `LexicalStore`, `GraphStore`, `Cache`, `AuthProvider`, `Connector` interfaces
+- [x] `LLMProvider`, `EmbeddingProvider`, `VectorStore`, `LexicalStore`, `GraphStore`, `Cache`, `AuthProvider`, `Connector` interfaces (the `Reranker` interface arrives with Traditional RAG in Phase 3)
 - [x] Providers: OpenAI, Anthropic, Ollama, offline test double
 - [x] `ragfabric.yaml` configuration loader, pricing configuration, cost calculator
 - [x] Migration 0002: conversations, messages, retrieval_runs, sources, evaluation_runs, evaluation_results, entities, relationships, groups, grants, api_keys, audit_log

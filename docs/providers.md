@@ -39,10 +39,12 @@ Changing the embedding model requires re-indexing; the CLI warns and offers `rag
 
 ## Rerankers (`Reranker`)
 
+The `Reranker` interface is not part of Phase 1; it arrives with Traditional RAG in Phase 3.
+
 | Kind | Status |
 |---|---|
-| none | v0.1.0 |
-| LLM rerank | v0.1.0 |
+| none | Phase 3 |
+| LLM rerank | Phase 3 |
 | Cross encoder (local), Cohere rerank | later |
 
 ## Vector stores (`VectorStore`)

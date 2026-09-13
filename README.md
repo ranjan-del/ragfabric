@@ -366,6 +366,10 @@ docs                     concepts, guides, ADRs, design, benchmarks
 examples                 minimal integrations
 ```
 
+`packages/core`, `packages/server`, `packages/cli`, `apps/assistant`, `deploy` and `docs` exist today.
+`packages/sdk-python`, `packages/sdk-typescript`, `apps/console`, `evaluation` and `examples` are created
+by the phases that ship them.
+
 Design details: [docs/design/2026-09-13-ragfabric-design.md](docs/design/2026-09-13-ragfabric-design.md)
 and the ADRs in [docs/adr](docs/adr).
 
