@@ -19,8 +19,11 @@ def get_run(
     run_id: int, db: Session = Depends(get_db), principal: Principal = Depends(get_principal)
 ) -> RunOut:
     run = db.get(RetrievalRun, run_id)
-    if run is None or (principal.role != "admin" and run.user_id != principal.user_id):
+    if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found.")
+    if principal.role != "admin":
+        if principal.user_id is None or run.user_id != principal.user_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found.")
     sources = db.query(Source).filter(Source.retrieval_run_id == run.id).order_by(Source.rank).all()
     out = RunOut.model_validate(run)
     out.sources = [SourceOut.model_validate(s) for s in sources]

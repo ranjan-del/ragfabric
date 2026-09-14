@@ -30,6 +30,9 @@ def test_redis_queue_serialises_jobs():
         def blpop(self, keys, timeout):
             return (keys[0], self.items.pop(0)) if self.items else None
 
+        def lpop(self, key):
+            return self.items.pop(0) if self.items else None
+
         def llen(self, key):
             return len(self.items)
 

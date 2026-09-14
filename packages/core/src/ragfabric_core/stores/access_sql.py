@@ -30,4 +30,4 @@ def access_clause(access: AccessFilter, document_col, collection_col):
         parts.append(allow)
     if access.denied_document_ids:
         parts.append(not_(document_col.in_(sorted(access.denied_document_ids))))
-    return and_(*parts) if len(parts) > 1 else parts[0]
+    return and_(*parts) if len(parts) > 1 else (parts[0] if parts else None)

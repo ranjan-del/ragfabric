@@ -31,6 +31,11 @@ def test_deny_only_filter_is_not_unrestricted_and_excludes():
     assert "NOT IN (5)" in sql and "IN (5)" in sql
 
 
+def test_unrestricted_allow_axes_with_an_empty_deny_set_yields_no_clause():
+    f = AccessFilter(document_ids=None, collection_ids=None, denied_document_ids=frozenset())
+    assert access_clause(f, t.c.document_id, t.c.collection_id) is None
+
+
 def test_empty_allow_lists_match_nothing():
     f = AccessFilter(document_ids=frozenset(), collection_ids=frozenset())
     sql = compile_(access_clause(f, t.c.document_id, t.c.collection_id))

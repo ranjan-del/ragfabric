@@ -26,15 +26,16 @@ class RedisJobQueue:
         self._r.rpush(self.key, job.model_dump_json())
 
     def dequeue(self, timeout_seconds: float = 1.0) -> Job | None:
-        timeout = max(int(timeout_seconds), 0)
-        item = (
-            self._r.blpop([self.key], timeout=timeout)
-            if timeout > 0
-            else (self._r.blpop([self.key], timeout=1) if self._r.llen(self.key) else None)
-        )
-        if item is None:
-            return None
-        _, raw = item
+        timeout = max(int(round(timeout_seconds)), 0)
+        if timeout == 0:
+            raw = self._r.lpop(self.key)
+            if raw is None:
+                return None
+        else:
+            item = self._r.blpop([self.key], timeout=timeout)
+            if item is None:
+                return None
+            _, raw = item
         return Job.model_validate_json(raw if isinstance(raw, str) else raw.decode("utf-8"))
 
     def size(self) -> int:
