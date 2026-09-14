@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from ragfabric_core.models.document import Chunk, Document
 from ragfabric_core.providers.base import EmbeddingProvider
 from ragfabric_core.stores.base import LexicalStore, VectorStore
+from ragfabric_core.telemetry.tracing import trace
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +40,8 @@ def index_document(
         document.status = "ready"
         db.commit()
         return 0
-    result = embedding_provider.embed([c.text for c in chunks])
+    with trace("embed", count=len(chunks)):
+        result = embedding_provider.embed([c.text for c in chunks])
     ids = [c.id for c in chunks]
     payloads = [
         {
@@ -50,8 +52,10 @@ def index_document(
         }
         for c in chunks
     ]
-    vector_store.upsert(ids, result.vectors, payloads)
-    lexical_store.index(ids, [c.text for c in chunks], payloads)
+    with trace("vector_upsert"):
+        vector_store.upsert(ids, result.vectors, payloads)
+    with trace("lexical_index"):
+        lexical_store.index(ids, [c.text for c in chunks], payloads)
     document = db.get(Document, document_id)
     document.status = "ready"
     document.error = ""

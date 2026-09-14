@@ -27,6 +27,7 @@ from ragfabric_core.models.runs import RetrievalRun, Source
 from ragfabric_core.retrieve.hybrid import HybridRetriever
 from ragfabric_core.retrieve.retriever import Retriever
 from ragfabric_core.store.vector_store import get_store
+from ragfabric_core.telemetry.tracing import start_trace, trace
 from ragfabric_server.deps import get_access_filter, get_principal
 from ragfabric_server.schemas.search import AnswerResponse, SearchRequest, SearchResults
 
@@ -58,9 +59,11 @@ def query(
 ) -> AnswerResponse:
     """Ask a question and get a cited, grounded answer."""
     started = time.perf_counter()
-    retrieved = _retrieve(payload, access)
-    retrieval_ms = int((time.perf_counter() - started) * 1000)
-    result = build_answer(payload.query, retrieved)
+    with start_trace() as ctx:
+        retrieved = _retrieve(payload, access)
+        retrieval_ms = int((time.perf_counter() - started) * 1000)
+        with trace("answer"):
+            result = build_answer(payload.query, retrieved)
     total_ms = int((time.perf_counter() - started) * 1000)
 
     # Record only the documents the answer actually cited, so the analytics
@@ -98,7 +101,7 @@ def query(
         output_tokens=0,
         estimated_cost_usd=0.0,
         embedding_model=f"hashing-{get_embedder().dim}",
-        trace=[],
+        trace=[s.model_dump() for s in ctx.spans],
     )
     db.add(run)
     db.flush()

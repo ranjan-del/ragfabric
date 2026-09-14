@@ -31,6 +31,7 @@ from ragfabric_core.models.document import Chunk, Document
 from ragfabric_core.queue.registry import build_queue
 from ragfabric_core.runtime import get_config
 from ragfabric_core.store.vector_store import get_store
+from ragfabric_core.telemetry.tracing import trace
 
 EMPTY_TEXT_NOTE = (
     "Parsed successfully but no extractable text was found "
@@ -50,12 +51,15 @@ def _index_content(db: Session, document: Document, data: bytes) -> Document:
     function owns everything from parsing to committing and indexing.
     """
     try:
-        text = parser.parse(document.filename, data)
-        text = clean_text(text)
+        with trace("parse", format=document.format):
+            text = parser.parse(document.filename, data)
+        with trace("clean"):
+            text = clean_text(text)
         cfg = get_config().ingestion
-        chunks = chunk_text(
-            text, chunk_size=cfg.chunk_size, overlap=cfg.chunk_overlap, sections=True
-        )
+        with trace("chunk", chunk_size=cfg.chunk_size, overlap=cfg.chunk_overlap):
+            chunks = chunk_text(
+                text, chunk_size=cfg.chunk_size, overlap=cfg.chunk_overlap, sections=True
+            )
     except Exception as exc:  # unsupported format, corrupt file, etc.
         document.status = "failed"
         document.error = str(exc)[:500]
@@ -74,38 +78,39 @@ def _index_content(db: Session, document: Document, data: bytes) -> Document:
         db.refresh(document)
         return document
 
-    embedder = get_embedder()
-    vectors = embedder.embed([c["text"] for c in chunks])
+    with trace("persist_chunks", count=len(chunks)):
+        embedder = get_embedder()
+        vectors = embedder.embed([c["text"] for c in chunks])
 
-    store_records: list[dict] = []
-    for chunk_meta, vector in zip(chunks, vectors, strict=True):
-        embedding = vector.tolist()
-        chunk_row = Chunk(
-            document_id=document.id,
-            collection_id=document.collection_id,
-            chunk_index=chunk_meta["chunk_index"],
-            page=chunk_meta["page"],
-            char_start=chunk_meta["char_start"],
-            char_end=chunk_meta["char_end"],
-            text=chunk_meta["text"],
-            embedding=embedding,
-            section=chunk_meta.get("section"),
-        )
-        db.add(chunk_row)
-        db.flush()  # assign chunk_row.id for the vector-store record
-        store_records.append(
-            {
-                "vector": embedding,
-                "chunk_id": chunk_row.id,
-                "document_id": document.id,
-                "collection_id": document.collection_id,
-                "filename": document.filename,
-                "format": document.format,
-                "page": chunk_meta["page"],
-                "chunk_index": chunk_meta["chunk_index"],
-                "text": chunk_meta["text"],
-            }
-        )
+        store_records: list[dict] = []
+        for chunk_meta, vector in zip(chunks, vectors, strict=True):
+            embedding = vector.tolist()
+            chunk_row = Chunk(
+                document_id=document.id,
+                collection_id=document.collection_id,
+                chunk_index=chunk_meta["chunk_index"],
+                page=chunk_meta["page"],
+                char_start=chunk_meta["char_start"],
+                char_end=chunk_meta["char_end"],
+                text=chunk_meta["text"],
+                embedding=embedding,
+                section=chunk_meta.get("section"),
+            )
+            db.add(chunk_row)
+            db.flush()  # assign chunk_row.id for the vector-store record
+            store_records.append(
+                {
+                    "vector": embedding,
+                    "chunk_id": chunk_row.id,
+                    "document_id": document.id,
+                    "collection_id": document.collection_id,
+                    "filename": document.filename,
+                    "format": document.format,
+                    "page": chunk_meta["page"],
+                    "chunk_index": chunk_meta["chunk_index"],
+                    "text": chunk_meta["text"],
+                }
+            )
 
     document.status = "processing"
     document.num_chunks = len(chunks)
@@ -118,7 +123,8 @@ def _index_content(db: Session, document: Document, data: bytes) -> Document:
     get_store().upsert(store_records)
 
     try:
-        document.status = schedule_indexing(db, document, build_queue(get_config()))
+        with trace("schedule_indexing", mode=get_config().ingestion.indexing):
+            document.status = schedule_indexing(db, document, build_queue(get_config()))
     except Exception as exc:  # embedding or store failure during inline indexing
         db.rollback()
         document = db.get(Document, document.id)

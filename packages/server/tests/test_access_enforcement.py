@@ -85,6 +85,9 @@ def test_query_records_a_retrieval_run_with_sources_and_is_readable_by_its_owner
     assert run.embedding_model.startswith("hashing-") and run.latency_ms >= 0
     r = client.get(f"/api/runs/{run.id}", headers=auth_headers)
     assert r.status_code == 200 and r.json()["sources"] and r.json()["question"] == "rollout steps"
+    names = [s["name"] for s in r.json()["trace"]]
+    assert "hybrid_search" in names or "semantic_search" in names
+    assert "answer" in names
     assert client.get(f"/api/runs/{run.id}", headers=admin_headers).status_code == 200
     client.post(
         "/api/auth/register", json={"email": "other@example.com", "password": "password123"}

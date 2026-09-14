@@ -15,6 +15,7 @@ from __future__ import annotations
 from ragfabric_core.auth.principal import AccessFilter
 from ragfabric_core.ingest.embed import get_embedder
 from ragfabric_core.store.vector_store import get_store
+from ragfabric_core.telemetry.tracing import trace
 
 
 class Retriever:
@@ -41,12 +42,13 @@ class Retriever:
 
         access: the caller's AccessFilter, applied before ranking.
         """
-        query_vector = self.embedder.embed_one(query)
-        return self.store.search(
-            query_vector,
-            top_k=top_k,
-            collection_id=collection_id,
-            document_id=document_id,
-            format=format,
-            access=access,
-        )
+        with trace("semantic_search", top_k=top_k):
+            query_vector = self.embedder.embed_one(query)
+            return self.store.search(
+                query_vector,
+                top_k=top_k,
+                collection_id=collection_id,
+                document_id=document_id,
+                format=format,
+                access=access,
+            )
