@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from ragfabric_core.auth.principal import AccessFilter
 from ragfabric_core.config import settings
 
 # Metadata keys a caller may filter on. Keeping this explicit means an unknown
@@ -90,21 +91,41 @@ class InMemoryVectorStore:
         if new_rows:
             self._vectors = np.vstack([self._vectors, np.vstack(new_rows)])
 
-    def candidate_rows(self, filters: dict) -> list[int]:
+    def candidate_rows(self, filters: dict, access: AccessFilter | None = None) -> list[int]:
         """Row indices whose metadata matches every non-None filter value.
 
         Only keys in FILTERABLE are honoured. Restricting here rather than
         trusting the caller means an unexpected key cannot silently narrow the
         candidate set to nothing and make a document look missing.
+
+        ``access``, when given, is applied on top of the metadata filters,
+        before ranking (ADR 0003), so a caller's AccessFilter narrows the
+        candidate set rather than the result set.
         """
         active = {k: v for k, v in filters.items() if v is not None and k in FILTERABLE}
         if not active:
-            return list(range(len(self._meta)))
-        return [
-            i
-            for i, meta in enumerate(self._meta)
-            if all(meta.get(key) == value for key, value in active.items())
-        ]
+            rows = list(range(len(self._meta)))
+        else:
+            rows = [
+                i
+                for i, meta in enumerate(self._meta)
+                if all(meta.get(key) == value for key, value in active.items())
+            ]
+        if access is not None and not access.is_unrestricted:
+            rows = [
+                i
+                for i in rows
+                if access.allows(
+                    self._meta[i].get("document_id"), self._meta[i].get("collection_id")
+                )
+            ]
+        return rows
+
+    def access_stats(self, filters: dict, access: AccessFilter | None) -> tuple[int, int]:
+        """Candidate counts before and after applying ``access`` (for audit rows)."""
+        before = self.candidate_rows(filters)
+        after = self.candidate_rows(filters, access)
+        return len(before), len(after)
 
     def search(
         self,
@@ -113,12 +134,14 @@ class InMemoryVectorStore:
         collection_id: int | None = None,
         document_id: int | None = None,
         format: str | None = None,
+        access: AccessFilter | None = None,
     ) -> list[dict]:
         """Return the ``top_k`` most similar chunks, with their metadata.
 
         Optional ``collection_id`` / ``document_id`` / ``format`` apply a
         metadata filter before ranking (semantic search scoped to a collection,
-        a single document, or one file type).
+        a single document, or one file type). ``access`` applies the caller's
+        AccessFilter before ranking too (ADR 0003).
         """
         if len(self._meta) == 0:
             return []
@@ -131,7 +154,8 @@ class InMemoryVectorStore:
                 "collection_id": collection_id,
                 "document_id": document_id,
                 "format": format,
-            }
+            },
+            access,
         )
         if not candidates:
             return []

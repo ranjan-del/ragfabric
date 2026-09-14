@@ -320,3 +320,46 @@ def test_analytics_reports_index_and_chunk_counts_together(client, auth_headers)
     # The two counters come from different places (SQL vs. memory); if they
     # disagree the index has drifted.
     assert overview["chunks"] == overview["indexed_vectors"]
+
+
+def test_store_applies_the_access_filter_before_ranking():
+    from ragfabric_core.auth.principal import AccessFilter
+    from ragfabric_core.store.vector_store import InMemoryVectorStore
+
+    store = InMemoryVectorStore(dim=2)
+    store.upsert(
+        [
+            {
+                "vector": [1.0, 0.0],
+                "chunk_id": 1,
+                "document_id": 10,
+                "collection_id": 100,
+                "filename": "a",
+                "format": "txt",
+                "page": 1,
+                "chunk_index": 0,
+                "text": "a",
+            },
+            {
+                "vector": [0.9, 0.1],
+                "chunk_id": 2,
+                "document_id": 20,
+                "collection_id": 200,
+                "filename": "b",
+                "format": "txt",
+                "page": 1,
+                "chunk_index": 0,
+                "text": "b",
+            },
+        ]
+    )
+    open_only = AccessFilter(
+        document_ids=frozenset(), collection_ids=frozenset({100}), denied_document_ids=frozenset()
+    )
+    hits = store.search([1.0, 0.0], top_k=5, access=open_only)
+    assert [h["chunk_id"] for h in hits] == [1]
+    assert store.access_stats({}, open_only) == (2, 1)
+    assert (
+        store.search([1.0, 0.0], top_k=5, access=None)
+        and len(store.search([1.0, 0.0], top_k=5)) == 2
+    )

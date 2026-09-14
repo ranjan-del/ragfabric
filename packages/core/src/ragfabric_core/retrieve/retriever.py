@@ -12,6 +12,7 @@ per-document search are implemented.
 
 from __future__ import annotations
 
+from ragfabric_core.auth.principal import AccessFilter
 from ragfabric_core.ingest.embed import get_embedder
 from ragfabric_core.store.vector_store import get_store
 
@@ -30,12 +31,15 @@ class Retriever:
         collection_id: int | None = None,
         document_id: int | None = None,
         format: str | None = None,
+        access: AccessFilter | None = None,
     ) -> list[dict]:
         """Return the ``top_k`` chunks most similar to ``query``.
 
         Each returned chunk carries its cosine ``score`` plus the citation
         metadata (``filename``, ``page``, ``document_id`` ...) needed to trace it
         back to the source document.
+
+        access: the caller's AccessFilter, applied before ranking.
         """
         query_vector = self.embedder.embed_one(query)
         return self.store.search(
@@ -44,4 +48,5 @@ class Retriever:
             collection_id=collection_id,
             document_id=document_id,
             format=format,
+            access=access,
         )

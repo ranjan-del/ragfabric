@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from ragfabric_core.auth.principal import AccessFilter
 from ragfabric_core.config import settings
 from ragfabric_core.ingest.embed import content_tokens, get_embedder
 from ragfabric_core.store.vector_store import get_store
@@ -65,8 +66,12 @@ class HybridRetriever:
         collection_id: int | None = None,
         document_id: int | None = None,
         format: str | None = None,
+        access: AccessFilter | None = None,
     ) -> list[dict]:
-        """Return the ``top_k`` chunks ranked by the fused score."""
+        """Return the ``top_k`` chunks ranked by the fused score.
+
+        access: the caller's AccessFilter, applied before ranking.
+        """
         meta = self.store.all_meta()
         if not meta:
             return []
@@ -82,7 +87,8 @@ class HybridRetriever:
                 "collection_id": collection_id,
                 "document_id": document_id,
                 "format": format,
-            }
+            },
+            access,
         )
         if not candidates:
             return []

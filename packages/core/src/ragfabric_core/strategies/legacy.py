@@ -3,8 +3,8 @@
 This is deliberately thin. It exists so the interface is proven against real
 retrieval code from day one and so the API can route through the registry
 before Phase 3 replaces the internals with real embeddings and a real store.
-The access filter is applied here, after the v1 retriever, because the v1
-in-memory index predates the filter; Phase 3 stores take the filter natively.
+The access filter is passed into the v1 store, which applies it before
+ranking.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ class LegacyHybridStrategy:
         started = time.perf_counter()
         collection_id = ctx.collection_ids[0] if ctx.collection_ids else None
         rows = HybridRetriever().retrieve(
-            query, top_k=ctx.params.top_k, collection_id=collection_id
+            query, top_k=ctx.params.top_k, collection_id=collection_id, access=ctx.access_filter
         )
         chunks = [
             RetrievedChunk(
@@ -48,7 +48,6 @@ class LegacyHybridStrategy:
                 },
             )
             for row in rows
-            if ctx.access_filter.allows(row["document_id"], row.get("collection_id"))
         ][: ctx.params.top_k]
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         return RetrievalResult(
