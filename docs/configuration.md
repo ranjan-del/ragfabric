@@ -101,12 +101,14 @@ number.
 | Profile | Services | Strategies available |
 |---|---|---|
 | `lite` | postgres (pgvector), redis, api, ui | Traditional, Vectorless, Agentic |
-| `full` | lite plus chroma, neo4j, worker | all four |
+| `full` | lite plus chroma, neo4j | all four |
 | `workers` | lite plus worker | same as lite; needed when `ingestion.indexing: queue` |
 
-The `worker` service runs `ragfabric worker`, draining the Redis queue that `ingestion.indexing: queue`
-schedules ingestion jobs onto. In `inline` mode (the default) no worker is needed; the API indexes a
-document as part of the ingest call.
+`workers` is the only profile that starts the worker; `full` adds chroma and neo4j but does not imply
+`workers`. The `worker` service runs `ragfabric worker`, draining the Redis queue that
+`ingestion.indexing: queue` schedules ingestion jobs onto, so it requires that setting. In `inline`
+mode (the default) no worker is needed; the API indexes a document as part of the ingest call, and
+starting the worker against an inline config gives it nothing to drain.
 
 ## Exposing the stack
 
