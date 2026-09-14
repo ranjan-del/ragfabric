@@ -1,8 +1,9 @@
 # Configuration
 
-> Status: the file, its validation and `ragfabric config validate` shipped in Phase 1. The running
-> API does not read it yet; Phases 2 and 3 wire `llm`, `embeddings` and the store blocks into the
-> runtime.
+> Status: the file, its validation and `ragfabric config validate` shipped in Phase 1. As of Phase 2
+> the runtime reads `embeddings`, `vector_store`, `lexical_store`, `cache`, `ingestion` and `telemetry`
+> through `ragfabric_core.runtime.get_config`. `llm` is still not read by the runtime; Phase 3 wires it
+> in along with the Traditional strategy.
 
 ## Principles
 
@@ -49,6 +50,8 @@ ingestion:
   chunk_size: 600
   chunk_overlap: 80
   retain_originals: true
+  uploads_dir: data/uploads    # where retained originals are stored (a volume in compose)
+  indexing: inline             # inline | queue (queue needs Redis and `ragfabric worker`)
 
 strategies:
   traditional: { top_k: 8, similarity_threshold: 0.25, rerank: none, max_context_tokens: 6000 }
@@ -77,6 +80,7 @@ telemetry:
 | `DATABASE_URL` | PostgreSQL connection string |
 | `REDIS_URL` | Redis connection string |
 | `RAGFABRIC_CONFIG` | Path to `ragfabric.yaml`; the api container mounts it at `/app/ragfabric.yaml` |
+| `RAGFABRIC_TEST_DATABASE_URL` | PostgreSQL connection string used only by the `PgVectorStore` and `PostgresLexicalStore` integration tests; unset, those tests skip |
 | `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD` | Graph store, full profile only |
 | `CHROMA_URL` | Vector store when `kind: chroma` |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | Provider keys, only the ones you use |
@@ -97,7 +101,12 @@ number.
 | Profile | Services | Strategies available |
 |---|---|---|
 | `lite` | postgres (pgvector), redis, api, ui | Traditional, Vectorless, Agentic |
-| `full` | lite plus chroma, neo4j | all four |
+| `full` | lite plus chroma, neo4j, worker | all four |
+| `workers` | lite plus worker | same as lite; needed when `ingestion.indexing: queue` |
+
+The `worker` service runs `ragfabric worker`, draining the Redis queue that `ingestion.indexing: queue`
+schedules ingestion jobs onto. In `inline` mode (the default) no worker is needed; the API indexes a
+document as part of the ingest call.
 
 ## Exposing the stack
 

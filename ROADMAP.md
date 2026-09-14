@@ -38,15 +38,16 @@ Legend: `[x]` merged to main, `[~]` in progress, `[ ]` not started.
 - [x] Python 3.13 via `uv`, Tailwind in the Angular apps
 
 ### Phase 2: Shared ingestion and access control foundation
-- [ ] Cleaning, section detection, document type metadata, retained originals
-- [ ] Configurable `chunk_size` and `chunk_overlap`
-- [ ] Index fan-out: vector, lexical, graph queue, as background workers on Redis
-- [ ] Groups, collection grants, per-document overrides, scoped API keys, audit log
-- [ ] Access filter applied inside every store query
-- [ ] CLI: add init, ingest, users, keys (version, config validate, db upgrade/downgrade and serve exist since Phase 1)
-- [ ] OpenTelemetry spans on every ingestion and retrieval step
+- [x] Cleaning, section detection, document type metadata, retained originals
+- [x] Configurable `chunk_size` and `chunk_overlap`
+- [x] Index fan-out: vector, lexical, graph queue, as background workers on Redis
+- [x] Groups, collection grants, per-document overrides, scoped API keys, audit log
+- [x] Access filter applied inside every store query
+- [x] CLI: add init, ingest, users, groups, grants, keys, worker (version, config validate, db upgrade/downgrade and serve exist since Phase 1)
+- [x] OpenTelemetry spans on every ingestion and retrieval step
 
 ### Phase 3: Traditional RAG
+- [ ] Query the pgvector index populated since Phase 2 and retire the in memory index
 - [ ] Embeddings to pgvector or Chroma, top-k, similarity threshold, metadata filter, optional reranking, context budget
 - [ ] Numbered citations with a tested citation contract
 - [ ] `POST /api/ask` manual mode, SSE streaming

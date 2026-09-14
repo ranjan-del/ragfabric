@@ -44,7 +44,9 @@ every chunk so a citation can point at a place, not just a file.
 
 A vector store indexes chunk vectors for approximate nearest neighbour search (HNSW in pgvector and
 Chroma). `top_k` controls how many candidates come back. The store always returns its nearest
-neighbours, even when the nearest neighbour is unrelated, which is why the next step exists.
+neighbours, even when the nearest neighbour is unrelated, which is why the next step exists. The
+pgvector store (`PgVectorStore`) has been fed by ingestion since Phase 2; this strategy is what starts
+querying it.
 
 ### Similarity threshold
 

@@ -249,6 +249,9 @@ request and applied **inside** every store query, so a chunk the caller may not 
 never enters the model context and never appears in a citation. The policy lives in the engine, not the
 UI, so replacing the UI cannot remove it. The admin console manages all of this.
 
+A collection with no grants is open to every signed in user; the first grant restricts it to its
+grantees.
+
 ## Observability
 
 One trace per request with spans for the router, each retrieval call, each LLM call, generation and
@@ -386,6 +389,25 @@ The current `main` is a complete single strategy assistant that runs offline wit
 - JWT auth, two role RBAC, bootstrap admin, production safety rails, Alembic migrations with a drift test
 - Angular app with login, dashboard, upload, ask, collections, analytics and admin pages
 - 107 backend tests and 20 frontend tests, CI runs the migrations against real PostgreSQL
+
+Phase 2 added a shared ingestion and access control foundation underneath the v1 path:
+
+- Configurable cleaning (hyphenation repair, whitespace and repeated header and footer removal),
+  heading detection and chunking, with chunk size and overlap read from `ragfabric.yaml`
+- Retained original files under a configurable uploads directory, with a download route and deletion
+  on document delete
+- A pgvector vector index and a PostgreSQL full text index, written by the ingestion fan out either
+  inline or through Redis backed workers
+- Groups, collection grants, per document overrides and hashed API keys with rate limits
+- An `AccessFilter` computed per request and applied inside every store query
+- A retrieval run, its sources and an audit row recorded per query, readable at `GET /api/runs/{id}`
+- Tracing spans across ingestion and retrieval with optional OTLP export
+- CLI commands `init`, `ingest`, `users`, `groups`, `grants`, `keys`, `worker`
+
+Queries still run through the v1 in memory index until Phase 3; the new pgvector and full text
+indexes are populated by ingestion but not yet queried by the API. The Python test suite is now 221
+passed, 3 skipped (a live OpenAI check and two PostgreSQL integration tests that run in CI); the
+20 frontend tests are unchanged.
 
 ```bash
 uv sync                       # Python 3.13 workspace: core, server, cli
