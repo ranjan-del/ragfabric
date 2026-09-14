@@ -144,6 +144,24 @@ def test_api_key_scopes_intersect(world):
     assert docs["mine"].id not in f.document_ids and docs["loose"].id not in f.document_ids
 
 
+def test_admin_owned_api_key_is_limited_to_its_scopes(world):
+    db, users, cols, docs, hr_group = world
+    key = ApiKey(
+        name="k",
+        key_prefix="rf_abc",
+        key_hash="x",
+        principal_user_id=users["admin"].id,
+        collection_ids=[cols["hr"].id],
+        strategies=[],
+    )
+    db.add(key)
+    db.commit()
+    f = compute_access_filter(db, principal(users["admin"], api_key_id=key.id))
+    assert f.collection_ids == frozenset({cols["hr"].id})
+    assert f.is_unrestricted is False
+    assert not f.allows(docs["open"].id, cols["open"].id)
+
+
 def test_dangling_or_inactive_api_key_fails_closed(world):
     db, users, cols, docs, hr_group = world
     f = compute_access_filter(db, principal(users["alice"], api_key_id=999999))

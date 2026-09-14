@@ -5,7 +5,9 @@ passed into every store query, so ranking only ever sees permitted rows.
 
 Rules, applied in order:
 0. A principal presenting a missing or inactive API key sees nothing.
-1. Admins are unrestricted.
+1. Admins are unrestricted, unless the API key in use carries collection
+   scopes, in which case the admin is narrowed to those collections like
+   anyone else.
 2. A collection is readable when one of the principal's groups holds a grant
    on it, when the principal owns it, or when it has no grants at all. The
    last rule keeps v1 behaviour (everyone sees everything) until an admin
@@ -40,8 +42,21 @@ def compute_access_filter(db: Session, principal: Principal) -> AccessFilter:
                 denied_document_ids=frozenset(),
             )
 
+    scopes = set(key.collection_ids or []) if key is not None else set()
+
     if principal.role == "admin":
-        return AccessFilter.unrestricted()
+        if not scopes:
+            return AccessFilter.unrestricted()
+        in_scope_docs = set(
+            db.execute(
+                select(Document.id).where(Document.collection_id.in_(sorted(scopes)))
+            ).scalars()
+        )
+        return AccessFilter(
+            collection_ids=frozenset(scopes),
+            document_ids=frozenset(in_scope_docs),
+            denied_document_ids=frozenset(),
+        )
 
     groups = list(principal.group_ids)
     granted_ids = set(db.execute(select(CollectionGrant.collection_id).distinct()).scalars())
@@ -84,7 +99,6 @@ def compute_access_filter(db: Session, principal: Principal) -> AccessFilter:
                 allowed_documents.add(row.document_id)
 
     if key is not None:
-        scopes = set(key.collection_ids or [])
         if scopes:
             allowed_collections &= scopes
             in_scope_docs = set(
