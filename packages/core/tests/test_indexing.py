@@ -110,6 +110,30 @@ def test_worker_runs_jobs_and_survives_a_failing_handler(db_and_doc, monkeypatch
     assert w.failed == 1 and w.processed == 2
 
 
+def test_queued_job_failure_marks_the_document_failed(db_and_doc):
+    factory, doc_id = db_and_doc
+    q = MemoryJobQueue()
+    q.enqueue(Job(id="j1", kind="index_document", payload={"document_id": doc_id}))
+    handlers = dict(
+        default_handlers(
+            embedding_provider=HashingEmbeddingProvider(dim=16),
+            vector_store=PgVectorStore(factory),
+            lexical_store=PostgresLexicalStore(factory),
+        )
+    )
+
+    def raising_index(db, job):
+        raise RuntimeError("embedding provider unavailable")
+
+    handlers["index_document"] = raising_index
+    w = Worker(q, factory, handlers)
+    assert w.run_once(timeout_seconds=0) is True
+    with factory() as db:
+        doc = db.get(Document, doc_id)
+        assert doc.status == "failed"
+        assert "embedding provider unavailable" in doc.error
+
+
 def test_inline_indexing_failure_marks_the_document_failed(db_and_doc, monkeypatch):
     factory, doc_id = db_and_doc
     from ragfabric_core.ingest import pipeline

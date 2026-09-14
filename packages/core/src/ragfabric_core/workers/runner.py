@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 from sqlalchemy.orm import Session
 
+from ragfabric_core.models.document import Document
 from ragfabric_core.providers.base import EmbeddingProvider
 from ragfabric_core.queue.base import Job, JobQueue
 from ragfabric_core.stores.base import LexicalStore, VectorStore
@@ -61,12 +62,34 @@ class Worker:
                 handler(db, job)
                 self.processed += 1
                 log.info("job %s (%s) done", job.id, job.kind)
-            except Exception:
+            except Exception as exc:
                 db.rollback()
                 self.failed += 1
                 self.processed += 1
                 log.exception("job %s (%s) failed", job.id, job.kind)
+                self._mark_document_failed(job, exc)
         return True
+
+    def _mark_document_failed(self, job: Job, exc: Exception) -> None:
+        document_id = job.payload.get("document_id")
+        if document_id is None:
+            return
+        try:
+            with self._sf() as fail_db:
+                document = fail_db.get(Document, int(document_id))
+                if document is None:
+                    return
+                document.status = "failed"
+                document.error = f"{job.kind} failed: {exc}"[:500]
+                fail_db.commit()
+                log.error("document %s marked failed: %s", document_id, document.error)
+        except Exception:
+            log.error(
+                "could not mark document %s failed after job %s error",
+                document_id,
+                job.id,
+                exc_info=True,
+            )
 
     def run_forever(self, stop: threading.Event, timeout_seconds: float = 1.0) -> None:
         while not stop.is_set():
