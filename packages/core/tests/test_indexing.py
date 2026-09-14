@@ -108,3 +108,36 @@ def test_worker_runs_jobs_and_survives_a_failing_handler(db_and_doc, monkeypatch
     with factory() as db:
         assert db.get(Document, doc_id).status == "ready"
     assert w.failed == 1 and w.processed == 2
+
+
+def test_inline_indexing_failure_marks_the_document_failed(db_and_doc, monkeypatch):
+    factory, doc_id = db_and_doc
+    from ragfabric_core.ingest import pipeline
+
+    class Boom:
+        name = "boom"
+
+        def upsert(self, *a, **k):
+            raise RuntimeError("store down")
+
+        def query(self, *a, **k):
+            return []
+
+        def delete_document(self, *a): ...
+
+        def count(self):
+            return 0
+
+    monkeypatch.setattr(
+        "ragfabric_core.ingest.indexing._embedding_provider",
+        lambda: HashingEmbeddingProvider(dim=16),
+    )
+    monkeypatch.setattr(
+        "ragfabric_core.ingest.indexing._stores",
+        lambda: (Boom(), PostgresLexicalStore(factory)),
+    )
+    monkeypatch.setattr("ragfabric_core.ingest.pipeline.build_queue", lambda cfg: None)
+    with factory() as db:
+        doc = db.get(Document, doc_id)
+        result = pipeline._index_content(db, doc, b"annual leave is twelve days")
+        assert result.status == "failed" and "store down" in result.error

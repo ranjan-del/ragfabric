@@ -107,7 +107,7 @@ def _index_content(db: Session, document: Document, data: bytes) -> Document:
             }
         )
 
-    document.status = "ready"
+    document.status = "processing"
     document.num_chunks = len(chunks)
     document.error = ""
     db.commit()
@@ -117,7 +117,13 @@ def _index_content(db: Session, document: Document, data: bytes) -> Document:
     # If the commit had failed we would have raised before touching the index.
     get_store().upsert(store_records)
 
-    document.status = schedule_indexing(db, document, build_queue(get_config()))
+    try:
+        document.status = schedule_indexing(db, document, build_queue(get_config()))
+    except Exception as exc:  # embedding or store failure during inline indexing
+        db.rollback()
+        document = db.get(Document, document.id)
+        document.status = "failed"
+        document.error = f"indexing failed: {exc}"[:500]
     db.commit()
     db.refresh(document)
     return document
