@@ -22,11 +22,23 @@ os.environ["FIRST_ADMIN_EMAIL"] = "admin@example.com"
 os.environ["FIRST_ADMIN_PASSWORD"] = "adminpass123"
 os.environ.pop("ANTHROPIC_API_KEY", None)  # force the offline answer path
 
+_UPLOADS = os.path.join(tempfile.gettempdir(), "ragfabric_test_uploads")
+_CFG = os.path.join(tempfile.gettempdir(), "ragfabric_test_config.yaml")
+with open(_CFG, "w") as fh:
+    fh.write(
+        f"ingestion:\n  uploads_dir: {_UPLOADS}\ncache:\n  kind: memory\n"
+        "embeddings:\n  provider: offline\n  dim: 32\n"
+    )
+os.environ["RAGFABRIC_CONFIG"] = _CFG
+
 from fastapi.testclient import TestClient  # noqa: E402
 
+from ragfabric_core import runtime  # noqa: E402
 from ragfabric_core.db.session import Base, engine  # noqa: E402
 from ragfabric_core.store.vector_store import get_store  # noqa: E402
 from ragfabric_server.main import app  # noqa: E402
+
+runtime.reset_config()
 
 
 @pytest.fixture()

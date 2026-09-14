@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from ragfabric_core.db.session import get_db
 from ragfabric_core.ingest.parser import SUPPORTED_FORMATS
 from ragfabric_core.ingest.pipeline import reingest_document
+from ragfabric_core.ingest.storage import get_storage
 from ragfabric_core.models.document import Document
 from ragfabric_core.models.user import Role, User
 from ragfabric_core.store.vector_store import get_store
@@ -139,4 +140,5 @@ def admin_delete_document(
     db.delete(document)
     db.commit()
     get_store().delete_document(document_id)
+    get_storage().delete(document_id)
     return {"detail": "Document deleted.", "id": document_id}

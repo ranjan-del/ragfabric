@@ -11,6 +11,10 @@ keeping the SQL database and the in-memory vector index in sync:
 Chunk embeddings are persisted as JSON on the ``chunks`` table, so the in-memory
 index can be rebuilt from the database on startup (see
 ``InMemoryVectorStore.rebuild_from_db``).
+
+Two indexes are written during Phase 2: the v1 in memory index (still the live
+query path) and the pgvector plus full text tables that Phases 3 and 4 will
+query. The duplication ends when Phase 3 retires the in memory index.
 """
 
 from __future__ import annotations
@@ -19,9 +23,15 @@ from sqlalchemy.orm import Session
 
 from ragfabric_core.ingest import parser
 from ragfabric_core.ingest.chunk import chunk_text
+from ragfabric_core.ingest.clean import clean_text, document_type_for
 from ragfabric_core.ingest.embed import get_embedder
+from ragfabric_core.ingest.indexing import schedule_indexing
+from ragfabric_core.ingest.storage import get_storage
 from ragfabric_core.models.document import Chunk, Document
+from ragfabric_core.queue.registry import build_queue
+from ragfabric_core.runtime import get_config
 from ragfabric_core.store.vector_store import get_store
+from ragfabric_core.telemetry.tracing import trace
 
 EMPTY_TEXT_NOTE = (
     "Parsed successfully but no extractable text was found "
@@ -41,8 +51,15 @@ def _index_content(db: Session, document: Document, data: bytes) -> Document:
     function owns everything from parsing to committing and indexing.
     """
     try:
-        text = parser.parse(document.filename, data)
-        chunks = chunk_text(text)
+        with trace("parse", format=document.format):
+            text = parser.parse(document.filename, data)
+        with trace("clean"):
+            text = clean_text(text)
+        cfg = get_config().ingestion
+        with trace("chunk", chunk_size=cfg.chunk_size, overlap=cfg.chunk_overlap):
+            chunks = chunk_text(
+                text, chunk_size=cfg.chunk_size, overlap=cfg.chunk_overlap, sections=True
+            )
     except Exception as exc:  # unsupported format, corrupt file, etc.
         document.status = "failed"
         document.error = str(exc)[:500]
@@ -61,39 +78,41 @@ def _index_content(db: Session, document: Document, data: bytes) -> Document:
         db.refresh(document)
         return document
 
-    embedder = get_embedder()
-    vectors = embedder.embed([c["text"] for c in chunks])
+    with trace("persist_chunks", count=len(chunks)):
+        embedder = get_embedder()
+        vectors = embedder.embed([c["text"] for c in chunks])
 
-    store_records: list[dict] = []
-    for chunk_meta, vector in zip(chunks, vectors, strict=True):
-        embedding = vector.tolist()
-        chunk_row = Chunk(
-            document_id=document.id,
-            collection_id=document.collection_id,
-            chunk_index=chunk_meta["chunk_index"],
-            page=chunk_meta["page"],
-            char_start=chunk_meta["char_start"],
-            char_end=chunk_meta["char_end"],
-            text=chunk_meta["text"],
-            embedding=embedding,
-        )
-        db.add(chunk_row)
-        db.flush()  # assign chunk_row.id for the vector-store record
-        store_records.append(
-            {
-                "vector": embedding,
-                "chunk_id": chunk_row.id,
-                "document_id": document.id,
-                "collection_id": document.collection_id,
-                "filename": document.filename,
-                "format": document.format,
-                "page": chunk_meta["page"],
-                "chunk_index": chunk_meta["chunk_index"],
-                "text": chunk_meta["text"],
-            }
-        )
+        store_records: list[dict] = []
+        for chunk_meta, vector in zip(chunks, vectors, strict=True):
+            embedding = vector.tolist()
+            chunk_row = Chunk(
+                document_id=document.id,
+                collection_id=document.collection_id,
+                chunk_index=chunk_meta["chunk_index"],
+                page=chunk_meta["page"],
+                char_start=chunk_meta["char_start"],
+                char_end=chunk_meta["char_end"],
+                text=chunk_meta["text"],
+                embedding=embedding,
+                section=chunk_meta.get("section"),
+            )
+            db.add(chunk_row)
+            db.flush()  # assign chunk_row.id for the vector-store record
+            store_records.append(
+                {
+                    "vector": embedding,
+                    "chunk_id": chunk_row.id,
+                    "document_id": document.id,
+                    "collection_id": document.collection_id,
+                    "filename": document.filename,
+                    "format": document.format,
+                    "page": chunk_meta["page"],
+                    "chunk_index": chunk_meta["chunk_index"],
+                    "text": chunk_meta["text"],
+                }
+            )
 
-    document.status = "ready"
+    document.status = "processing"
     document.num_chunks = len(chunks)
     document.error = ""
     db.commit()
@@ -102,6 +121,17 @@ def _index_content(db: Session, document: Document, data: bytes) -> Document:
     # Index only after a successful commit so the vector store mirrors the DB.
     # If the commit had failed we would have raised before touching the index.
     get_store().upsert(store_records)
+
+    try:
+        with trace("schedule_indexing", mode=get_config().ingestion.indexing):
+            document.status = schedule_indexing(db, document, build_queue(get_config()))
+    except Exception as exc:  # embedding or store failure during inline indexing
+        db.rollback()
+        document = db.get(Document, document.id)
+        document.status = "failed"
+        document.error = f"indexing failed: {exc}"[:500]
+    db.commit()
+    db.refresh(document)
     return document
 
 
@@ -124,12 +154,15 @@ def ingest_document(
         filename=filename,
         content_type=content_type,
         format=_extension(filename),
+        document_type=document_type_for(_extension(filename)),
         collection_id=collection_id,
         owner_id=owner_id,
         status="processing",
     )
     db.add(document)
     db.flush()  # assign document.id without committing yet
+    if get_config().ingestion.retain_originals:
+        document.storage_path = get_storage().save(document.id, filename, data)
     return _index_content(db, document, data)
 
 
@@ -153,7 +186,11 @@ def reingest_document(
     get_store().delete_document(document.id)
 
     document.filename = filename
+    get_storage().delete(document.id)
+    if get_config().ingestion.retain_originals:
+        document.storage_path = get_storage().save(document.id, filename, data)
     document.format = _extension(filename)
+    document.document_type = document_type_for(document.format)
     document.content_type = content_type or document.content_type
     document.version += 1
     document.status = "processing"

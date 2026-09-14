@@ -146,7 +146,10 @@ def test_legacy_hybrid_strategy_meets_the_contract(monkeypatch):
     from ragfabric_core.strategies.legacy import LegacyHybridStrategy
 
     class FakeRetriever:
-        def retrieve(self, query, top_k, collection_id=None, document_id=None, format=None):
+        def retrieve(
+            self, query, top_k, collection_id=None, document_id=None, format=None, access=None
+        ):
+            self.seen_access = access
             return [
                 {
                     "chunk_id": 7,
@@ -163,12 +166,15 @@ def test_legacy_hybrid_strategy_meets_the_contract(monkeypatch):
                 },
             ][:top_k]
 
-    monkeypatch.setattr("ragfabric_core.strategies.legacy.HybridRetriever", lambda: FakeRetriever())
+    fake = FakeRetriever()
+    monkeypatch.setattr("ragfabric_core.strategies.legacy.HybridRetriever", lambda: fake)
     strategy = LegacyHybridStrategy()
     assert strategy.name == StrategyName.TRADITIONAL
-    result = assert_strategy_contract(strategy, "leave", make_ctx(params=StrategyParams(top_k=3)))
+    ctx = make_ctx(params=StrategyParams(top_k=3))
+    result = assert_strategy_contract(strategy, "leave", ctx)
     assert result.retrieval_calls == 1 and result.llm_calls == 0
     assert result.chunks[0].metadata["filename"] == "hr.pdf"
     assert result.chunks[0].metadata["format"] == "pdf"
     assert result.chunks[0].metadata["hybrid_score"] == 0.51
     assert result.trace[0].name == "hybrid_search"
+    assert fake.seen_access is ctx.access_filter

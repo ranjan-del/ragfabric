@@ -60,6 +60,9 @@ class IngestionConfig(_Strict):
     chunk_size: int = Field(default=600, ge=50)
     chunk_overlap: int = Field(default=80, ge=0)
     retain_originals: bool = True
+    uploads_dir: str = "data/uploads"
+    # inline: index in the request that ingests. queue: enqueue for `ragfabric worker`.
+    indexing: Literal["inline", "queue"] = "inline"
 
 
 class StrategiesConfig(_Strict):

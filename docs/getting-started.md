@@ -1,7 +1,8 @@
 # Getting started
 
-> Status: the compose profiles, the CLI and `ragfabric.yaml` exist since Phase 1. Traditional and
-> Vectorless RAG arrive in Phases 3 and 4.
+> Status: the compose profiles, the CLI and `ragfabric.yaml` exist since Phase 1. Ingestion, access
+> control and the CLI commands below shipped in Phase 2. Traditional and Vectorless RAG arrive in
+> Phases 3 and 4.
 
 ## Prerequisites
 
@@ -22,6 +23,7 @@ cd ragfabric
 cp .env.example .env && cp ragfabric.example.yaml ragfabric.yaml
 docker compose up --build                  # lite: PostgreSQL with pgvector, Redis, API, UI
 docker compose --profile full up --build   # adds Chroma and Neo4j
+docker compose --profile workers up --build # adds the worker, needed for ingestion.indexing: queue
 ```
 
 Backend on `http://localhost:8000` (OpenAPI at `/docs`), frontend on `http://localhost:4200`. Sign in with
@@ -46,8 +48,41 @@ ragfabric db upgrade
 ragfabric serve
 ```
 
-`ragfabric ingest`, `users` and `keys` are Phase 2. `ragfabric ask` is Phase 3, once the Traditional
-strategy ships.
+## First ingest, first user, first key
+
+The real flow, in order: create the configuration, upgrade the database, create an admin, ingest a
+folder into a collection, then mint an API key.
+
+```bash
+ragfabric init                                                    # writes .env and ragfabric.yaml from the examples
+ragfabric db upgrade                                              # applies migrations, including 0003 (ingestion and indexes)
+ragfabric users create --email you@example.com --password ... --role admin
+ragfabric ingest ./docs --collection handbook                     # cleans, chunks, retains the originals, writes both indexes
+ragfabric keys create --name ci --user you@example.com            # prints the plaintext key once; only its hash is stored
+```
+
+`ragfabric groups create`, `ragfabric grants add` and `ragfabric groups add-member` layer group based
+access on top of a collection once it needs to stop being open by default. `ragfabric ask` is Phase 3,
+once the Traditional strategy ships.
+
+## Queued indexing
+
+By default (`ingestion.indexing: inline` in `ragfabric.yaml`) `ragfabric ingest` embeds and indexes a
+document before returning. To move that work onto background workers over Redis, set:
+
+```yaml
+ingestion:
+  indexing: queue
+```
+
+and start the worker alongside the rest of the stack:
+
+```bash
+docker compose --profile workers up --build
+```
+
+or, without Docker, `ragfabric worker`. A queued document moves through `processing`, `indexing`, then
+`ready` (or `failed`); `ragfabric worker --once` drains the queue once and exits, which is what CI uses.
 
 ## What to read next
 

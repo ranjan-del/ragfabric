@@ -13,6 +13,10 @@ from pathlib import Path
 import typer
 from pydantic import ValidationError
 
+from ragfabric_cli.commands import access as access_commands
+from ragfabric_cli.commands import ingest as ingest_commands
+from ragfabric_cli.commands import users as users_commands
+from ragfabric_cli.commands.worker import worker as worker_command
 from ragfabric_core import __version__
 from ragfabric_core.config_file import load_config, resolve_config_path
 from ragfabric_core.db import migrate
@@ -26,6 +30,12 @@ db_app = typer.Typer(help="Database migrations.")
 config_app = typer.Typer(help="Configuration.")
 app.add_typer(db_app, name="db")
 app.add_typer(config_app, name="config")
+app.add_typer(users_commands.app, name="users")
+app.add_typer(access_commands.groups_app, name="groups")
+app.add_typer(access_commands.grants_app, name="grants")
+app.add_typer(access_commands.keys_app, name="keys")
+app.command("ingest")(ingest_commands.ingest)
+app.command("worker")(worker_command)
 
 
 def _database_url() -> str:
@@ -113,6 +123,32 @@ def config_validate(
             typer.echo(f"  {p}")
         raise typer.Exit(code=1)
     typer.echo("configuration ok")
+
+
+@app.command()
+def init(
+    force: bool = typer.Option(
+        False, "--force", help="Overwrite existing .env and ragfabric.yaml."
+    ),
+) -> None:
+    """Create .env and ragfabric.yaml from the examples, then validate."""
+    import shutil
+    from pathlib import Path
+
+    for example, target in ((".env.example", ".env"), ("ragfabric.example.yaml", "ragfabric.yaml")):
+        src, dst = Path(example), Path(target)
+        if not src.exists():
+            typer.echo(f"{example} not found in the current directory")
+            raise typer.Exit(code=1)
+        if dst.exists() and not force:
+            typer.echo(f"{target} already exists (use --force to overwrite)")
+            continue
+        shutil.copyfile(src, dst)
+        typer.echo(f"wrote {target}")
+    from ragfabric_core.runtime import reset_config
+
+    reset_config()
+    config_validate(path=None, check_providers=False)
 
 
 @app.command()

@@ -104,6 +104,11 @@ def test_parse_rejects_unknown_extension():
             lambda: make_csv(["name", "role"], [["Ada", "engineer"]]),
             "engineer",
         ),
+        (
+            "readme.md",
+            lambda: make_txt("# Setup\nThe deploy key rotates monthly."),
+            "deploy key",
+        ),
     ],
 )
 def test_every_supported_format_ingests_and_becomes_searchable(
@@ -132,7 +137,7 @@ def test_every_supported_format_ingests_and_becomes_searchable(
 def test_supported_formats_constant_matches_the_tested_set():
     # Guards against advertising a format in the API error message that no test
     # (and possibly no parser) actually covers.
-    assert set(SUPPORTED_FORMATS) == {"pdf", "docx", "pptx", "txt", "csv"}
+    assert set(SUPPORTED_FORMATS) == {"pdf", "docx", "pptx", "txt", "csv", "md"}
 
 
 def test_pdf_page_numbers_reach_the_citation(client, auth_headers):

@@ -42,6 +42,8 @@ EXPECTED_TABLES = {
     "evaluation_results",
     "entities",
     "relationships",
+    "chunk_embeddings",
+    "chunk_search",
 }
 
 
@@ -78,6 +80,14 @@ def test_migrations_match_the_models(tmp_path):
         "The models and the Alembic migrations have drifted apart. "
         f"Run `alembic revision --autogenerate -m '...'` and review: {diff}"
     )
+
+
+def test_0003_adds_section_document_type_and_storage_path(tmp_path):
+    engine, _ = _migrated_engine(tmp_path)
+    cols = {c["name"] for c in inspect(engine).get_columns("chunks")}
+    assert "section" in cols
+    dcols = {c["name"] for c in inspect(engine).get_columns("documents")}
+    assert {"document_type", "storage_path"} <= dcols
 
 
 def test_downgrade_removes_every_table(tmp_path):

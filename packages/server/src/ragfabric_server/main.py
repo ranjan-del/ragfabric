@@ -21,14 +21,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from ragfabric_core.config import get_settings
 from ragfabric_core.db.session import SessionLocal, init_db
 from ragfabric_core.models.user import Role, User
+from ragfabric_core.runtime import get_config
 from ragfabric_core.security import hash_password
 from ragfabric_core.store.vector_store import get_store
+from ragfabric_core.telemetry.tracing import configure_otel
 from ragfabric_server.api.routes import (
+    access,
     admin,
     analytics,
     auth,
     collections,
     documents,
+    runs,
     search,
 )
 
@@ -64,6 +68,8 @@ async def lifespan(app: FastAPI):
     invisible to search.
     """
     init_db()
+    export_on = configure_otel(get_config().telemetry.otlp_endpoint)
+    logger.info("OTLP export %s", "enabled" if export_on else "disabled")
     _seed_admin()
     with SessionLocal() as db:
         restored = get_store().rebuild_from_db(db)
@@ -93,6 +99,8 @@ app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(collections.router, prefix="/api/collections", tags=["collections"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(access.router, prefix="/api/admin", tags=["access"])
+app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
 
 
 @app.get("/health", tags=["system"])

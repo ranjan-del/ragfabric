@@ -36,8 +36,8 @@ estimated when the provider reports them.
 | Offline hashing | Phase 1 (shipped) | Test double from v1, deterministic, no network. Not for production use |
 | Voyage, Cohere, sentence transformers | later | |
 
-Changing the embedding model requires re-indexing; re-indexing after an embedding model change
-arrives with the CLI `ingest` command in Phase 2.
+Changing the embedding model requires re-indexing; the CLI `ingest` command (Phase 2) re-runs the
+ingestion pipeline, including embedding, over a path.
 
 ## Rerankers (`Reranker`)
 
@@ -51,25 +51,28 @@ The `Reranker` interface is not part of Phase 1; it arrives with Traditional RAG
 
 ## Vector stores (`VectorStore`)
 
-Interface: Phase 1 (shipped). No implementation exists yet under `stores/` other than the interface itself.
+Interface: Phase 1 (shipped).
 
 | Store | Status | Notes |
 |---|---|---|
-| PostgreSQL pgvector | v0.1.0 (planned, Phase 3) | Lite profile default, one less service |
+| PostgreSQL pgvector (`PgVectorStore`) | Phase 2 (shipped, fed by ingestion; queried from Phase 3) | Cosine distance; a NumPy fallback on SQLite. Lite profile default, one less service |
 | Chroma | v0.1.0 (planned, Phase 3) | Full profile |
 | Qdrant, Weaviate, Milvus | later | |
 
-All stores accept an access filter and metadata filters and apply them before ranking.
+All stores accept an access filter and metadata filters and apply them before ranking; the pgvector and
+PostgreSQL full text stores apply the filter inside the SQL query via `stores/access_sql.access_clause`.
+The `memory` vector store kind in `ragfabric.yaml` maps to `PgVectorStore` for now, since its SQLite
+fallback path covers the no-Postgres case; a true in memory implementation is not planned separately.
 
 ## Lexical stores (`LexicalStore`)
 
 Interface: Phase 1 (shipped).
 
-| Store | Status |
-|---|---|
-| PostgreSQL full text (`tsvector`, GIN) | v0.1.0 (planned, Phase 4) |
-| In process BM25 (`rank_bm25`), rebuilt from the database | v0.1.0 (planned, Phase 4) |
-| OpenSearch | later |
+| Store | Status | Notes |
+|---|---|---|
+| PostgreSQL full text (`PostgresLexicalStore`: `tsvector`, `plainto_tsquery`, `ts_rank_cd`, GIN index) | Phase 2 (shipped, fed by ingestion; queried from Phase 3) | Token overlap fallback on SQLite |
+| In process BM25 (`rank_bm25`), rebuilt from the database | v0.1.0 (planned, Phase 4) | |
+| OpenSearch | later | |
 
 ## Graph stores (`GraphStore`)
 
@@ -87,9 +90,12 @@ Interface: Phase 1 (shipped).
 
 | Store | Status |
 |---|---|
-| Redis / memory cache | v0.1.0 (planned, Phase 2) |
+| Redis (`RedisCache`) | Phase 2 (shipped) |
+| In memory (`MemoryCache`) | Phase 2 (shipped) |
 
-Used for embedding cache, answer cache, rate limiting and the ingestion queue.
+Used for the rate limiter (`auth/ratelimit.check_rate_limit`, a fixed one minute window) today, and for
+an embedding cache and answer cache later. The Redis backed job queue (`queue/redis_queue.py`) is a
+separate `JobQueue` interface, not `Cache`.
 
 ## Auth (`AuthProvider`)
 
@@ -98,7 +104,7 @@ Interface: Phase 1 (shipped).
 | Kind | Status |
 |---|---|
 | Local users with JWT | Phase 1 (shipped, v1 auth) |
-| API keys | v0.1.0 (planned, Phase 2) |
+| API keys (`auth/api_keys.py`) | Phase 2 (shipped) |
 
 OIDC and SAML planned for the production release.
 

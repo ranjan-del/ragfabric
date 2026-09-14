@@ -12,7 +12,7 @@ class SearchRequest(BaseModel):
     collection_id: int | None = None
     document_id: int | None = None
     format: str | None = Field(
-        default=None, pattern="^(pdf|docx|pptx|txt|csv)$", description="File-type filter"
+        default=None, pattern="^(pdf|docx|pptx|txt|csv|md)$", description="File-type filter"
     )
     mode: str = Field(default="semantic", pattern="^(semantic|hybrid)$")
 

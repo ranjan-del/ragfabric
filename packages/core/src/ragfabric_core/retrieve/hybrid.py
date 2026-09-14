@@ -19,9 +19,11 @@ from __future__ import annotations
 
 import numpy as np
 
+from ragfabric_core.auth.principal import AccessFilter
 from ragfabric_core.config import settings
 from ragfabric_core.ingest.embed import content_tokens, get_embedder
 from ragfabric_core.store.vector_store import get_store
+from ragfabric_core.telemetry.tracing import trace
 
 
 def _minmax(values: np.ndarray) -> np.ndarray:
@@ -65,53 +67,59 @@ class HybridRetriever:
         collection_id: int | None = None,
         document_id: int | None = None,
         format: str | None = None,
+        access: AccessFilter | None = None,
     ) -> list[dict]:
-        """Return the ``top_k`` chunks ranked by the fused score."""
-        meta = self.store.all_meta()
-        if not meta:
-            return []
+        """Return the ``top_k`` chunks ranked by the fused score.
 
-        # Semantic scores for every stored chunk (cosine similarity).
-        query_vector = self.embedder.embed_one(query)
-        semantic = self.store.score_all(query_vector)
+        access: the caller's AccessFilter, applied before ranking.
+        """
+        with trace("hybrid_search", top_k=top_k, alpha=self.alpha):
+            meta = self.store.all_meta()
+            if not meta:
+                return []
 
-        # Restrict to the candidates that pass the metadata filters. The store
-        # owns filter semantics so semantic and hybrid modes cannot disagree.
-        candidates = self.store.candidate_rows(
-            {
-                "collection_id": collection_id,
-                "document_id": document_id,
-                "format": format,
-            }
-        )
-        if not candidates:
-            return []
+            # Semantic scores for every stored chunk (cosine similarity).
+            query_vector = self.embedder.embed_one(query)
+            semantic = self.store.score_all(query_vector)
 
-        query_tokens = set(content_tokens(query))
-        semantic_c = np.array([semantic[i] for i in candidates], dtype=np.float32)
-        lexical_c = np.array(
-            [_lexical_score(query_tokens, meta[i]["text"]) for i in candidates],
-            dtype=np.float32,
-        )
+            # Restrict to the candidates that pass the metadata filters. The store
+            # owns filter semantics so semantic and hybrid modes cannot disagree.
+            candidates = self.store.candidate_rows(
+                {
+                    "collection_id": collection_id,
+                    "document_id": document_id,
+                    "format": format,
+                },
+                access,
+            )
+            if not candidates:
+                return []
 
-        fused = self.alpha * _minmax(semantic_c) + (1 - self.alpha) * _minmax(lexical_c)
+            query_tokens = set(content_tokens(query))
+            semantic_c = np.array([semantic[i] for i in candidates], dtype=np.float32)
+            lexical_c = np.array(
+                [_lexical_score(query_tokens, meta[i]["text"]) for i in candidates],
+                dtype=np.float32,
+            )
 
-        # Stable ordering: sort on (-fused, chunk_id) so equal scores resolve the
-        # same way on every process, which matters after an index rebuild.
-        order = sorted(
-            range(len(candidates)),
-            key=lambda r: (-float(fused[r]), meta[candidates[r]].get("chunk_id") or 0),
-        )[:top_k]
-        results: list[dict] = []
-        for rank in order:
-            idx = candidates[rank]
-            record = dict(meta[idx])
-            # ``score`` stays the raw cosine so it means the same thing in both
-            # modes and can be compared across queries. The fused value is a
-            # min-max rank within THIS result set (its top is always ~1.0), so it
-            # is exposed separately rather than passed off as a similarity.
-            record["score"] = float(semantic[idx])
-            record["lexical_score"] = float(lexical_c[rank])
-            record["hybrid_score"] = float(fused[rank])
-            results.append(record)
-        return results
+            fused = self.alpha * _minmax(semantic_c) + (1 - self.alpha) * _minmax(lexical_c)
+
+            # Stable ordering: sort on (-fused, chunk_id) so equal scores resolve the
+            # same way on every process, which matters after an index rebuild.
+            order = sorted(
+                range(len(candidates)),
+                key=lambda r: (-float(fused[r]), meta[candidates[r]].get("chunk_id") or 0),
+            )[:top_k]
+            results: list[dict] = []
+            for rank in order:
+                idx = candidates[rank]
+                record = dict(meta[idx])
+                # ``score`` stays the raw cosine so it means the same thing in both
+                # modes and can be compared across queries. The fused value is a
+                # min-max rank within THIS result set (its top is always ~1.0), so it
+                # is exposed separately rather than passed off as a similarity.
+                record["score"] = float(semantic[idx])
+                record["lexical_score"] = float(lexical_c[rank])
+                record["hybrid_score"] = float(fused[rank])
+                results.append(record)
+            return results

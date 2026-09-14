@@ -50,7 +50,7 @@ sequenceDiagram
     participant Store as Stores
     participant L as LLMProvider
     U->>S: POST /api/ask {question, mode, strategy?}
-    S->>S: authenticate, resolve principal, compute permitted documents
+    S->>S: authenticate, resolve principal, compute AccessFilter
     S->>R: route(question) if mode=auto
     R-->>S: RouterDecision
     S->>St: retrieve(question, RetrievalContext{principal, filter, params, budget})
@@ -59,9 +59,17 @@ sequenceDiagram
     St-->>S: RetrievalResult
     S->>L: generate(prompt with numbered passages)
     L-->>S: answer with [n] markers
-    S->>S: citation check, metrics, trace, audit log
+    S->>S: citation check, metrics, trace
+    S->>S: write RetrievalRun, Source, AuditLog
     S-->>U: answer, sources, metrics, router decision, trace id (SSE streamed)
 ```
+
+Phase 2 already implements the access filter and audit half of this flow on the endpoints that exist
+today: `/api/search/query`, `/api/search/semantic` and `/api/search/hybrid` each compute an
+`AccessFilter` for the caller, filter inside the v1 store before ranking, and write an `AuditLog`
+entry with the counts of sources returned and filtered. `/api/search/query` additionally records a
+`RetrievalRun` with its `Source` rows and trace, readable at `GET /api/runs/{id}`. `POST /api/ask` and
+the router above it are Phase 3.
 
 ## Core types
 
@@ -99,24 +107,31 @@ four strategies comparable.
 | users, groups, group_members | Identity and grouping |
 | collections, collection_grants, document_overrides | Access control |
 | api_keys | Hashed keys with scopes and rate limits |
-| documents, document_chunks | Content with page, section, span, document_type |
+| documents, chunks | Content with page, section, span, document_type, storage_path |
+| chunk_embeddings, chunk_search | pgvector column and `tsvector` column per chunk, fed by ingestion since Phase 2, queried from Phase 3 |
 | entities, relationships | Mirror of the graph for the console; Neo4j is the query engine |
 | conversations, messages | Chat history |
-| retrieval_runs, sources | One row per ask with metrics; sources returned and sources filtered |
+| retrieval_runs, sources | One row per query with metrics; sources returned and sources filtered |
 | evaluation_runs, evaluation_results | Benchmark runs and per question results |
 | audit_log | Who asked what, which strategy, what was filtered |
 
-Vector data lives in pgvector or Chroma, lexical data in a `tsvector` column or an in process BM25
-index rebuilt from `document_chunks`, graph data in Neo4j.
+21 tables in total as of migration 0003. Vector data lives in `chunk_embeddings` (pgvector, or a NumPy
+column on SQLite) or Chroma, lexical data in `chunk_search` (`tsvector`, or a token overlap fallback on
+SQLite) or an in process BM25 index rebuilt from `chunks`, graph data in Neo4j.
 
 ## Ingestion
 
 ```
 file -> parser -> cleaning -> metadata -> chunker -> document_chunks
-     -> fan out (Redis queue, background workers): embed+vector index | lexical index | graph extraction
+     -> schedule_indexing: inline (same process) | queue (Redis, background workers)
+     -> fan out: vector index (chunk_embeddings) | lexical index (chunk_search) | graph queue (extraction, placeholder)
 ```
 
-Workers are stateless and horizontally scalable. The API never blocks on indexing.
+Shipped in Phase 2: `ingest/clean.py` (hyphenation repair, whitespace, repeated header and footer
+removal, heading detection), the retained original under `uploads_dir`, and
+`ingest/indexing.schedule_indexing`, which writes to both the vector and lexical index in one job so
+the v1 in memory index and the new tables stay in sync while Phase 3 still queries only the former.
+Workers are stateless and horizontally scalable; the API never blocks on indexing in `queue` mode.
 
 ## Observability
 
@@ -133,21 +148,30 @@ extractive generator are kept as offline test doubles. `packages/core/src/ragfab
 
 ```
 ragfabric_core/
-  auth/            principal.py (Principal, AccessFilter), base.py (AuthProvider)
+  auth/            principal.py (Principal, AccessFilter), base.py (AuthProvider),
+                   service.py (groups, members, grants, overrides), policy.py (compute_access_filter),
+                   api_keys.py (rf_ keys, hashing, expiry), ratelimit.py (check_rate_limit)
   connectors/      base.py (SourceDocument, Connector)
   db/              migrate.py, session.py
   generate/        answer.py, llm.py
-  ingest/          chunk.py, embed.py, parser.py, pipeline.py
-  migrations/      alembic.ini, env.py, script.py.mako, versions/0001_initial_schema.py, versions/0002_platform_tables.py
-  models/          base.py, user.py, document.py, access.py, runs.py, evaluation.py, graph.py
+  ingest/          chunk.py, clean.py (cleaning, heading detection, document_type_for), embed.py,
+                   indexing.py (schedule_indexing), parser.py, pipeline.py, storage.py (retained originals)
+  migrations/      alembic.ini, env.py, script.py.mako, versions/0001_initial_schema.py,
+                   versions/0002_platform_tables.py, versions/0003_ingestion_and_indexes.py
+  models/          base.py, user.py, document.py, access.py, runs.py, evaluation.py, graph.py, index.py
   providers/       base.py, offline.py, openai_compat.py, anthropic_provider.py, registry.py
-  retrieve/        hybrid.py, retriever.py (v1 pipeline, unchanged)
-  store/           vector_store.py (v1 store, unchanged)
-  stores/          base.py (VectorStore, LexicalStore, GraphStore, Cache)
+  queue/           base.py (Job, JobQueue), memory_queue.py, redis_queue.py, registry.py (build_queue)
+  retrieve/        hybrid.py, retriever.py (v1 pipeline, now access filtered)
+  runtime.py       get_config, reset_config, get_session_factory
+  store/           vector_store.py (v1 store, now access filtered)
+  stores/          base.py (VectorStore, LexicalStore, GraphStore, Cache), pgvector_store.py,
+                   postgres_fts.py, memory_cache.py, redis_cache.py, access_sql.py (access_clause), registry.py
   strategies/      base.py (StrategyName, RetrievedChunk, TraceSpan, StrategyParams, Budget,
                    RetrievalContext, RetrievalResult, RetrieverStrategy, StrategyRegistry),
                    contract.py, legacy.py (LegacyHybridStrategy)
+  telemetry/       tracing.py (start_trace, trace, configure_otel, otel_enabled)
   testing/         fixtures.py
+  workers/         handlers.py (index_document, extract_graph), runner.py (Worker, default_handlers)
   config.py        environment Settings
   config_file.py   ragfabric.yaml loader, strict validation
   pricing.py       pricing.yaml    dated, sourced cost data
