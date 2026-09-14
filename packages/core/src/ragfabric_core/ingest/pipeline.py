@@ -11,6 +11,10 @@ keeping the SQL database and the in-memory vector index in sync:
 Chunk embeddings are persisted as JSON on the ``chunks`` table, so the in-memory
 index can be rebuilt from the database on startup (see
 ``InMemoryVectorStore.rebuild_from_db``).
+
+Two indexes are written during Phase 2: the v1 in memory index (still the live
+query path) and the pgvector plus full text tables that Phases 3 and 4 will
+query. The duplication ends when Phase 3 retires the in memory index.
 """
 
 from __future__ import annotations
@@ -21,8 +25,10 @@ from ragfabric_core.ingest import parser
 from ragfabric_core.ingest.chunk import chunk_text
 from ragfabric_core.ingest.clean import clean_text, document_type_for
 from ragfabric_core.ingest.embed import get_embedder
+from ragfabric_core.ingest.indexing import schedule_indexing
 from ragfabric_core.ingest.storage import get_storage
 from ragfabric_core.models.document import Chunk, Document
+from ragfabric_core.queue.registry import build_queue
 from ragfabric_core.runtime import get_config
 from ragfabric_core.store.vector_store import get_store
 
@@ -110,6 +116,10 @@ def _index_content(db: Session, document: Document, data: bytes) -> Document:
     # Index only after a successful commit so the vector store mirrors the DB.
     # If the commit had failed we would have raised before touching the index.
     get_store().upsert(store_records)
+
+    document.status = schedule_indexing(db, document, build_queue(get_config()))
+    db.commit()
+    db.refresh(document)
     return document
 
 
