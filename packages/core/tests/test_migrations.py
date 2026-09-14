@@ -42,6 +42,8 @@ EXPECTED_TABLES = {
     "evaluation_results",
     "entities",
     "relationships",
+    "chunk_embeddings",
+    "chunk_search",
 }
 
 
