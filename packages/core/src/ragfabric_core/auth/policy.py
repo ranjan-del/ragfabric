@@ -74,7 +74,13 @@ def compute_access_filter(db: Session, principal: Principal) -> AccessFilter:
 
     if principal.api_key_id is not None:
         key = db.get(ApiKey, principal.api_key_id)
-        scopes = set(key.collection_ids or []) if key is not None else set()
+        if key is None or not key.is_active:
+            return AccessFilter(
+                document_ids=frozenset(),
+                collection_ids=frozenset(),
+                denied_document_ids=frozenset(),
+            )
+        scopes = set(key.collection_ids or [])
         if scopes:
             allowed_collections &= scopes
             in_scope_docs = set(

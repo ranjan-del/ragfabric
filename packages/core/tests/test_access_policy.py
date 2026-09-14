@@ -144,6 +144,25 @@ def test_api_key_scopes_intersect(world):
     assert docs["mine"].id not in f.document_ids and docs["loose"].id not in f.document_ids
 
 
+def test_dangling_or_inactive_api_key_fails_closed(world):
+    db, users, cols, docs, hr_group = world
+    f = compute_access_filter(db, principal(users["alice"], api_key_id=999999))
+    assert f.collection_ids == frozenset() and f.document_ids == frozenset()
+    key = ApiKey(
+        name="k",
+        key_prefix="rf_abc",
+        key_hash="y",
+        principal_user_id=users["alice"].id,
+        collection_ids=[],
+        strategies=[],
+        is_active=False,
+    )
+    db.add(key)
+    db.commit()
+    g = compute_access_filter(db, principal(users["alice"], api_key_id=key.id))
+    assert g.collection_ids == frozenset() and g.document_ids == frozenset()
+
+
 def test_grant_upsert_and_revoke(world):
     db, users, cols, docs, hr_group = world
     g1 = service.grant_collection(db, hr_group.id, cols["hr"].id, "write")
