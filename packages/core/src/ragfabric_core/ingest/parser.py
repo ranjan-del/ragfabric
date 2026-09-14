@@ -17,7 +17,7 @@ import io
 # page (or slide) number for citations.
 PAGE_BREAK = "\f"
 
-SUPPORTED_FORMATS = ("pdf", "docx", "pptx", "txt", "csv")
+SUPPORTED_FORMATS = ("pdf", "docx", "pptx", "txt", "csv", "md")
 
 
 def parse_pdf(data: bytes) -> str:
@@ -111,6 +111,7 @@ PARSERS = {
     "pptx": parse_pptx,
     "txt": parse_txt,
     "csv": parse_csv,
+    "md": parse_txt,
 }
 
 
