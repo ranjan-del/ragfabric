@@ -68,6 +68,33 @@ def test_viewer_without_grant_gets_nothing_from_a_restricted_collection(
     ).json()["results"]
 
 
+def test_viewer_cannot_upload_into_a_collection_they_cannot_read(client, admin_headers, auth_headers):
+    hr = client.post("/api/collections", json={"name": "hr"}, headers=admin_headers).json()
+    group = client.post("/api/admin/groups", json={"name": "hr-only"}, headers=admin_headers).json()
+    client.post(
+        "/api/admin/grants",
+        json={"group_id": group["id"], "collection_id": hr["id"], "permission": "read"},
+        headers=admin_headers,
+    )
+    r = client.post(
+        "/api/documents/upload",
+        files={"file": ("policy.txt", make_txt("annual leave is twelve days"), "text/plain")},
+        data={"collection_id": str(hr["id"])},
+        headers=auth_headers,
+    )
+    assert r.status_code == 404
+    # Admins are unrestricted, so their upload into the same collection still succeeds.
+    admin_doc = _upload(client, admin_headers, "policy.txt", "annual leave is twelve days", hr["id"])
+    assert admin_doc["id"]
+    # The viewer can still upload when no collection is named.
+    loose = client.post(
+        "/api/documents/upload",
+        files={"file": ("loose.txt", make_txt("no collection here"), "text/plain")},
+        headers=auth_headers,
+    )
+    assert loose.status_code == 201
+
+
 def test_query_records_a_retrieval_run_with_sources_and_is_readable_by_its_owner(
     client, auth_headers, admin_headers
 ):

@@ -56,6 +56,7 @@ async def upload_document(
     collection_id: int | None = Form(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    access: AccessFilter = Depends(get_access_filter),
 ) -> Document:
     """Upload a file and ingest it into the knowledge base."""
     filename = file.filename or "upload"
@@ -68,8 +69,15 @@ async def upload_document(
                 f"Supported: {', '.join(SUPPORTED_FORMATS)}."
             ),
         )
-    if collection_id is not None and db.get(Collection, collection_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found.")
+    if collection_id is not None:
+        if db.get(Collection, collection_id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found."
+            )
+        if not access.allows(None, collection_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found."
+            )
 
     data = await file.read()
     if not data:
