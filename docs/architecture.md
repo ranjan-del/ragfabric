@@ -66,8 +66,10 @@ sequenceDiagram
 
 Phase 2 already implements the access filter and audit half of this flow on the endpoints that exist
 today: `/api/search/query`, `/api/search/semantic` and `/api/search/hybrid` each compute an
-`AccessFilter` for the caller, filter inside the v1 store before ranking, and write a `RetrievalRun`,
-its `Source` rows and an `AuditLog` entry. `POST /api/ask` and the router above it are Phase 3.
+`AccessFilter` for the caller, filter inside the v1 store before ranking, and write an `AuditLog`
+entry with the counts of sources returned and filtered. `/api/search/query` additionally records a
+`RetrievalRun` with its `Source` rows and trace, readable at `GET /api/runs/{id}`. `POST /api/ask` and
+the router above it are Phase 3.
 
 ## Core types
 
@@ -105,7 +107,7 @@ four strategies comparable.
 | users, groups, group_members | Identity and grouping |
 | collections, collection_grants, document_overrides | Access control |
 | api_keys | Hashed keys with scopes and rate limits |
-| documents, document_chunks | Content with page, section, span, document_type, storage_path |
+| documents, chunks | Content with page, section, span, document_type, storage_path |
 | chunk_embeddings, chunk_search | pgvector column and `tsvector` column per chunk, fed by ingestion since Phase 2, queried from Phase 3 |
 | entities, relationships | Mirror of the graph for the console; Neo4j is the query engine |
 | conversations, messages | Chat history |
@@ -115,7 +117,7 @@ four strategies comparable.
 
 21 tables in total as of migration 0003. Vector data lives in `chunk_embeddings` (pgvector, or a NumPy
 column on SQLite) or Chroma, lexical data in `chunk_search` (`tsvector`, or a token overlap fallback on
-SQLite) or an in process BM25 index rebuilt from `document_chunks`, graph data in Neo4j.
+SQLite) or an in process BM25 index rebuilt from `chunks`, graph data in Neo4j.
 
 ## Ingestion
 
