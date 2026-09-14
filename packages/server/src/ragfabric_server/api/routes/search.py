@@ -12,13 +12,13 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from ragfabric_core.auth.principal import Principal
 from ragfabric_core.db.session import get_db
 from ragfabric_core.generate.answer import build_answer
 from ragfabric_core.models.document import QueryLog
-from ragfabric_core.models.user import User
 from ragfabric_core.retrieve.hybrid import HybridRetriever
 from ragfabric_core.retrieve.retriever import Retriever
-from ragfabric_server.deps import get_current_user
+from ragfabric_server.deps import get_principal
 from ragfabric_server.schemas.search import AnswerResponse, SearchRequest, SearchResults
 
 router = APIRouter()
@@ -43,7 +43,7 @@ def _retrieve(payload: SearchRequest) -> list[dict]:
 def query(
     payload: SearchRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> AnswerResponse:
     """Ask a question and get a cited, grounded answer."""
     retrieved = _retrieve(payload)
@@ -60,7 +60,7 @@ def query(
     )
     db.add(
         QueryLog(
-            user_id=current_user.id,
+            user_id=principal.user_id,
             collection_id=payload.collection_id,
             question=payload.query,
             confidence=result["confidence"],
@@ -74,7 +74,7 @@ def query(
 @router.post("/semantic", response_model=SearchResults)
 def semantic_search(
     payload: SearchRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> SearchResults:
     """Return the most semantically similar chunks for a query."""
     payload.mode = "semantic"
@@ -85,7 +85,7 @@ def semantic_search(
 @router.post("/hybrid", response_model=SearchResults)
 def hybrid_search(
     payload: SearchRequest,
-    current_user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_principal),
 ) -> SearchResults:
     """Return chunks ranked by a blend of lexical and semantic scores."""
     payload.mode = "hybrid"

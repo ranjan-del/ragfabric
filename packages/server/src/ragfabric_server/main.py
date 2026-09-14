@@ -24,6 +24,7 @@ from ragfabric_core.models.user import Role, User
 from ragfabric_core.security import hash_password
 from ragfabric_core.store.vector_store import get_store
 from ragfabric_server.api.routes import (
+    access,
     admin,
     analytics,
     auth,
@@ -93,6 +94,7 @@ app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(collections.router, prefix="/api/collections", tags=["collections"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(access.router, prefix="/api/admin", tags=["access"])
 
 
 @app.get("/health", tags=["system"])
