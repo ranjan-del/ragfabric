@@ -72,6 +72,12 @@ jobs:
           uv run ragfabric db upgrade
           uv run ragfabric db downgrade
           uv run ragfabric db upgrade
+      - name: Store integration tests on PostgreSQL 18
+        env:
+          JWT_SECRET: ci-test-secret
+          DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/ragfabric
+          RAGFABRIC_TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/ragfabric
+        run: uv run pytest -m integration packages/core/tests/test_stores_postgres.py -q
 
   frontend:
     name: Frontend build and tests

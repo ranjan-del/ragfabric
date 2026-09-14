@@ -22,6 +22,7 @@ cd ragfabric
 cp .env.example .env && cp ragfabric.example.yaml ragfabric.yaml
 docker compose up --build                  # lite: PostgreSQL with pgvector, Redis, API, UI
 docker compose --profile full up --build   # adds Chroma and Neo4j
+docker compose --profile workers up --build # adds the worker, needed for ingestion.indexing: queue
 ```
 
 Backend on `http://localhost:8000` (OpenAPI at `/docs`), frontend on `http://localhost:4200`. Sign in with

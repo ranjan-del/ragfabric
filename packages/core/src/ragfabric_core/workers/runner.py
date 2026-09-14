@@ -60,6 +60,7 @@ class Worker:
                     raise KeyError(f"no handler for job kind {job.kind!r}")
                 handler(db, job)
                 self.processed += 1
+                log.info("job %s (%s) done", job.id, job.kind)
             except Exception:
                 db.rollback()
                 self.failed += 1

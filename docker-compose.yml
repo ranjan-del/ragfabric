@@ -3,6 +3,9 @@
 #   postgres (pgvector), redis, api, ui. Enough for Traditional and Vectorless RAG.
 # Full profile:             docker compose --profile full up --build
 #   adds chroma and neo4j for all four strategies.
+# Workers profile:          docker compose --profile workers up --build
+#   adds the worker (or use --profile full); needed when ragfabric.yaml sets
+#   ingestion.indexing: queue. The worker exits immediately in inline mode.
 # Secrets and connection strings come from .env (copy .env.example).
 #
 # Ports are published on loopback (127.0.0.1) by default. To expose the stack on
@@ -66,6 +69,31 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: deploy/docker/api.Dockerfile
+    command: ["ragfabric", "worker"]
+    profiles: ["full", "workers"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ragfabric}:${POSTGRES_PASSWORD:-ragfabric}@postgres:5432/${POSTGRES_DB:-ragfabric}
+      REDIS_URL: redis://redis:6379/0
+      RAGFABRIC_CONFIG: /app/ragfabric.yaml
+    volumes:
+      - ./ragfabric.yaml:/app/ragfabric.yaml:ro
+      - uploads:/app/data/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    restart: unless-stopped
 
   ui:
     build:

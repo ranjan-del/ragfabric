@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 
 import typer
@@ -15,6 +16,7 @@ def worker(
     once: bool = typer.Option(False, "--once", help="Process at most one job and exit."),
 ) -> None:
     """Run the indexing worker against the configured queue."""
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     cfg = get_config()
     queue = build_queue(cfg)
     if queue is None:
