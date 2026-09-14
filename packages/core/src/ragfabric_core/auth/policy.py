@@ -4,6 +4,7 @@ The filter is computed once per request from grants and overrides and then
 passed into every store query, so ranking only ever sees permitted rows.
 
 Rules, applied in order:
+0. A principal presenting a missing or inactive API key sees nothing.
 1. Admins are unrestricted.
 2. A collection is readable when one of the principal's groups holds a grant
    on it, when the principal owns it, or when it has no grants at all. The
@@ -29,6 +30,16 @@ from ragfabric_core.models.document import Collection, Document
 
 
 def compute_access_filter(db: Session, principal: Principal) -> AccessFilter:
+    key = None
+    if principal.api_key_id is not None:
+        key = db.get(ApiKey, principal.api_key_id)
+        if key is None or not key.is_active:
+            return AccessFilter(
+                document_ids=frozenset(),
+                collection_ids=frozenset(),
+                denied_document_ids=frozenset(),
+            )
+
     if principal.role == "admin":
         return AccessFilter.unrestricted()
 
@@ -72,14 +83,7 @@ def compute_access_filter(db: Session, principal: Principal) -> AccessFilter:
             elif row.permission == "read":
                 allowed_documents.add(row.document_id)
 
-    if principal.api_key_id is not None:
-        key = db.get(ApiKey, principal.api_key_id)
-        if key is None or not key.is_active:
-            return AccessFilter(
-                document_ids=frozenset(),
-                collection_ids=frozenset(),
-                denied_document_ids=frozenset(),
-            )
+    if key is not None:
         scopes = set(key.collection_ids or [])
         if scopes:
             allowed_collections &= scopes

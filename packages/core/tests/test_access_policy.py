@@ -161,6 +161,10 @@ def test_dangling_or_inactive_api_key_fails_closed(world):
     db.commit()
     g = compute_access_filter(db, principal(users["alice"], api_key_id=key.id))
     assert g.collection_ids == frozenset() and g.document_ids == frozenset()
+    assert (
+        compute_access_filter(db, principal(users["admin"], api_key_id=999999)).collection_ids
+        == frozenset()
+    )
 
 
 def test_grant_upsert_and_revoke(world):
