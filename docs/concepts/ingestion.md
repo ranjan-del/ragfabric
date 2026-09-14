@@ -74,16 +74,22 @@ After chunking, `ingest/indexing.schedule_indexing` decides how the chunks get e
 | `queue` | The document is marked `indexing` and two jobs (`index_document`, `extract_graph`) are pushed onto a `JobQueue`; a separate `ragfabric worker` process drains them | Larger corpora, or an API that should not block on embedding calls |
 
 A document's `status` moves through `processing` (parsing and chunking) to `indexing` (embedding and
-index writes, in `queue` mode) to `ready`, or `failed` if any step raises. In `inline` mode a document
-goes straight from `processing` to `ready` inside the one request.
+index writes, in `queue` mode) to `ready`. In `inline` mode a document goes straight from `processing`
+to `ready` inside the one request, and `failed` if any step raises. In `queue` mode, a job whose
+handler raises also marks the document `failed`, with the exception recorded on `Document.error`; a
+worker process killed mid job, in contrast, leaves the document at `indexing` until the job is
+re-enqueued, since nothing observed the crash to update its status. Retries with a processing list
+(so a stuck job can be detected and requeued) arrive in Phase 3.
 
 ## Why both indexes are written in one job
 
 `index_document` writes to the vector store and the lexical store in the same call, regardless of
-whether that call runs inline or inside a worker. This keeps the two indexes consistent with each
-other and with the source chunks: there is no window where the vector index has a chunk the lexical
-index does not, or vice versa. It also means Phase 2 can build and populate both indexes now, ahead of
-retrieval switching over to them in Phase 3, without a second migration to "catch up" the data later.
+whether that call runs inline or inside a worker, and a document is only marked `ready` after both
+writes complete. The two writes are separate transactions today, though: a lexical write that fails
+after the vector write has already committed can leave vector rows in place with no matching lexical
+row, until the document is re-indexed. It also means Phase 2 can build and populate both indexes now,
+ahead of retrieval switching over to them in Phase 3, without a second migration to "catch up" the
+data later.
 The trade-off is that today's queries still run against the older, v1 in memory index, so ingestion
 does strictly more work per document than the query path currently uses; Phase 3 removes that
 duplication by pointing retrieval at `chunk_embeddings` and `chunk_search` and retiring the in memory

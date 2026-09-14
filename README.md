@@ -383,7 +383,7 @@ and the ADRs in [docs/adr](docs/adr).
 
 The current `main` is a complete single strategy assistant that runs offline with no API key:
 
-- Ingestion for PDF, DOCX, PPTX, TXT and CSV with page numbers and character spans that survive into citations
+- Ingestion for PDF, DOCX, PPTX, TXT, CSV and Markdown with page numbers and character spans that survive into citations
 - Chunking with overlap, a deterministic hashing embedder, an in memory cosine index rebuilt from the database on startup
 - Semantic and hybrid retrieval, an extractive answer generator whose every clause is a verbatim quote from a numbered source, with relevance floors on citations
 - JWT auth, two role RBAC, bootstrap admin, production safety rails, Alembic migrations with a drift test

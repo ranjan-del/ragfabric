@@ -21,7 +21,8 @@ in this order, because later rules can only take away access, never grant it bac
 
 1. A principal presenting a missing or inactive API key sees nothing. Checked first: a revoked key
    should not fall through to any of the more permissive rules below it.
-2. Admins are unrestricted (`AccessFilter.unrestricted()`).
+2. An admin is unrestricted (`AccessFilter.unrestricted()`) unless the API key in use carries
+   collection scopes, in which case the admin is narrowed to those collections like anyone else.
 3. A collection is readable when a grant to one of the principal's groups exists, when the principal
    owns it, **or when it carries no grants at all**. That last clause is the open by default rule.
 4. A document is readable when the principal owns it, when a read override names them or one of their
@@ -80,3 +81,6 @@ rule observable rather than assumed: a collection nobody has restricted should s
 - **Write grants.** `collection_grants.permission` can already be stored as `read` or `write`, but
   `compute_access_filter` does not yet distinguish them: any grant on a collection currently reads as
   read access. Enforcing a real read/write distinction is not done yet.
+- **Write access equals read access.** Uploading into a collection currently only checks that the
+  caller can read it; there is no separate write permission yet. You may upload into any collection
+  you can read, and `write` grants gain their own meaning in a later release.
