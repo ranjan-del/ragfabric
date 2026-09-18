@@ -148,3 +148,14 @@ def test_ingest_directory_creates_collection_and_indexes(env):
 def test_worker_refuses_inline_mode(env):
     result = runner.invoke(app, ["worker", "--once"])
     assert result.exit_code == 1 and "indexing: queue" in result.stdout
+
+
+def test_worker_stores_carry_the_active_embedding_model(env):
+    # Running the worker command end to end needs Redis (build_queue only offers a
+    # RedisJobQueue in queue mode), which unit tests must not depend on. _stores() is
+    # the seam the command itself uses to build the vector store, so it is asserted
+    # on directly rather than through a live worker loop.
+    from ragfabric_cli.commands.worker import _stores
+
+    vector_store, _ = _stores()
+    assert vector_store.model == "hashing-16"

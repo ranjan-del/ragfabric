@@ -12,6 +12,16 @@ from ragfabric_core.stores.registry import build_lexical_store, build_vector_sto
 from ragfabric_core.workers.runner import Worker, default_handlers
 
 
+def _stores():
+    cfg = get_config()
+    sf = get_session_factory()
+    provider = build_embedding_provider(cfg.embeddings)
+    return (
+        build_vector_store(cfg.vector_store, sf, embedding_model=provider.model),
+        build_lexical_store(cfg.lexical_store, sf),
+    )
+
+
 def worker(
     once: bool = typer.Option(False, "--once", help="Process at most one job and exit."),
 ) -> None:
@@ -25,10 +35,11 @@ def worker(
         )
         raise typer.Exit(code=1)
     sf = get_session_factory()
+    vector_store, lexical_store = _stores()
     handlers = default_handlers(
         embedding_provider=build_embedding_provider(cfg.embeddings),
-        vector_store=build_vector_store(cfg.vector_store, sf),
-        lexical_store=build_lexical_store(cfg.lexical_store, sf),
+        vector_store=vector_store,
+        lexical_store=lexical_store,
     )
     w = Worker(queue, sf, handlers)
     if once:
