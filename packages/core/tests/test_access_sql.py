@@ -40,3 +40,48 @@ def test_empty_allow_lists_match_nothing():
     f = AccessFilter(document_ids=frozenset(), collection_ids=frozenset())
     sql = compile_(access_clause(f, t.c.document_id, t.c.collection_id))
     assert "false" in sql.lower() or "1 != 1" in sql
+
+
+def test_chroma_where_is_none_when_unrestricted_and_no_model_pinned():
+    from ragfabric_core.stores.chroma_store import chroma_where
+
+    assert chroma_where(AccessFilter.unrestricted(), None) is None
+
+
+def test_chroma_where_pins_the_model_even_when_access_is_unrestricted():
+    from ragfabric_core.stores.chroma_store import chroma_where
+
+    assert chroma_where(AccessFilter.unrestricted(), "nomic-embed-text") == {
+        "model": {"$eq": "nomic-embed-text"}
+    }
+
+
+def test_chroma_where_ors_the_two_allow_axes_and_ands_the_deny_list():
+    from ragfabric_core.stores.chroma_store import chroma_where
+
+    access = AccessFilter(
+        document_ids=frozenset({1, 2}),
+        collection_ids=frozenset({7}),
+        denied_document_ids=frozenset({2}),
+    )
+    where = chroma_where(access, None)
+    assert where == {
+        "$and": [
+            {
+                "$or": [
+                    {"document_id": {"$in": [1, 2]}},
+                    {"collection_id": {"$in": [7]}},
+                ]
+            },
+            {"document_id": {"$nin": [2]}},
+        ]
+    }
+
+
+def test_chroma_where_maps_an_empty_allow_set_to_a_predicate_that_matches_nothing():
+    from ragfabric_core.stores.chroma_store import chroma_where
+
+    where = chroma_where(AccessFilter(document_ids=frozenset(), collection_ids=None), None)
+    assert where == {"document_id": {"$in": []}}, (
+        "an empty allow set must match nothing, never everything"
+    )
