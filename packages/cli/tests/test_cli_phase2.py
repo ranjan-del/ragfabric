@@ -159,3 +159,19 @@ def test_worker_stores_carry_the_active_embedding_model(env):
 
     vector_store, _ = _stores()
     assert vector_store.model == "hashing-16"
+
+
+def test_reindex_reports_the_number_of_chunks_re_embedded(env):
+    docs = env / "docs"
+    docs.mkdir()
+    (docs / "a.txt").write_text("annual leave is twelve days")
+    assert runner.invoke(app, ["ingest", str(docs), "--collection", "handbook"]).exit_code == 0
+    result = runner.invoke(app, ["reindex", "--yes", "--batch-size", "2"])
+    assert result.exit_code == 0, result.stdout
+    assert "re-embedded" in result.stdout
+
+
+def test_reindex_without_yes_asks_for_confirmation(env):
+    result = runner.invoke(app, ["reindex"], input="n\n")
+    assert result.exit_code == 1
+    assert "aborted" in result.stdout.lower()
