@@ -1,5 +1,6 @@
 import pytest
 
+from ragfabric_core.config import settings
 from ragfabric_core.config_file import EmbeddingsConfig, LLMConfig
 from ragfabric_core.providers.base import ProviderError
 from ragfabric_core.providers.registry import build_embedding_provider, build_llm_provider
@@ -46,3 +47,30 @@ def test_openai_embeddings_default_dim_matches_model():
         env={"OPENAI_API_KEY": "sk"},
     )
     assert large.dim == 3072
+
+
+def test_offline_llm_with_no_model_set_uses_scripted_default():
+    llm = build_llm_provider(LLMConfig(provider="offline"), env={})
+    assert llm.default_model == "scripted"
+
+
+def test_offline_embeddings_with_no_dim_set_uses_settings_default():
+    emb = build_embedding_provider(EmbeddingsConfig(provider="offline"), env={})
+    assert emb.dim == settings.embedding_dim
+
+
+def test_offline_llm_with_explicit_model_keeps_that_model():
+    llm = build_llm_provider(LLMConfig(provider="offline", model="my-custom-model"), env={})
+    assert llm.default_model == "my-custom-model"
+
+
+def test_openai_embeddings_with_no_model_still_defaults_correctly():
+    emb = build_embedding_provider(
+        EmbeddingsConfig(provider="openai"), env={"OPENAI_API_KEY": "sk"}
+    )
+    assert (emb.model, emb.dim) == ("text-embedding-3-small", 1536)
+
+
+def test_ollama_embeddings_with_explicit_dim_keeps_that_dim():
+    emb = build_embedding_provider(EmbeddingsConfig(provider="ollama", dim=512), env={})
+    assert emb.dim == 512

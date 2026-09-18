@@ -31,24 +31,31 @@ def _key(env: Mapping[str, str], name: str, provider: str) -> str:
     return value
 
 
+def _set(cfg: LLMConfig | EmbeddingsConfig, field: str) -> bool:
+    """True when the user wrote this key, rather than inheriting the default."""
+    return field in cfg.model_fields_set
+
+
 def build_llm_provider(cfg: LLMConfig, env: Mapping[str, str] | None = None) -> LLMProvider:
     env = os.environ if env is None else env
     if cfg.provider == "openai":
-        model = cfg.model if cfg.model != "llama3.2:3b" else None
+        model = cfg.model if _set(cfg, "model") else None
         return OpenAIProvider(
             api_key=_key(env, "OPENAI_API_KEY", "openai"), default_model=model or "gpt-5.4-mini"
         )
     if cfg.provider == "anthropic":
-        model = cfg.model if cfg.model != "llama3.2:3b" else None
+        model = cfg.model if _set(cfg, "model") else None
         return AnthropicProvider(
             api_key=_key(env, "ANTHROPIC_API_KEY", "anthropic"),
             default_model=model or "claude-sonnet-5",
         )
     if cfg.provider == "ollama":
+        model = cfg.model if _set(cfg, "model") else None
         return OllamaProvider(
-            base_url=cfg.base_url or DEFAULT_OLLAMA_URL, default_model=cfg.model or "llama3.2"
+            base_url=cfg.base_url or DEFAULT_OLLAMA_URL, default_model=model or "llama3.2"
         )
-    return ScriptedLLMProvider(responses=[], model=cfg.model or "scripted")
+    model = cfg.model if _set(cfg, "model") else None
+    return ScriptedLLMProvider(responses=[], model=model or "scripted")
 
 
 def build_embedding_provider(
@@ -56,8 +63,8 @@ def build_embedding_provider(
 ) -> EmbeddingProvider:
     env = os.environ if env is None else env
     if cfg.provider == "openai":
-        model = cfg.model if cfg.model != "nomic-embed-text" else None
-        dim = cfg.dim if cfg.dim != 768 else None
+        model = cfg.model if _set(cfg, "model") else None
+        dim = cfg.dim if _set(cfg, "dim") else None
         model = model or "text-embedding-3-small"
         dim = dim or OPENAI_EMBEDDING_DIMS.get(model)
         if dim is None:
@@ -66,9 +73,12 @@ def build_embedding_provider(
             api_key=_key(env, "OPENAI_API_KEY", "openai"), model=model, dim=dim
         )
     if cfg.provider == "ollama":
+        model = cfg.model if _set(cfg, "model") else None
+        dim = cfg.dim if _set(cfg, "dim") else None
         return OllamaEmbeddingProvider(
             base_url=cfg.base_url or DEFAULT_OLLAMA_URL,
-            model=cfg.model or "nomic-embed-text",
-            dim=cfg.dim or 768,
+            model=model or "nomic-embed-text",
+            dim=dim or 768,
         )
-    return HashingEmbeddingProvider(dim=cfg.dim)
+    dim = cfg.dim if _set(cfg, "dim") else None
+    return HashingEmbeddingProvider(dim=dim)
