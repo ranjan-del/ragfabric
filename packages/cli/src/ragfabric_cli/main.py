@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from ragfabric_cli.commands import access as access_commands
 from ragfabric_cli.commands import ingest as ingest_commands
 from ragfabric_cli.commands import users as users_commands
+from ragfabric_cli.commands.reindex import reindex as reindex_command
 from ragfabric_cli.commands.worker import worker as worker_command
 from ragfabric_core import __version__
 from ragfabric_core.config_file import load_config, resolve_config_path
@@ -36,6 +37,7 @@ app.add_typer(access_commands.grants_app, name="grants")
 app.add_typer(access_commands.keys_app, name="keys")
 app.command("ingest")(ingest_commands.ingest)
 app.command("worker")(worker_command)
+app.command("reindex")(reindex_command)
 
 
 def _database_url() -> str:
