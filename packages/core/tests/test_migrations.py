@@ -13,12 +13,14 @@ the migrations and asked whether the models still agree with it. An empty diff
 is the assertion; anything else names the exact column that was forgotten.
 """
 
+import sqlalchemy as sa
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import create_engine, inspect
 
 from ragfabric_core import models  # noqa: F401  (registers every table)
+from ragfabric_core.db import migrate
 from ragfabric_core.db.migrate import alembic_config as _alembic_config
 from ragfabric_core.models.base import Base
 
@@ -100,3 +102,21 @@ def test_downgrade_removes_every_table(tmp_path):
     engine = create_engine(db_url)
     remaining = set(inspect(engine).get_table_names()) - {"alembic_version"}
     assert remaining == set()
+
+
+def test_0004_creates_the_model_index_on_every_dialect(tmp_path):
+    url = f"sqlite:///{tmp_path / 'm.db'}"
+    migrate.upgrade(url, "head")
+    engine = sa.create_engine(url)
+    names = {ix["name"] for ix in sa.inspect(engine).get_indexes("chunk_embeddings")}
+    assert "ix_chunk_embeddings_model" in names
+
+
+def test_0004_downgrade_returns_to_0003(tmp_path):
+    url = f"sqlite:///{tmp_path / 'm.db'}"
+    migrate.upgrade(url, "head")
+    migrate.downgrade(url, "0003_ingestion_and_indexes")
+    engine = sa.create_engine(url)
+    names = {ix["name"] for ix in sa.inspect(engine).get_indexes("chunk_embeddings")}
+    assert "ix_chunk_embeddings_model" not in names
+    assert "chunk_embeddings" in sa.inspect(engine).get_table_names()

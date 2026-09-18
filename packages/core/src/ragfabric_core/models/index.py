@@ -3,8 +3,10 @@
 chunk_embeddings holds one vector per chunk for the configured embedding model.
 The column is JSON on SQLite (tests, development) and pgvector's VECTOR on
 PostgreSQL, through a dialect variant, so one migration serves both. The
-dimension is stored per row; an HNSW index needs a fixed dimension and is
-created by Phase 3 once the deployment's embedding model is known.
+dimension is stored per row for provenance, but since migration 0004 the
+PostgreSQL column is fixed at vector(768) with an HNSW cosine index, and every
+query filters on the active model name. One deployment, one embedding model
+(ADR 0006).
 
 chunk_search holds the tsvector for full text search on PostgreSQL (Text on
 SQLite) with a GIN index. document_id and collection_id are copied here so the
@@ -30,7 +32,7 @@ class ChunkEmbedding(Base):
     )
     document_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     collection_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
-    model: Mapped[str] = mapped_column(String, nullable=False)
+    model: Mapped[str] = mapped_column(String, nullable=False, index=True)
     dim: Mapped[int] = mapped_column(Integer, nullable=False)
     embedding = mapped_column(EmbeddingType, nullable=False)
 
