@@ -93,3 +93,135 @@ def test_reindex_reports_progress_in_batches(sf):
         )
     assert seen[-1] == (5, 5)
     assert all(total == 5 for _, total in seen)
+
+
+def test_reindex_reports_progress_exactly_once_per_batch_when_total_is_aligned(sf):
+    # A total that divides evenly by batch_size is the case that used to
+    # double-report the final (total, total): one call from the last full
+    # batch inside the loop, and a second, identical, unconditional call
+    # after it. Scope to a fresh document with exactly 4 chunks (batch_size
+    # 2) so the total is aligned regardless of the other seeded document.
+    factory, _ = sf
+    with factory() as db:
+        doc = Document(filename="aligned.txt", format="txt", status="ready", owner_id=None)
+        db.add(doc)
+        db.flush()
+        db.add_all(
+            [
+                Chunk(
+                    document_id=doc.id,
+                    collection_id=None,
+                    chunk_index=i,
+                    text=f"aligned {i}",
+                    embedding=[],
+                )
+                for i in range(4)
+            ]
+        )
+        db.commit()
+        aligned_doc_id = doc.id
+
+    provider = HashingEmbeddingProvider(dim=8)
+    store = PgVectorStore(factory, model=provider.model)
+    seen: list[tuple[int, int]] = []
+    with factory() as db:
+        count = reindex_all(
+            db,
+            embedding_provider=provider,
+            vector_store=store,
+            lexical_store=None,
+            batch_size=2,
+            document_id=aligned_doc_id,
+            on_progress=lambda done, total: seen.append((done, total)),
+        )
+    assert count == 4
+    assert seen == [(2, 4), (4, 4)], (
+        "on_progress must fire exactly once per batch, with no duplicate"
+    )
+
+
+def test_reindex_with_document_id_replaces_only_that_documents_vectors(sf):
+    factory, doc1_id = sf  # 5 chunks under doc1
+
+    with factory() as db:
+        doc2 = Document(filename="other.txt", format="txt", status="ready", owner_id=None)
+        db.add(doc2)
+        db.flush()
+        db.add_all(
+            [
+                Chunk(
+                    document_id=doc2.id,
+                    collection_id=None,
+                    chunk_index=i,
+                    text=f"other {i}",
+                    embedding=[],
+                )
+                for i in range(2)
+            ]
+        )
+        db.commit()
+        doc2_id = doc2.id
+
+    provider = HashingEmbeddingProvider(dim=8)
+    store = PgVectorStore(factory, model=provider.model)
+    with factory() as db:
+        reindex_all(
+            db, embedding_provider=provider, vector_store=store, lexical_store=None, batch_size=64
+        )
+    assert store.count() == 7
+
+    def doc2_scores():
+        hits = store.query(
+            [1.0] * 8,
+            top_k=10,
+            access=AccessFilter.unrestricted(),
+            filters={"document_id": doc2_id},
+        )
+        return {h.chunk_id: h.score for h in hits}
+
+    before = doc2_scores()
+    assert len(before) == 2
+
+    with factory() as db:
+        count = reindex_all(
+            db,
+            embedding_provider=provider,
+            vector_store=store,
+            lexical_store=None,
+            batch_size=64,
+            document_id=doc1_id,
+        )
+    assert count == 5
+    assert store.count() == 7, (
+        "reindexing one document must not drop or duplicate another's vectors"
+    )
+    assert doc2_scores() == before, "reindexing doc1 must leave doc2's vectors untouched"
+
+    doc1_hits = store.query(
+        [1.0] * 8, top_k=10, access=AccessFilter.unrestricted(), filters={"document_id": doc1_id}
+    )
+    assert len(doc1_hits) == 5
+
+
+def test_reindex_expunges_each_batch_so_the_identity_map_does_not_accumulate(sf):
+    factory, _ = sf
+    provider = HashingEmbeddingProvider(dim=8)
+    store = PgVectorStore(factory, model=provider.model)
+    sizes: list[int] = []
+    with factory() as db:
+
+        def on_progress(done: int, total: int) -> None:
+            sizes.append(len(db.identity_map))
+
+        reindex_all(
+            db,
+            embedding_provider=provider,
+            vector_store=store,
+            lexical_store=None,
+            batch_size=2,
+            on_progress=on_progress,
+        )
+    # on_progress fires after expunge_all() runs for that batch. If a
+    # finished batch were staying resident instead of being released, the
+    # identity map would grow across calls instead of staying at zero.
+    assert sizes == [0, 0, 0], "processed batches must not accumulate in the session"

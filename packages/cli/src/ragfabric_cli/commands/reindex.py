@@ -19,13 +19,10 @@ def reindex(
     """Re-embed every chunk with the configured embedding model."""
     cfg = get_config()
     provider = build_embedding_provider(cfg.embeddings)
-    if not yes:
-        typer.echo(
-            f"This replaces every stored vector using {provider.model} ({provider.dim} dims)."
-        )
-        if not typer.confirm("Continue?"):
-            typer.echo("aborted")
-            raise typer.Exit(1)
+    typer.echo(f"This replaces every stored vector using {provider.model} ({provider.dim} dims).")
+    if not yes and not typer.confirm("Continue?"):
+        typer.echo("aborted")
+        raise typer.Exit(1)
 
     sf = get_session_factory()
     vector_store = build_vector_store(cfg.vector_store, sf, embedding_model=provider.model)
