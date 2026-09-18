@@ -51,6 +51,13 @@ def _prune_unsatisfiable(node: dict | None) -> tuple[dict | None, bool]:
     if node is None:
         return None, False
     if "$and" in node:
+        # `kept` cannot end up empty here: chroma_where never builds an `$and`
+        # with fewer than two parts, and `query`'s filter merge only wraps an
+        # `$and` around an existing, non-empty `where`. If that invariant were
+        # ever violated by a future caller composing a where document by hand,
+        # `kept[0]` below raises IndexError, which fails loud rather than
+        # silently falling back to "no restriction" (an unfiltered query),
+        # the dangerous, fail-open direction for access-control code.
         kept: list[dict] = []
         for child in node["$and"]:
             pruned, always_false = _prune_unsatisfiable(child)
@@ -58,8 +65,6 @@ def _prune_unsatisfiable(node: dict | None) -> tuple[dict | None, bool]:
                 return None, True
             if pruned is not None:
                 kept.append(pruned)
-        if not kept:
-            return None, False
         return ({"$and": kept} if len(kept) > 1 else kept[0]), False
     if "$or" in node:
         kept = []
