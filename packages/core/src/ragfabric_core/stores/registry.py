@@ -16,12 +16,14 @@ from ragfabric_core.stores.redis_cache import RedisCache
 
 
 def build_vector_store(
-    cfg: VectorStoreConfig, session_factory: Callable[[], Session]
+    cfg: VectorStoreConfig,
+    session_factory: Callable[[], Session],
+    embedding_model: str | None = None,
 ) -> VectorStore:
     if cfg.kind in ("pgvector", "memory"):
         # "memory" keeps the v1 in process index for queries in this phase; the
         # fan out still writes to the relational table so nothing is lost.
-        return PgVectorStore(session_factory)
+        return PgVectorStore(session_factory, model=embedding_model)
     raise NotImplementedError(f"vector store {cfg.kind!r} arrives in Phase 3")
 
 
