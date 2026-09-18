@@ -34,13 +34,15 @@ def _key(env: Mapping[str, str], name: str, provider: str) -> str:
 def build_llm_provider(cfg: LLMConfig, env: Mapping[str, str] | None = None) -> LLMProvider:
     env = os.environ if env is None else env
     if cfg.provider == "openai":
+        model = cfg.model if cfg.model != "llama3.2:3b" else None
         return OpenAIProvider(
-            api_key=_key(env, "OPENAI_API_KEY", "openai"), default_model=cfg.model or "gpt-5.4-mini"
+            api_key=_key(env, "OPENAI_API_KEY", "openai"), default_model=model or "gpt-5.4-mini"
         )
     if cfg.provider == "anthropic":
+        model = cfg.model if cfg.model != "llama3.2:3b" else None
         return AnthropicProvider(
             api_key=_key(env, "ANTHROPIC_API_KEY", "anthropic"),
-            default_model=cfg.model or "claude-sonnet-5",
+            default_model=model or "claude-sonnet-5",
         )
     if cfg.provider == "ollama":
         return OllamaProvider(
@@ -54,8 +56,10 @@ def build_embedding_provider(
 ) -> EmbeddingProvider:
     env = os.environ if env is None else env
     if cfg.provider == "openai":
-        model = cfg.model or "text-embedding-3-small"
-        dim = cfg.dim or OPENAI_EMBEDDING_DIMS.get(model)
+        model = cfg.model if cfg.model != "nomic-embed-text" else None
+        dim = cfg.dim if cfg.dim != 768 else None
+        model = model or "text-embedding-3-small"
+        dim = dim or OPENAI_EMBEDDING_DIMS.get(model)
         if dim is None:
             raise ProviderError("openai", f"embeddings.dim must be set for unknown model {model!r}")
         return OpenAIEmbeddingProvider(

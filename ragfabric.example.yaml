@@ -5,14 +5,15 @@
 # NEO4J_PASSWORD come from the environment (.env.example lists them).
 
 llm:
-  provider: openai            # openai | anthropic | ollama | offline
-  model: gpt-5.4-mini         # anthropic default: claude-sonnet-5, ollama default: llama3.2
-  base_url: null              # ollama or any OpenAI compatible endpoint, e.g. http://localhost:11434/v1
+  provider: ollama            # openai | anthropic | ollama | offline
+  model: llama3.2:3b          # openai default: gpt-5.4-mini, anthropic default: claude-sonnet-5
+  base_url: http://localhost:11434/v1   # any OpenAI compatible endpoint
 
 embeddings:
-  provider: openai            # openai | ollama | offline
-  model: text-embedding-3-small
-  dim: null                   # inferred for known models
+  provider: ollama            # openai | ollama | offline
+  model: nomic-embed-text     # 768 dimensions, pinned by migration 0004
+  dim: 768                    # must match the migration; see docs/configuration.md
+  base_url: http://localhost:11434/v1
 
 reranker:
   kind: none                  # none | llm | cross_encoder

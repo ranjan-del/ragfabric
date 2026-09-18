@@ -25,7 +25,12 @@ dependencies = [
   "redis>=8.1",
   "opentelemetry-sdk>=1.44",
   "opentelemetry-exporter-otlp-proto-http>=1.44",
+  "tiktoken>=0.12",
 ]
+
+[project.optional-dependencies]
+chroma = ["chromadb>=1.5"]
+rerank = ["sentence-transformers>=5.1"]
 
 [build-system]
 requires = ["hatchling>=1.27"]
