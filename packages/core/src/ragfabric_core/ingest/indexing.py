@@ -21,7 +21,11 @@ def _embedding_provider():
 def _stores():
     cfg = get_config()
     sf = get_session_factory()
-    return build_vector_store(cfg.vector_store, sf), build_lexical_store(cfg.lexical_store, sf)
+    provider = _embedding_provider()
+    return (
+        build_vector_store(cfg.vector_store, sf, embedding_model=provider.model),
+        build_lexical_store(cfg.lexical_store, sf),
+    )
 
 
 def index_inline(db: Session, document: Document) -> int:

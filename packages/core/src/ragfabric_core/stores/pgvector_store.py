@@ -17,6 +17,7 @@ from sqlalchemy import delete, func, select, type_coerce
 from sqlalchemy.orm import Session
 
 from ragfabric_core.auth.principal import AccessFilter
+from ragfabric_core.embeddings.normalise import normalise
 from ragfabric_core.models.document import Chunk, Document
 from ragfabric_core.models.index import ChunkEmbedding
 from ragfabric_core.stores.access_sql import access_clause
@@ -42,8 +43,13 @@ def _to_chunk(row, score: float) -> RetrievedChunk:
 class PgVectorStore:
     name = "pgvector"
 
-    def __init__(self, session_factory: Callable[[], Session]) -> None:
+    def __init__(self, session_factory: Callable[[], Session], model: str | None = None) -> None:
         self._sf = session_factory
+        self._model = model
+
+    @property
+    def model(self) -> str | None:
+        return self._model
 
     def upsert(
         self, chunk_ids: list[int], vectors: list[list[float]], payloads: list[dict]
@@ -56,7 +62,7 @@ class PgVectorStore:
                     collection_id=payload.get("collection_id"),
                     model=payload["model"],
                     dim=payload.get("dim", len(vector)),
-                    embedding=list(map(float, vector)),
+                    embedding=normalise(vector),
                 )
                 if row is None:
                     db.add(ChunkEmbedding(chunk_id=chunk_id, **values))
@@ -69,6 +75,7 @@ class PgVectorStore:
         self, vector: list[float], top_k: int, access: AccessFilter, filters: dict | None = None
     ) -> list[RetrievedChunk]:
         clause = access_clause(access, ChunkEmbedding.document_id, ChunkEmbedding.collection_id)
+        vector = normalise(vector)
         with self._sf() as db:
             base = (
                 select(Chunk, Document.filename, Document.format, ChunkEmbedding.embedding)
@@ -77,6 +84,8 @@ class PgVectorStore:
             )
             if clause is not None:
                 base = base.where(clause)
+            if self._model is not None:
+                base = base.where(ChunkEmbedding.model == self._model)
             for key, value in (filters or {}).items():
                 if key == "document_id":
                     base = base.where(ChunkEmbedding.document_id == value)

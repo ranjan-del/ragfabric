@@ -118,6 +118,30 @@ def test_pgvector_uses_the_vector_type_and_orders_by_cosine_distance(pg):
     assert id2 not in {h.chunk_id for h in denied}
 
 
+def test_pgvector_query_ignores_rows_written_by_another_embedding_model(pg):
+    factory, ids, d, c, d2, c2, id2 = pg
+
+    old = PgVectorStore(factory, model="hashing-384")
+    new = PgVectorStore(factory, model="nomic-embed-text")
+    assert new.model == "nomic-embed-text"
+    old.upsert(
+        [ids[0]],
+        [unit([1, 0])],
+        [{"model": "hashing-384", "dim": 2, "document_id": d, "collection_id": c}],
+    )
+    new.upsert(
+        [ids[1]],
+        [unit([1, 0])],
+        [{"model": "nomic-embed-text", "dim": 2, "document_id": d, "collection_id": c}],
+    )
+
+    hits = new.query(unit([1, 0]), top_k=10, access=AccessFilter.unrestricted())
+
+    assert [h.chunk_id for h in hits] == [ids[1]], (
+        "a query for one model returned a row written by another model"
+    )
+
+
 def test_fts_ranks_with_ts_rank_cd_and_uses_the_gin_index(pg):
     factory, ids, d, c, d2, c2, id2 = pg
     store = PostgresLexicalStore(factory)

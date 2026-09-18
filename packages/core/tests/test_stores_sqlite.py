@@ -118,3 +118,27 @@ def test_stores_satisfy_the_protocols(sf):
     factory, *_ = sf
     assert isinstance(PgVectorStore(factory), VectorStore)
     assert isinstance(PostgresLexicalStore(factory), LexicalStore)
+
+
+def test_query_ignores_rows_written_by_another_embedding_model(sf):
+    factory, ids, (d1, d2), (c1, c2) = sf
+
+    old = PgVectorStore(factory, model="hashing-384")
+    new = PgVectorStore(factory, model="nomic-embed-text")
+    assert new.model == "nomic-embed-text"
+    old.upsert(
+        [ids[0]],
+        [[1.0, 0.0]],
+        [{"document_id": d1, "collection_id": c1, "model": "hashing-384", "dim": 2}],
+    )
+    new.upsert(
+        [ids[1]],
+        [[1.0, 0.0]],
+        [{"document_id": d1, "collection_id": c1, "model": "nomic-embed-text", "dim": 2}],
+    )
+
+    hits = new.query([1.0, 0.0], top_k=10, access=AccessFilter.unrestricted())
+
+    assert [h.chunk_id for h in hits] == [ids[1]], (
+        "a query for one model returned a row written by another model"
+    )
