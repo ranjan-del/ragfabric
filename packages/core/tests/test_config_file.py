@@ -9,7 +9,7 @@ def test_defaults_when_no_file(monkeypatch, tmp_path):
     monkeypatch.delenv("RAGFABRIC_CONFIG", raising=False)
     cfg = load_config()
     assert isinstance(cfg, RagFabricConfig)
-    assert cfg.llm.provider == "openai" and cfg.vector_store.kind == "pgvector"
+    assert cfg.llm.provider == "ollama" and cfg.vector_store.kind == "pgvector"
     assert cfg.graph_store.enabled is False and cfg.ingestion.chunk_size == 600
     assert cfg.strategies.traditional["top_k"] == 8 and cfg.router.mode == "auto"
 
@@ -19,7 +19,7 @@ def test_explicit_path_and_partial_override(tmp_path):
     p.write_text("llm:\n  provider: ollama\n  model: qwen3:8b\nvector_store:\n  kind: chroma\n")
     cfg = load_config(p)
     assert cfg.llm.provider == "ollama" and cfg.llm.model == "qwen3:8b"
-    assert cfg.vector_store.kind == "chroma" and cfg.embeddings.provider == "openai"
+    assert cfg.vector_store.kind == "chroma" and cfg.embeddings.provider == "ollama"
 
 
 def test_env_var_locates_the_file(tmp_path, monkeypatch):
@@ -52,3 +52,32 @@ def test_example_file_in_repo_root_is_valid():
     root = Path(__file__).resolve().parents[3]
     cfg = load_config(root / "ragfabric.example.yaml")
     assert cfg.llm.provider in {"openai", "anthropic", "ollama", "offline"}
+
+
+def test_code_defaults_with_no_config_file(monkeypatch, tmp_path):
+    """Verify that code defaults match the no-key-first-run promise: Ollama."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("RAGFABRIC_CONFIG", raising=False)
+    cfg = load_config()
+    assert cfg.llm.provider == "ollama"
+    assert cfg.llm.model == "llama3.2:3b"
+    assert cfg.llm.base_url == "http://localhost:11434/v1"
+    assert cfg.embeddings.provider == "ollama"
+    assert cfg.embeddings.model == "nomic-embed-text"
+    assert cfg.embeddings.dim == 768
+    assert cfg.embeddings.base_url == "http://localhost:11434/v1"
+
+
+def test_default_example_config_is_the_no_key_ollama_path(tmp_path):
+    from pathlib import Path
+
+    from ragfabric_core.config_file import load_config
+
+    example = Path(__file__).resolve().parents[3] / "ragfabric.example.yaml"
+    cfg = load_config(example)
+    assert cfg.embeddings.provider == "ollama"
+    assert cfg.embeddings.model == "nomic-embed-text"
+    assert cfg.embeddings.dim == 768
+    assert cfg.llm.provider == "ollama"
+    assert cfg.llm.model == "llama3.2:3b"
+    assert cfg.llm.base_url == "http://localhost:11434/v1"

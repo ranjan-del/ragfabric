@@ -23,16 +23,16 @@ class _Strict(BaseModel):
 
 
 class LLMConfig(_Strict):
-    provider: Literal["openai", "anthropic", "ollama", "offline"] = "openai"
-    model: str | None = None
-    base_url: str | None = None
+    provider: Literal["openai", "anthropic", "ollama", "offline"] = "ollama"
+    model: str | None = "llama3.2:3b"
+    base_url: str | None = "http://localhost:11434/v1"
 
 
 class EmbeddingsConfig(_Strict):
-    provider: Literal["openai", "ollama", "offline"] = "openai"
-    model: str | None = None
-    dim: int | None = Field(default=None, ge=1)
-    base_url: str | None = None
+    provider: Literal["openai", "ollama", "offline"] = "ollama"
+    model: str | None = "nomic-embed-text"
+    dim: int | None = Field(default=768, ge=1)
+    base_url: str | None = "http://localhost:11434/v1"
 
 
 class RerankerConfig(_Strict):
