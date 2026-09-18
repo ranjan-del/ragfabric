@@ -14,8 +14,10 @@ to Chroma at all, which this test verifies by asserting the fake collection's
 
 from __future__ import annotations
 
+import pytest
+
 from ragfabric_core.auth.principal import AccessFilter
-from ragfabric_core.stores.chroma_store import ChromaVectorStore
+from ragfabric_core.stores.chroma_store import ChromaVectorStore, _prune_unsatisfiable
 
 
 class _FakeCollection:
@@ -67,3 +69,29 @@ def test_an_empty_document_allow_set_ored_with_a_real_collection_allow_still_que
 def test_model_property_matches_the_constructor_argument():
     store = ChromaVectorStore(_FakeClient(_FakeCollection()), model="nomic-embed-text")
     assert store.model == "nomic-embed-text"
+
+
+def test_prune_unsatisfiable_keeps_every_part_of_a_satisfiable_and():
+    """Pins the reachable $and path: chroma_where never builds an $and with
+    fewer than two parts, and both are satisfiable here, so nothing is dropped
+    and always_false stays False."""
+    node = {"$and": [{"document_id": {"$in": [1, 2]}}, {"model": {"$eq": "m"}}]}
+
+    pruned, always_false = _prune_unsatisfiable(node)
+
+    assert always_false is False
+    assert pruned == node
+
+
+def test_prune_unsatisfiable_fails_loud_not_open_on_a_malformed_empty_and():
+    """_prune_unsatisfiable is only ever fed well-formed input by chroma_where,
+    which never builds an empty $and (it always has at least two parts), so an
+    empty $and cannot arrive through any real caller. This pins what happens
+    if that invariant were ever violated anyway, by a future caller composing
+    a where document by hand: the function must crash with IndexError rather
+    than silently treating the empty $and as "no restriction" and running an
+    unfiltered query, which would be the dangerous, fail-open direction for
+    access-control code.
+    """
+    with pytest.raises(IndexError):
+        _prune_unsatisfiable({"$and": []})
