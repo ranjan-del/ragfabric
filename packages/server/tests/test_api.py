@@ -170,6 +170,33 @@ def test_delete_document_removes_from_index(client, auth_headers):
     assert resp.json()["confidence"] == 0.0
 
 
+def test_delete_document_removes_vector_and_lexical_index_rows(client, auth_headers):
+    """Regression test for the delete leak found while reviewing Task 4: the
+    relational cascade drops `chunks` rows but `chunk_embeddings` and
+    `chunk_search` carry their own document_id column and are never joined
+    through `chunks`, so they must be deleted explicitly. Left alone, those
+    orphaned rows would accumulate and, once a store resolves hits back to
+    the chunks table (as ChromaVectorStore does), silently crowd out live
+    results.
+    """
+    from ragfabric_core.db.session import SessionLocal
+    from ragfabric_core.models.index import ChunkEmbedding, ChunkSearch
+
+    up = _upload(client, auth_headers, "leave.txt", VACATION_DOC)
+    doc_id = up.json()["id"]
+
+    with SessionLocal() as db:
+        assert db.query(ChunkEmbedding).filter(ChunkEmbedding.document_id == doc_id).count() > 0
+        assert db.query(ChunkSearch).filter(ChunkSearch.document_id == doc_id).count() > 0
+
+    delete = client.delete(f"/api/documents/{doc_id}", headers=auth_headers)
+    assert delete.status_code == 200
+
+    with SessionLocal() as db:
+        assert db.query(ChunkEmbedding).filter(ChunkEmbedding.document_id == doc_id).count() == 0
+        assert db.query(ChunkSearch).filter(ChunkSearch.document_id == doc_id).count() == 0
+
+
 def test_analytics_overview(client, auth_headers):
     _upload(client, auth_headers, "leave.txt", VACATION_DOC)
     client.post("/api/search/query", json={"query": "vacation"}, headers=auth_headers)
