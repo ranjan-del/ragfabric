@@ -175,3 +175,12 @@ def test_reindex_without_yes_asks_for_confirmation(env):
     result = runner.invoke(app, ["reindex"], input="n\n")
     assert result.exit_code == 1
     assert "aborted" in result.stdout.lower()
+
+
+def test_reindex_announces_the_model_and_dims_even_with_yes(env):
+    # --yes is the unattended/CI path: nobody is there to see a prompt, so the
+    # announcement of what is about to be overwritten must print regardless,
+    # not only on the interactive branch that --yes skips.
+    result = runner.invoke(app, ["reindex", "--yes"])
+    assert result.exit_code == 0, result.stdout
+    assert "hashing-16" in result.stdout and "16 dims" in result.stdout
