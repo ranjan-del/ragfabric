@@ -8,11 +8,16 @@ so those use four characters per token, which is documented and labelled.
 The budget drops whole chunks from the tail. Splitting a chunk would invalidate
 its stored character spans, which are what the citation offsets and the citation
 contract are checked against.
+
+Note: in an air-gapped or offline deployment, an OpenAI model name will silently
+fall back to the estimate because the encoding download fails and is caught. This
+is acceptable behaviour; see token_count_method() to disambiguate.
 """
 
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from ragfabric_core.strategies.base import RetrievedChunk
 
@@ -26,16 +31,32 @@ def _encoding(model: str):
     return tiktoken.encoding_for_model(model)
 
 
+def _can_resolve_encoding(model: str | None) -> bool:
+    """Check if the model has a resolvable tokeniser."""
+    if not model:
+        return False
+    try:
+        _encoding(model)
+        return True
+    except KeyError:
+        # encoding_for_model raises KeyError for unknown model strings
+        return False
+
+
 def count_tokens(text: str, model: str | None = None) -> int:
     """Exact when the model has a tokeniser, otherwise a labelled estimate."""
     if not text:
         return 0
-    if model:
-        try:
-            return len(_encoding(model).encode(text))
-        except Exception:
-            pass
+    if _can_resolve_encoding(model):
+        return len(_encoding(model).encode(text))
     return max(1, len(text) // ESTIMATED_CHARS_PER_TOKEN)
+
+
+def token_count_method(model: str | None) -> Literal["exact", "estimate"]:
+    """Which method count_tokens() will use for this model."""
+    if _can_resolve_encoding(model):
+        return "exact"
+    return "estimate"
 
 
 def fit_to_budget(

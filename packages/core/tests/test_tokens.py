@@ -1,5 +1,12 @@
+import os
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 from ragfabric_core.strategies.base import RetrievedChunk
-from ragfabric_core.tokens import count_tokens, fit_to_budget
+from ragfabric_core.tokens import count_tokens, fit_to_budget, token_count_method
+
+TIKTOKEN_AVAILABLE = os.environ.get("RAGFABRIC_TEST_TIKTOKEN", "")
 
 
 def chunk(cid: int, text: str, score: float) -> RetrievedChunk:
@@ -8,8 +15,16 @@ def chunk(cid: int, text: str, score: float) -> RetrievedChunk:
     )
 
 
-def test_count_tokens_is_exact_for_a_known_openai_model():
-    assert count_tokens("hello world", "text-embedding-3-small") == 2
+# Hermetic unit tests (no network calls)
+
+
+def test_count_tokens_uses_exact_path_when_encoding_exists():
+    """Monkeypatched encoding proves exact path without touching tiktoken."""
+    stub_encoding = MagicMock()
+    stub_encoding.encode.return_value = [1, 2]
+    with patch("ragfabric_core.tokens._encoding", return_value=stub_encoding):
+        assert count_tokens("hello world", "gpt-4") == 2
+        stub_encoding.encode.assert_called_once_with("hello world")
 
 
 def test_count_tokens_estimates_for_an_unknown_model_without_raising():
@@ -39,3 +54,32 @@ def test_fit_to_budget_with_a_generous_budget_keeps_everything():
     kept, total = fit_to_budget(chunks, max_tokens=10_000, model=None)
     assert len(kept) == 2
     assert total == 20
+
+
+def test_token_count_method_returns_exact_when_encoding_exists():
+    """Monkeypatched encoding proves method selection without touching tiktoken."""
+    stub_encoding = MagicMock()
+    with patch("ragfabric_core.tokens._encoding", return_value=stub_encoding):
+        assert token_count_method("gpt-4") == "exact"
+
+
+def test_token_count_method_returns_estimate_for_unknown_model():
+    assert token_count_method("llama3.2:3b") == "estimate"
+
+
+def test_token_count_method_returns_estimate_for_none():
+    assert token_count_method(None) == "estimate"
+
+
+# Integration tests (require RAGFABRIC_TEST_TIKTOKEN and may touch network)
+
+pytestmark_integration = [
+    pytest.mark.integration,
+    pytest.mark.skipif(not TIKTOKEN_AVAILABLE, reason="needs RAGFABRIC_TEST_TIKTOKEN"),
+]
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not TIKTOKEN_AVAILABLE, reason="needs RAGFABRIC_TEST_TIKTOKEN")
+def test_count_tokens_is_exact_for_text_embedding_3_small():
+    assert count_tokens("hello world", "text-embedding-3-small") == 2
