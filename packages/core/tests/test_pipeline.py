@@ -427,21 +427,14 @@ def test_select_support_prefers_the_sentence_that_answers():
     assert chunk["text"][support[0]["start"] : support[0]["end"]] == support[0]["text"]
 
 
-def test_generate_stays_offline_without_an_api_key(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+def test_generate_is_always_the_offline_extractive_answer():
+    # generate() no longer has a vendor branch: a model-backed answer goes
+    # through generate.cited and a configured LLMProvider instead, so this
+    # module always returns the deterministic extractive answer.
     chunks = [{"text": "Passwords rotate every ninety days."}]
     answer = llm.generate("how often do passwords rotate", "[1] ...", chunks=chunks)
     assert "ninety days" in answer
     assert "[1]" in answer
-
-
-def test_generate_falls_back_when_the_online_path_fails(monkeypatch):
-    # A key is set but the SDK call blows up; the answer must degrade to the
-    # offline extractor instead of surfacing an error to the user.
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "not-a-real-key")
-    chunks = [{"text": "Passwords rotate every ninety days."}]
-    answer = llm.generate("how often do passwords rotate", "[1] ...", chunks=chunks)
-    assert "ninety days" in answer
 
 
 def test_cited_markers_parses_the_answer_text():
