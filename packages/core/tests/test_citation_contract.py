@@ -69,3 +69,47 @@ def test_the_no_evidence_sentence_is_allowed_without_a_marker():
 
 def test_an_empty_chunk_list_allows_an_uncited_answer():
     assert_citation_contract("I could not find an answer to that.", [])
+
+
+# --- Quote fidelity floor: short quotes still get checked when they carry a digit ---
+#
+# The plain 8-character floor let a short, fabricated, digit-bearing quote such as
+# "99 days" dodge verification entirely, which is the most dangerous shape of miss:
+# short quotes are disproportionately the factual ones (numbers, dates, amounts)
+# that a reader trusts a citation for.
+
+
+def test_a_false_short_numeric_quote_is_a_violation():
+    with pytest.raises(CitationViolation) as exc:
+        assert_citation_contract(
+            'The policy gives "99 days" [1].',
+            chunks("Employees receive 24 days of annual leave."),
+        )
+    assert "quote" in exc.value.reason
+
+
+def test_a_true_short_numeric_quote_passes():
+    assert_citation_contract(
+        'The policy gives "24 days" [1].',
+        chunks("Employees receive 24 days of annual leave."),
+    )
+
+
+def test_a_short_non_numeric_quote_is_still_unchecked():
+    # Documented gap: below the 8-character floor, only digit-bearing quotes are
+    # verified. "leave" is not a substring of the chunk below (it says "time
+    # off"), so a checked quote would fail here, but this one is short and has
+    # no digit, so it is skipped and the answer still passes.
+    assert_citation_contract(
+        'The handbook calls it "leave" [1].',
+        chunks("Employees receive 24 days of annual time off."),
+    )
+
+
+def test_a_long_false_quote_is_still_a_violation():
+    with pytest.raises(CitationViolation) as exc:
+        assert_citation_contract(
+            'The handbook says "you get forty days of leave" [1].',
+            chunks("Employees receive 24 days of annual leave."),
+        )
+    assert "quote" in exc.value.reason
