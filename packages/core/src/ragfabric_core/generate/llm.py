@@ -8,22 +8,21 @@ what makes the citation contract checkable: every clause in the answer is a
 literal substring of the chunk its marker points at, and a test asserts exactly
 that (see ``test_answer_text_is_lifted_from_the_cited_chunk``).
 
-An optional Anthropic Claude backend can be enabled by setting ``ANTHROPIC_API_KEY``
-in the environment; if the key is absent or the call fails for any reason, we fall
-back to the extractive answer so the pipeline never hard-crashes. Secrets are read
-from the environment only, never hardcoded.
+This extractive generator is also the citation contract's satisfying fallback:
+it is what ``generate.cited.generate_cited_answer`` reaches for after an LLM
+answer fails the contract twice, because its output is grounded and cited by
+construction and needs no model call to verify. It is also what the
+``generation: extractive`` config mode selects directly. Generation through a
+configured LLM provider goes through ``generate.cited`` instead of this
+module; there is no vendor-specific branch here, so there is exactly one route
+to a model call and it is not hardcoded to any one vendor.
 """
 
 from __future__ import annotations
 
-import os
 import re
 
 from ragfabric_core.ingest.embed import content_tokens
-
-# Model id kept as a constant so it is easy to find and change. Only used on the
-# optional online path.
-CLAUDE_MODEL = "claude-sonnet-5"
 
 # Sentence boundary: end punctuation followed by whitespace, OR a newline. The
 # newline arm matters because CSV and DOCX text arrives as unpunctuated lines,
@@ -166,24 +165,6 @@ def select_support(
     return support
 
 
-def build_prompt(question: str, context: str) -> str:
-    """Build a grounded prompt instructing the model to answer only from context.
-
-    The ``[n]`` markers in the context (added by the answer layer) let the model
-    cite its sources by number, which the citation layer maps back to chunk
-    metadata.
-    """
-    return (
-        "You are an internal knowledge assistant. Answer the question using ONLY "
-        "the context below. Each passage is prefixed with a number like [1]. Cite "
-        "the passages you use by their number, e.g. [1]. If the answer is not in "
-        "the context, say you don't know.\n\n"
-        f"Context:\n{context}\n\n"
-        f"Question: {question}\n\n"
-        "Answer:"
-    )
-
-
 def extractive_answer(
     question: str,
     chunks: list[dict],
@@ -227,29 +208,15 @@ def generate(
 ) -> str:
     """Produce an answer for ``question`` grounded in ``context``.
 
-    Tries Anthropic Claude when ``ANTHROPIC_API_KEY`` is set; otherwise (or on any
-    failure) returns the deterministic extractive answer. The default path is
-    fully offline.
+    Always returns the deterministic extractive answer. A vendor-backed model
+    call, when the caller wants one, goes through ``generate.cited`` and a
+    configured ``LLMProvider`` instead; this module has no vendor branch of its
+    own, so there is exactly one route to a model call in this codebase.
+    ``context`` and ``model`` are accepted for signature compatibility with
+    :class:`LLMClient`'s callers but do not affect the offline path.
     """
-    chunks = chunks or []
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        return extractive_answer(question, chunks, support=support)
-
-    try:
-        import anthropic
-
-        client = anthropic.Anthropic()
-        response = client.messages.create(
-            model=model or CLAUDE_MODEL,
-            max_tokens=1024,
-            messages=[{"role": "user", "content": build_prompt(question, context)}],
-        )
-        text = "".join(block.text for block in response.content if block.type == "text").strip()
-        return text or extractive_answer(question, chunks, support=support)
-    except Exception:
-        # Any failure (missing SDK, network, auth) degrades gracefully offline.
-        return extractive_answer(question, chunks, support=support)
+    del context, model
+    return extractive_answer(question, chunks or [], support=support)
 
 
 class LLMClient:
