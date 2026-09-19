@@ -106,6 +106,12 @@ class TraditionalRAGStrategy:
         if threshold > 0.0:
             candidates = [c for c in candidates if (c.score or 0.0) >= threshold]
 
+        # Captured before the rerank call, not after: LlmReranker.rerank() returns
+        # [] immediately on an empty candidate list without ever calling the LLM,
+        # so llm_calls must reflect whether there was anything to score, not just
+        # which reranker is configured.
+        had_candidates = bool(candidates)
+
         if self._reranker is not None and self._reranker.name != "none":
             mark = time.perf_counter()
             candidates = self._reranker.rerank(query, candidates, ctx.params.top_k)
@@ -130,7 +136,15 @@ class TraditionalRAGStrategy:
             strategy=self.name,
             chunks=chunks,
             retrieval_calls=1,
-            llm_calls=1 if (self._reranker is not None and self._reranker.name == "llm") else 0,
+            # This assumes LlmReranker makes exactly one model call per non-empty
+            # invocation, which is true today (rerank/llm_reranker.py: a single
+            # self._llm.complete() call per rerank()). A future reranker that
+            # batches across chunks or caches by content would need the true
+            # count to come from the reranker itself, not from this name check,
+            # so this flag should not be extended to cover that case blindly.
+            llm_calls=1
+            if (had_candidates and self._reranker is not None and self._reranker.name == "llm")
+            else 0,
             input_tokens=embedded.input_tokens,
             output_tokens=0,
             latency_ms=int((time.perf_counter() - started) * 1000),

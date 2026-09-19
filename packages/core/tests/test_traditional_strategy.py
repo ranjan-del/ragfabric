@@ -110,6 +110,39 @@ def test_it_applies_the_reranker_after_the_threshold_and_before_the_cut():
     assert [c.chunk_id for c in result.chunks] == [3, 2]
 
 
+def test_it_thresholds_using_the_retrieval_score_not_the_reranked_score():
+    """Pins the ordering that is the substance of this task.
+
+    A reranker here both reorders AND rescores, the way a real LLM or cross
+    encoder reranker does. If the threshold ran after the rerank instead of
+    before it, it would compare against the reranker's inverted score rather
+    than the retrieval score, and a different chunk would survive: chunk 3
+    (retrieval score 0.2, below the 0.5 threshold) would pass because its
+    inverted rerank score is 0.8, while chunk 1 (retrieval score 0.9, well
+    above threshold) would be dropped because its inverted score is 0.1. So
+    this test fails under either ordering bug: threshold-after-rerank changes
+    which chunk survives, not just their order.
+    """
+    from ragfabric_core.rerank.noop import NoopReranker
+
+    class RescoringReverse(NoopReranker):
+        name = "rescoring_reverse"
+
+        def rerank(self, query, chunks, top_k):
+            reversed_chunks = list(reversed(chunks))
+            return [
+                c.model_copy(update={"score": 1.0 - (c.score or 0.0)}) for c in reversed_chunks
+            ][:top_k]
+
+    store = StubStore([chunk(1, 0.9), chunk(2, 0.6), chunk(3, 0.2)])
+    result = strategy(store, reranker=RescoringReverse()).retrieve(
+        "q", ctx(top_k=3, threshold=0.5)
+    )
+    result_ids = [c.chunk_id for c in result.chunks]
+    assert 3 not in result_ids, "chunk 3 is below the retrieval threshold and must be dropped"
+    assert result_ids == [2, 1], "surviving chunks must be in the reranker's order"
+
+
 def test_it_records_the_expected_trace_spans():
     store = StubStore([chunk(1, 0.9)])
     result = strategy(store).retrieve("q", ctx())
@@ -118,6 +151,9 @@ def test_it_records_the_expected_trace_spans():
         "vector_search",
         "context_budget",
     ]
+    started = [s.started_ms for s in result.trace]
+    assert started == sorted(started), "spans must be recorded in the order they ran"
+    assert all(s.duration_ms >= 0 for s in result.trace), "duration cannot be negative"
 
 
 def test_it_records_a_rerank_span_when_a_real_reranker_is_configured():
@@ -158,7 +194,55 @@ def test_metadata_filters_reach_the_store():
     assert store.last_filters == {"collection_id": 7, "format": "pdf"}
 
 
+def test_a_caller_supplied_collection_id_filter_overrides_the_context_one():
+    """Documents the precedence deliberately, since it is safe but was untested.
+
+    This can only narrow, never widen, the result set: the AccessFilter (not
+    this metadata dict) is what the store ANDs against its access predicate,
+    so overriding this key cannot let a caller see a document or collection it
+    was not already permitted to see.
+    """
+    store = StubStore([chunk(1, 0.9)])
+    context = RetrievalContext(
+        principal=Principal(user_id=1, email="a@b.c", role="user"),
+        access_filter=AccessFilter.unrestricted(),
+        collection_ids=[7],
+        params=StrategyParams(top_k=3, metadata_filters={"collection_id": 99}),
+    )
+    strategy(store).retrieve("q", context)
+    assert store.last_filters == {"collection_id": 99}
+
+
 def test_it_exposes_the_store_it_was_built_with():
     store = StubStore([chunk(1, 0.9)])
     built = strategy(store)
     assert built.store is store
+
+
+def test_llm_calls_is_zero_when_the_store_returns_no_candidates():
+    """FINDING 1: LlmReranker.rerank() returns [] without calling the model on
+    an empty candidate list. The name based guard alone cannot tell that
+    apart from a real call, so llm_calls must also require candidates."""
+    from ragfabric_core.rerank.noop import NoopReranker
+
+    class Named(NoopReranker):
+        name = "llm"
+
+    store = StubStore([])
+    result = strategy(store, reranker=Named()).retrieve("q", ctx())
+    assert result.chunks == []
+    assert result.llm_calls == 0
+
+
+def test_llm_calls_is_zero_when_the_threshold_filters_everything_out():
+    """FINDING 1, second path to the same bug: the threshold can also empty
+    the candidate list before the reranker ever runs."""
+    from ragfabric_core.rerank.noop import NoopReranker
+
+    class Named(NoopReranker):
+        name = "llm"
+
+    store = StubStore([chunk(1, 0.1)])
+    result = strategy(store, reranker=Named()).retrieve("q", ctx(threshold=0.5))
+    assert result.chunks == []
+    assert result.llm_calls == 0
