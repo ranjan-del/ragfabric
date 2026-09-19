@@ -23,6 +23,22 @@ from ragfabric_core.strategies.base import RetrievedChunk
 
 ESTIMATED_CHARS_PER_TOKEN = 4
 
+# Build a tuple of exceptions that tiktoken.encoding_for_model can raise.
+# We catch these defensively to avoid adding requests as a direct dependency.
+_DOWNLOAD_FAILURE_EXCEPTIONS: tuple[type[Exception], ...] = (OSError, ImportError)
+try:
+    import requests
+
+    _DOWNLOAD_FAILURE_EXCEPTIONS = (
+        requests.exceptions.RequestException,
+        OSError,
+        ImportError,
+    )
+except ImportError:
+    # requests is not available; catch OSError and ImportError only.
+    # (tiktoken depends on requests, so this is defensive but should not occur.)
+    pass
+
 
 @lru_cache(maxsize=8)
 def _encoding(model: str):
@@ -32,14 +48,23 @@ def _encoding(model: str):
 
 
 def _can_resolve_encoding(model: str | None) -> bool:
-    """Check if the model has a resolvable tokeniser."""
+    """Check if the model has a resolvable tokeniser.
+
+    Returns False if the model is unknown (KeyError) or if the encoding cannot
+    be fetched due to network, filesystem, or other download failures.
+    """
     if not model:
         return False
     try:
         _encoding(model)
         return True
     except KeyError:
-        # encoding_for_model raises KeyError for unknown model strings
+        # Model name is not in tiktoken's registry; unknown model, no network involved.
+        return False
+    except _DOWNLOAD_FAILURE_EXCEPTIONS:
+        # Encoding exists but could not be fetched: network unreachable,
+        # timeout, HTTP error, filesystem error, or missing blobfile module.
+        # Fall back to estimate in air-gapped or offline deployments.
         return False
 
 
