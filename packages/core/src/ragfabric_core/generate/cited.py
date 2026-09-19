@@ -80,6 +80,9 @@ def generate_cited_answer(
     if not chunks:
         # No call is made on this path, so both token counts are exactly zero,
         # never an estimate of what a call would have cost.
+        # "extractive" here means "not model-generated", the honest label for
+        # a canned sentence, not a claim that the extractive generator ran:
+        # extractive_answer() is never called on this path either.
         return CitedAnswer(
             text=NO_EVIDENCE_ANSWER,
             model="none",
