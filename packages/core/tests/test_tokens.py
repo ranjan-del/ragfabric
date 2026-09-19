@@ -71,6 +71,39 @@ def test_token_count_method_returns_estimate_for_none():
     assert token_count_method(None) == "estimate"
 
 
+def test_count_tokens_falls_back_to_estimate_when_download_fails():
+    """Air-gapped case: encoding exists but cannot be fetched, falls back to estimate.
+
+    Simulates a network failure (ConnectionError) that would occur when trying
+    to download the encoding in an offline or air-gapped deployment.
+    """
+    try:
+        import requests
+    except ImportError:
+        pytest.skip("requests not available (should not occur)")
+
+    with patch("ragfabric_core.tokens._encoding") as mock_encoding:
+        mock_encoding.side_effect = requests.exceptions.ConnectionError("Network unreachable")
+        # 11 characters // 4 = 2 tokens (estimate)
+        assert count_tokens("hello world", "text-embedding-3-small") == 2
+
+
+def test_token_count_method_returns_estimate_when_download_fails():
+    """Air-gapped case: encoding download fails, method correctly reports estimate.
+
+    This proves token_count_method and count_tokens are in sync: both degrade
+    to estimate when the download fails, rather than raising.
+    """
+    try:
+        import requests
+    except ImportError:
+        pytest.skip("requests not available (should not occur)")
+
+    with patch("ragfabric_core.tokens._encoding") as mock_encoding:
+        mock_encoding.side_effect = requests.exceptions.ConnectionError("Network unreachable")
+        assert token_count_method("text-embedding-3-small") == "estimate"
+
+
 # Integration tests (require RAGFABRIC_TEST_TIKTOKEN and may touch network)
 
 pytestmark_integration = [
