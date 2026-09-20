@@ -1,12 +1,16 @@
 """Pin the vector dimension and build the HNSW index.
 
 pgvector cannot index a vector column with no declared dimension, so Phase 3
-fixes the column at 768 (nomic-embed-text, the default no key model) and builds
-an HNSW index with cosine ops.
+fixes the column at ``EMBEDDING_DIM`` (768, nomic-embed-text, the default no
+key model) and builds an HNSW index with cosine ops. That constant is
+imported from ``ragfabric_core.models.index`` rather than repeated here, so
+this migration and the model's own ``Vector(EMBEDDING_DIM)`` declaration
+share one number and cannot drift apart.
 
-Rows whose dim is not 768 are deleted first, because the type change cannot
-succeed while they exist. They are derived data: `ragfabric reindex` rebuilds
-them from the chunks table, which is the source of truth. See ADR 0006.
+Rows whose dim does not match are deleted first, because the type change
+cannot succeed while they exist. They are derived data: `ragfabric reindex`
+rebuilds them from the chunks table, which is the source of truth. See ADR
+0006.
 
 Revision ID: 0004_pin_vector_dim_and_hnsw
 Revises: 0003_ingestion_and_indexes
@@ -17,12 +21,12 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
+from ragfabric_core.models.index import EMBEDDING_DIM
+
 revision: str = "0004_pin_vector_dim_and_hnsw"
 down_revision: str | None = "0003_ingestion_and_indexes"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
-
-EMBEDDING_DIM = 768
 
 
 def upgrade() -> None:

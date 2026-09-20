@@ -20,7 +20,14 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from ragfabric_core.models.base import Base
 
-EmbeddingType = JSON().with_variant(Vector(), "postgresql")
+# Single source of truth for the pgvector column width (ADR 0006: one
+# deployment, one embedding model, nomic-embed-text's 768 dims). Migration
+# 0004 imports this same constant for its ALTER TABLE rather than repeating
+# the number, so the model and the migration cannot silently disagree about
+# the dimension PostgreSQL actually enforces.
+EMBEDDING_DIM = 768
+
+EmbeddingType = JSON().with_variant(Vector(EMBEDDING_DIM), "postgresql")
 TsvType = Text().with_variant(TSVECTOR(), "postgresql")
 
 
