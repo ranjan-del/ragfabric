@@ -6,7 +6,10 @@
   bearer) or a signed in user, so route handlers can depend on one thing
   regardless of how the caller authenticated.
 - ``get_access_filter`` computes the AccessFilter for that principal.
-- ``get_cache`` builds the process wide Cache once from configuration.
+- ``get_cache``, ``get_llm_provider``, ``get_strategy_registry``,
+  ``get_vector_store`` and ``get_lexical_store`` read their objects off
+  ``app.state``, where ``ragfabric_server.main``'s lifespan builds each one
+  once at application startup (see that module).
 
 401 Unauthorized -> we don't know who you are (bad/missing/expired token).
 403 Forbidden    -> we know who you are, but you're not allowed.
@@ -32,21 +35,29 @@ from ragfabric_core.db.session import get_db
 from ragfabric_core.models.user import User
 from ragfabric_core.providers.base import LLMProvider
 from ragfabric_core.rerank.base import Reranker
-from ragfabric_core.runtime import get_config, get_session_factory
 from ragfabric_core.security import ACCESS, JWTError, decode_token
 from ragfabric_core.stores.base import Cache, LexicalStore, VectorStore
-from ragfabric_core.stores.registry import build_cache
 from ragfabric_core.strategies.base import StrategyRegistry
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login", auto_error=False)
 
-_credentials_error = HTTPException(
-    status_code=status.HTTP_401_UNAUTHORIZED,
-    detail="Could not validate credentials",
-    headers={"WWW-Authenticate": "Bearer"},
-)
 
-_cache: Cache | None = None
+def _credentials_error() -> HTTPException:
+    """A fresh 401 each time, never a shared instance.
+
+    A single module-level ``HTTPException`` object used to be raised from
+    every failed-auth branch below. FastAPI's exception handling does not
+    mutate it, so sharing it was not a correctness bug today, but it is
+    exactly the kind of shared mutable state this task removes on principle:
+    nothing stops a future change (attaching request-specific detail to the
+    exception, for instance) from turning this into one request's 401
+    leaking detail into another's response.
+    """
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
 def get_current_user(
@@ -55,21 +66,21 @@ def get_current_user(
 ) -> User:
     """Return the active user for the request's access token."""
     if not token:
-        raise _credentials_error
+        raise _credentials_error()
     try:
         payload = decode_token(token)
     except JWTError as exc:
-        raise _credentials_error from exc
+        raise _credentials_error() from exc
 
     if payload.get("type") != ACCESS:
-        raise _credentials_error
+        raise _credentials_error()
     user_id = payload.get("sub")
     if user_id is None:
-        raise _credentials_error
+        raise _credentials_error()
 
     user = db.get(User, int(user_id))
     if user is None or not user.is_active:
-        raise _credentials_error
+        raise _credentials_error()
     return user
 
 
@@ -87,11 +98,19 @@ def require_role(role: str):
     return _guard
 
 
-def get_cache() -> Cache:
-    global _cache
-    if _cache is None:
-        _cache = build_cache(get_config().cache)
-    return _cache
+def get_cache(request: Request) -> Cache:
+    """The process wide Cache, built once at application startup.
+
+    ``ragfabric_server.main``'s lifespan builds this (and the four
+    dependencies below) exactly once, on ``app.state``, rather than each
+    living as a module-level global filled in on first use: a module global
+    is process-wide, permanently, with no way for a test (or a second
+    ``FastAPI()`` instance in the same process) to get a clean one back.
+    ``app.state`` is scoped to the one ``app`` that built it, so a fresh
+    ``TestClient(app)`` genuinely gets a fresh cache/provider/registry/store
+    set, the same as a fresh server process would.
+    """
+    return request.app.state.cache
 
 
 def _api_key_from_request(request: Request, token: str | None) -> str | None:
@@ -114,7 +133,7 @@ def get_principal(
         key = verify_api_key(db, plaintext)
         if key is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
-        if not check_rate_limit(get_cache(), f"key:{key.id}", key.rate_limit_per_minute):
+        if not check_rate_limit(get_cache(request), f"key:{key.id}", key.rate_limit_per_minute):
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Rate limit exceeded"
             )
@@ -131,33 +150,24 @@ def get_access_filter(
 
 # --- Task 10: dependencies onto the real strategy, LLM and stores -------------
 #
-# Built once per process, the same manual singleton pattern as ``get_cache``
-# above (a module-global default of ``None``, filled in on first use). Task 16
-# replaces all four of these with objects on ``app.state``; this is not the
-# place to fix that, only to stop wiring search onto the v1 in-memory index.
-
-_strategy_registry: StrategyRegistry | None = None
-
-
-def get_strategy_registry() -> StrategyRegistry:
-    global _strategy_registry
-    if _strategy_registry is None:
-        from ragfabric_core.strategies.registry_defaults import default_registry
-
-        _strategy_registry = default_registry(get_config(), get_session_factory())
-    return _strategy_registry
+# Built once at application startup (``ragfabric_server.main``'s lifespan)
+# and read off ``app.state`` (see ``get_cache`` above for why). Note what is
+# NOT here: ``get_reranker``, further down, deliberately keeps its
+# module-level cache. Unlike these four, it is called directly (with no
+# ``Request`` anywhere in scope) from ``search.py``'s ``_strategy_for`` and
+# from several unit tests in ``test_overrides.py`` that build a
+# ``StrategyRegistry`` by hand and never construct a FastAPI ``app`` at all.
+# Moving it onto ``app.state`` would mean threading a ``Request`` through
+# that helper and rewriting those tests around a live app, which is a second
+# structural change riding on this one; left alone, reported as such.
 
 
-_llm_provider: LLMProvider | None = None
+def get_strategy_registry(request: Request) -> StrategyRegistry:
+    return request.app.state.strategy_registry
 
 
-def get_llm_provider() -> LLMProvider:
-    global _llm_provider
-    if _llm_provider is None:
-        from ragfabric_core.providers.registry import build_llm_provider
-
-        _llm_provider = build_llm_provider(get_config().llm)
-    return _llm_provider
+def get_llm_provider(request: Request) -> LLMProvider:
+    return request.app.state.llm_provider
 
 
 _rerankers: dict[str, Reranker] = {}
@@ -210,33 +220,12 @@ def get_reranker(kind: str, llm: LLMProvider | None = None) -> Reranker:
         return _rerankers[kind]
 
 
-_vector_store: VectorStore | None = None
+def get_vector_store(request: Request) -> VectorStore:
+    return request.app.state.vector_store
 
 
-def get_vector_store() -> VectorStore:
-    global _vector_store
-    if _vector_store is None:
-        from ragfabric_core.providers.registry import build_embedding_provider
-        from ragfabric_core.stores.registry import build_vector_store
-
-        cfg = get_config()
-        embedder = build_embedding_provider(cfg.embeddings)
-        _vector_store = build_vector_store(
-            cfg.vector_store, get_session_factory(), embedding_model=embedder.model
-        )
-    return _vector_store
-
-
-_lexical_store: LexicalStore | None = None
-
-
-def get_lexical_store() -> LexicalStore:
-    global _lexical_store
-    if _lexical_store is None:
-        from ragfabric_core.stores.registry import build_lexical_store
-
-        _lexical_store = build_lexical_store(get_config().lexical_store, get_session_factory())
-    return _lexical_store
+def get_lexical_store(request: Request) -> LexicalStore:
+    return request.app.state.lexical_store
 
 
 def get_embedding_model(store: VectorStore = Depends(get_vector_store)) -> str:

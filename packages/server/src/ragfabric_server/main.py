@@ -19,9 +19,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from ragfabric_core.config import get_settings
 from ragfabric_core.db.session import SessionLocal, init_db
 from ragfabric_core.models.user import Role, User
+from ragfabric_core.providers.registry import build_embedding_provider, build_llm_provider
 from ragfabric_core.runtime import get_config, get_session_factory
 from ragfabric_core.security import hash_password
-from ragfabric_core.stores.registry import build_vector_store
+from ragfabric_core.stores.registry import build_cache, build_lexical_store, build_vector_store
+from ragfabric_core.strategies.registry_defaults import default_registry
 from ragfabric_core.telemetry.tracing import configure_otel
 from ragfabric_server.api.routes import (
     access,
@@ -59,11 +61,31 @@ def _seed_admin() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup/shutdown: prepare the database."""
+    """Startup/shutdown: prepare the database and the process wide singletons.
+
+    Task 16 moves ``deps.py``'s cache, LLM provider, strategy registry,
+    vector store and lexical store off module-level globals built lazily on
+    first use, and onto ``app.state``, built exactly once, right here, at
+    application startup. ``deps.get_reranker`` is deliberately not among
+    them; see its own docstring in ``deps.py`` for why moving it would
+    ripple past this task.
+    """
     init_db()
     export_on = configure_otel(get_config().telemetry.otlp_endpoint)
     logger.info("OTLP export %s", "enabled" if export_on else "disabled")
     _seed_admin()
+
+    cfg = get_config()
+    session_factory = get_session_factory()
+    app.state.cache = build_cache(cfg.cache)
+    app.state.llm_provider = build_llm_provider(cfg.llm)
+    app.state.strategy_registry = default_registry(cfg, session_factory)
+    embedder = build_embedding_provider(cfg.embeddings)
+    app.state.vector_store = build_vector_store(
+        cfg.vector_store, session_factory, embedding_model=embedder.model
+    )
+    app.state.lexical_store = build_lexical_store(cfg.lexical_store, session_factory)
+
     yield
 
 
