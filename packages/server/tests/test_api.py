@@ -33,6 +33,25 @@ def test_health(client):
     assert resp.json()["status"] == "ok"
 
 
+def test_health_reports_the_real_vector_count(client, auth_headers):
+    """health()["index"]["vectors"] must be a measured count, not a vacuous
+    or hardcoded one.
+
+    The expected count comes from the upload responses' own ``num_chunks``
+    field, a value produced independently of the health endpoint's own
+    ``build_vector_store(...).count()`` call, so a regression that always
+    reported 0 (or any other wrong number) would be caught here.
+    """
+    first = _upload(client, auth_headers, "one.txt", VACATION_DOC).json()
+    second = _upload(client, auth_headers, "two.txt", SECURITY_DOC).json()
+    expected = first["num_chunks"] + second["num_chunks"]
+    assert expected > 0
+
+    health = client.get("/health").json()
+    assert health["status"] == "ok"
+    assert health["index"]["vectors"] == expected
+
+
 def test_register_login_and_me(client):
     assert (
         client.post(
