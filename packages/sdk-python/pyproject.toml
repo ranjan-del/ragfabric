@@ -1,0 +1,16 @@
+[project]
+name = "ragfabric-sdk"
+version = "0.1.0a1"
+description = "Python client for a RagFabric server."
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+license = "Apache-2.0"
+authors = [{ name = "Ranjan G", email = "ranjan.g@ispf.ngo" }]
+dependencies = ["httpx>=0.28", "pydantic>=2.13"]
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ragfabric_sdk"]
