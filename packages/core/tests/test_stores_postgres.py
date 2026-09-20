@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 from ragfabric_core.auth.principal import AccessFilter
 from ragfabric_core.db.migrate import downgrade, upgrade
 from ragfabric_core.models.document import Chunk, Collection, Document
+from ragfabric_core.models.index import EMBEDDING_DIM
 from ragfabric_core.stores.pgvector_store import PgVectorStore
 from ragfabric_core.stores.postgres_fts import PostgresLexicalStore
 
@@ -73,7 +74,23 @@ def pg():
 
 
 def unit(v):
-    a = np.asarray(v, dtype=float)
+    """A unit vector at the pinned ``EMBEDDING_DIM`` (768) width, non-zero only
+    on the axes ``v`` names.
+
+    Migration 0004 pins ``chunk_embeddings.embedding`` to ``vector(768)`` on
+    PostgreSQL, so any insert of a shorter vector is rejected outright
+    (``expected 768 dimensions, not N``). Padding ``v`` with zeros out to 768
+    dimensions before normalising keeps every cosine relationship these tests
+    rely on (an axis-0 vector at a right angle to an axis-1 vector, a blend
+    closer to one than the other, an exact opposite) bit-for-bit identical to
+    the original 2-dimensional vectors: the extra zero components change
+    neither the dot product nor either vector's norm, so ``unit([1, 0])`` and
+    ``unit([0, 1])`` are still exactly orthogonal, ``unit([0.8, 0.6])`` is
+    still exactly 0.8 cosine from the first and 0.6 from the second, and
+    ``unit([-1, 0])`` is still their exact opposite.
+    """
+    a = np.zeros(EMBEDDING_DIM, dtype=float)
+    a[: len(v)] = v
     return (a / np.linalg.norm(a)).tolist()
 
 
@@ -83,7 +100,7 @@ def test_pgvector_uses_the_vector_type_and_orders_by_cosine_distance(pg):
     store.upsert(
         ids,
         [unit([1, 0]), unit([0, 1]), unit([0.8, 0.6])],
-        [{"model": "m", "dim": 2, "document_id": d, "collection_id": c}] * 3,
+        [{"model": "m", "dim": EMBEDDING_DIM, "document_id": d, "collection_id": c}] * 3,
     )
     # Furthest from the query vector, so it never displaces the first collection's
     # chunks from the unrestricted top-3 below; the access filter tests do not rely
@@ -91,7 +108,7 @@ def test_pgvector_uses_the_vector_type_and_orders_by_cosine_distance(pg):
     store.upsert(
         [id2],
         [unit([-1, 0])],
-        [{"model": "m", "dim": 2, "document_id": d2, "collection_id": c2}],
+        [{"model": "m", "dim": EMBEDDING_DIM, "document_id": d2, "collection_id": c2}],
     )
     with factory() as db:
         typ = db.execute(
@@ -127,12 +144,12 @@ def test_pgvector_query_ignores_rows_written_by_another_embedding_model(pg):
     old.upsert(
         [ids[0]],
         [unit([1, 0])],
-        [{"model": "hashing-384", "dim": 2, "document_id": d, "collection_id": c}],
+        [{"model": "hashing-384", "dim": EMBEDDING_DIM, "document_id": d, "collection_id": c}],
     )
     new.upsert(
         [ids[1]],
         [unit([1, 0])],
-        [{"model": "nomic-embed-text", "dim": 2, "document_id": d, "collection_id": c}],
+        [{"model": "nomic-embed-text", "dim": EMBEDDING_DIM, "document_id": d, "collection_id": c}],
     )
 
     hits = new.query(unit([1, 0]), top_k=10, access=AccessFilter.unrestricted())
