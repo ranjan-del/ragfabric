@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from ragfabric_core.config import get_settings
@@ -31,6 +31,28 @@ engine = create_engine(
     connect_args=connect_args,
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+
+if engine.dialect.name == "sqlite":
+
+    @event.listens_for(engine, "connect")
+    def _enforce_sqlite_foreign_keys(dbapi_connection, connection_record) -> None:  # noqa: ANN001, ARG001
+        """Turn on foreign-key enforcement for every new SQLite DB-API connection.
+
+        SQLite ships with foreign-key checking OFF by default and SQLAlchemy
+        does not turn it on for you, so every ``ondelete="CASCADE"`` (and
+        ``SET NULL``) declared on the models is silently inert on SQLite, the
+        dialect this project uses for local development and for the entire
+        test suite. That let at least one real bug through: an
+        ``embeddings.chunk_embeddings`` row survived the deletion of its
+        parent ``chunks`` row, because nothing was actually enforcing the
+        cascade. ``PRAGMA foreign_keys=ON`` must be set on every connection
+        (SQLite does not persist it in the file), which is exactly what a
+        ``connect`` event listener gives us.
+        """
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 
 def init_db() -> None:
