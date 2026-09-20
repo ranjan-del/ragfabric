@@ -6,6 +6,15 @@ stuck in "indexing" forever with no exception for anything to have caught.
 This command is the operator-triggered retry: it finds every document stuck
 in "indexing" past the grace period and re-runs indexing for it, which is
 safe because index_document is idempotent (see workers/handlers.py).
+
+Known limitation: "stuck" is judged purely by age, with no lock or worker
+heartbeat behind it. A document that is merely slow (a large file, or a
+rate-limited embedding provider) rather than crashed can be re-run by this
+command WHILE a live worker is still processing it. The result still
+converges, since the underlying writes are idempotent, but the embedding
+provider gets called a second time, which costs money and can itself trigger
+the same rate limiting that made the document slow. The safe procedure is to
+stop the worker(s) before running this command.
 """
 
 from __future__ import annotations
@@ -27,7 +36,14 @@ def reconcile(
         help="Only retry documents that have been stuck in 'indexing' for at least this long.",
     ),
 ) -> None:
-    """Retry any document left stuck in 'indexing' by a crashed fan out."""
+    """Retry any document left stuck in 'indexing' by a crashed fan out.
+
+    Limitation: a document merely running slowly, not crashed, can be re-run
+    here while a worker is still indexing it. Writes converge (idempotent),
+    but the embedding provider is called twice, which costs money and can
+    trigger the same rate limit that slowed the document down. For that
+    reason, stop the worker(s) before running this command.
+    """
     cfg = get_config()
     sf = get_session_factory()
     provider = build_embedding_provider(cfg.embeddings)
