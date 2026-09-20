@@ -24,6 +24,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ragfabric_core.auth.principal import AccessFilter, Principal
+from ragfabric_core.config_file import RerankerConfig
 from ragfabric_core.db.session import get_db
 from ragfabric_core.generate.answer import build_answer
 from ragfabric_core.generate.cited import CitedAnswer, generate_cited_answer
@@ -31,15 +32,19 @@ from ragfabric_core.models.access import AuditLog
 from ragfabric_core.models.document import QueryLog
 from ragfabric_core.models.runs import RetrievalRun, Source
 from ragfabric_core.providers.base import LLMProvider
+from ragfabric_core.rerank.registry import build_reranker
+from ragfabric_core.runtime import get_config
 from ragfabric_core.store.vector_store import get_store
 from ragfabric_core.stores.base import LexicalStore
 from ragfabric_core.strategies.base import (
     RetrievalContext,
     RetrievedChunk,
+    RetrieverStrategy,
     StrategyName,
     StrategyParams,
     StrategyRegistry,
 )
+from ragfabric_core.strategies.traditional import TraditionalRAGStrategy
 from ragfabric_core.telemetry.tracing import start_trace, trace
 from ragfabric_server.deps import (
     get_access_filter,
@@ -62,12 +67,9 @@ router = APIRouter()
 def _context(payload: SearchRequest, principal: Principal, access: AccessFilter) -> RetrievalContext:
     """Build the strategy's per-request context.
 
-    ``SearchRequest`` carries no ``similarity_threshold`` field, and neither
-    the v1 ``Retriever``/``HybridRetriever`` this replaces nor
-    ``default_registry`` wires one in from configuration, so this stays at
-    ``StrategyParams``'s own default of ``0.0`` (no floor): every one of the
-    three endpoints returns its top_k nearest neighbours regardless of
-    absolute score, exactly as the retrievers they replace did.
+    ``similarity_threshold`` (Task 12) is threaded straight through to
+    ``StrategyParams``, whose own default of ``0.0`` reproduces the prior
+    behaviour (no floor) whenever a caller leaves the field unset.
     """
     filters: dict[str, str | int | float | bool] = {}
     if payload.document_id is not None:
@@ -80,8 +82,57 @@ def _context(payload: SearchRequest, principal: Principal, access: AccessFilter)
         collection_ids=[payload.collection_id] if payload.collection_id is not None else None,
         params=StrategyParams(
             top_k=payload.top_k,
+            similarity_threshold=payload.similarity_threshold,
             metadata_filters=filters,
         ),
+    )
+
+
+def _configured_max_context_tokens(cfg) -> int:
+    """Mirrors ``registry_defaults.default_registry``'s own coercion, so a per
+    request strategy built around a different reranker keeps the exact same
+    budget the shared strategy was built with."""
+    value = cfg.strategies.traditional.get("max_context_tokens")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 6000
+
+
+def _strategy_for(
+    rerank: str | None, registry: StrategyRegistry, llm: LLMProvider | None
+) -> RetrieverStrategy:
+    """Return the strategy this request should retrieve through.
+
+    ``rerank is None`` (the default, absent from the request body) returns the
+    registry's shared ``TraditionalRAGStrategy`` instance unchanged: that
+    instance is a process-wide singleton (``get_strategy_registry``) serving
+    every concurrent request, so it must never be mutated to apply one
+    caller's choice.
+
+    Naming a reranker, including ``"none"``, builds a FRESH
+    ``TraditionalRAGStrategy`` around the SAME shared vector store and
+    embedding provider (read off the shared strategy's public ``store`` and
+    ``embedder`` properties, never a private attribute) with only the
+    reranker swapped in. The fresh instance is local to this request/response
+    cycle and is discarded afterwards, so one caller's reranker choice can
+    never be observed by another in-flight request.
+    """
+    base = registry.get(StrategyName.TRADITIONAL)
+    if rerank is None:
+        return base
+    if not isinstance(base, TraditionalRAGStrategy):
+        # Only the traditional strategy is rerank-overridable in this phase;
+        # any other registered strategy is returned untouched.
+        return base
+    reranker = build_reranker(RerankerConfig(kind=rerank), llm=llm if rerank == "llm" else None)
+    cfg = get_config()
+    return TraditionalRAGStrategy(
+        embedding_provider=base.embedder,
+        vector_store=base.store,
+        reranker=reranker,
+        max_context_tokens=_configured_max_context_tokens(cfg),
+        generation_model=cfg.llm.model,
     )
 
 
@@ -171,7 +222,7 @@ def query(
 ) -> AnswerResponse:
     """Ask a question and get a cited, grounded answer."""
     started = time.perf_counter()
-    strategy = registry.get(StrategyName.TRADITIONAL)
+    strategy = _strategy_for(payload.rerank, registry, llm)
     with start_trace() as tracing:
         result = strategy.retrieve(payload.query, _context(payload, principal, access))
         retrieval_ms = int((time.perf_counter() - started) * 1000)
@@ -270,6 +321,7 @@ def semantic_search(
     principal: Principal = Depends(get_principal),
     access: AccessFilter = Depends(get_access_filter),
     registry: StrategyRegistry = Depends(get_strategy_registry),
+    llm: LLMProvider = Depends(get_llm_provider),
 ) -> SearchResults:
     """Return the most semantically similar chunks for a query."""
     payload.mode = "semantic"
@@ -281,7 +333,7 @@ def semantic_search(
         },
         access,
     )
-    strategy = registry.get(StrategyName.TRADITIONAL)
+    strategy = _strategy_for(payload.rerank, registry, llm)
     result = strategy.retrieve(payload.query, _context(payload, principal, access))
     results = [_to_result_item(c) for c in result.chunks]
     db.add(
@@ -308,6 +360,7 @@ def hybrid_search(
     access: AccessFilter = Depends(get_access_filter),
     registry: StrategyRegistry = Depends(get_strategy_registry),
     lexical: LexicalStore = Depends(get_lexical_store),
+    llm: LLMProvider = Depends(get_llm_provider),
 ) -> SearchResults:
     """Return chunks ranked by a blend of lexical and semantic scores.
 
@@ -325,7 +378,7 @@ def hybrid_search(
         },
         access,
     )
-    strategy = registry.get(StrategyName.TRADITIONAL)
+    strategy = _strategy_for(payload.rerank, registry, llm)
     vector_result = strategy.retrieve(payload.query, _context(payload, principal, access))
     filters = _lexical_filters(payload)
     lexical_hits = lexical.search(

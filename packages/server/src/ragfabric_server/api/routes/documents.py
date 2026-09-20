@@ -57,11 +57,21 @@ def list_documents(
 async def upload_document(
     file: UploadFile = File(...),
     collection_id: int | None = Form(default=None),
+    chunk_size: int | None = Form(default=None),
+    chunk_overlap: int | None = Form(default=None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     access: AccessFilter = Depends(get_access_filter),
 ) -> Document:
-    """Upload a file and ingest it into the knowledge base."""
+    """Upload a file and ingest it into the knowledge base.
+
+    ``chunk_size``/``chunk_overlap`` are optional per-upload overrides of the
+    configured ingestion chunk size/overlap. Left absent (the default), the
+    document is chunked exactly as it always was. Named explicitly, they are
+    validated here, at the edge, rather than clamped: a caller who asks for
+    an overlap that does not fit its chunk size gets a 422, never a silently
+    adjusted document.
+    """
     filename = file.filename or "upload"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in SUPPORTED_FORMATS:
@@ -88,6 +98,23 @@ async def upload_document(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty."
         )
 
+    if chunk_size is not None or chunk_overlap is not None:
+        cfg_ingestion = get_config().ingestion
+        effective_size = chunk_size if chunk_size is not None else cfg_ingestion.chunk_size
+        effective_overlap = (
+            chunk_overlap if chunk_overlap is not None else cfg_ingestion.chunk_overlap
+        )
+        if chunk_size is not None and chunk_size < 1:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="chunk_size must be a positive integer.",
+            )
+        if not (0 <= effective_overlap < effective_size):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="chunk_overlap must satisfy 0 <= chunk_overlap < chunk_size.",
+            )
+
     return ingest_document(
         db,
         filename=filename,
@@ -95,6 +122,8 @@ async def upload_document(
         content_type=file.content_type or "",
         collection_id=collection_id,
         owner_id=current_user.id,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
     )
 
 
