@@ -41,6 +41,9 @@ def ask(
 
     Needs a running RagFabric server: this command talks to it over HTTP
     through the RagFabric SDK, it does not answer the question locally.
+    Streamed stdout can contain a stale, superseded draft ahead of the
+    corrected answer (bytes already printed cannot be recalled); a machine
+    consumer should use --json or --no-stream instead of parsing the stream.
     """
     url = url or os.environ.get("RAGFABRIC_URL") or DEFAULT_URL
     token = token or os.environ.get("RAGFABRIC_TOKEN")
@@ -105,9 +108,7 @@ def ask(
         typer.echo(f"could not reach {url}: {exc}", err=True)
         raise typer.Exit(1) from exc
     finally:
-        close = getattr(client, "close", None)
-        if callable(close):
-            close()
+        client.close()
 
 
 def _print_sources(citations: list[dict]) -> None:

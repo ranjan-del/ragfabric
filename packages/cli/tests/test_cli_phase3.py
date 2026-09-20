@@ -7,10 +7,14 @@ runner = CliRunner()
 
 
 @pytest.fixture(autouse=True)
-def cli_env(monkeypatch):
-    """Ask reads credentials from the environment when no flag is given, so
-    every test in this file starts from a clean slate rather than whatever
-    happens to be exported in the shell running the suite."""
+def cleared_credentials(monkeypatch):
+    """Clears RAGFABRIC_TOKEN, RAGFABRIC_API_KEY and RAGFABRIC_URL for the
+    duration of a test. This does NOT set up a database, config file or any
+    other fixture state (unlike test_cli_phase2.py's `env` fixture); it only
+    clears those three environment variables, so ask reads credentials from
+    the environment when no flag is given, so every test in this file starts
+    from a clean slate rather than whatever happens to be exported in the
+    shell running the suite."""
     monkeypatch.delenv("RAGFABRIC_TOKEN", raising=False)
     monkeypatch.delenv("RAGFABRIC_API_KEY", raising=False)
     monkeypatch.delenv("RAGFABRIC_URL", raising=False)
@@ -21,6 +25,9 @@ def test_ask_streams_tokens_to_stdout(monkeypatch):
 
     class FakeClient:
         def __init__(self, *args, **kwargs):
+            pass
+
+        def close(self):
             pass
 
         def ask_stream(self, query, **params):
@@ -48,6 +55,9 @@ def test_ask_prints_sources_and_reports_a_superseded_correction(monkeypatch):
 
     class FakeClient:
         def __init__(self, *args, **kwargs):
+            pass
+
+        def close(self):
             pass
 
         def ask_stream(self, query, **params):
@@ -86,6 +96,9 @@ def test_ask_no_stream_prints_the_finished_answer(monkeypatch):
         def __init__(self, *args, **kwargs):
             pass
 
+        def close(self):
+            pass
+
         def ask(self, query, **params):
             return Answer(
                 question=query,
@@ -118,6 +131,9 @@ def test_ask_json_implies_no_stream(monkeypatch):
         def __init__(self, *args, **kwargs):
             pass
 
+        def close(self):
+            pass
+
         def ask(self, query, **params):
             return Answer(
                 question=query,
@@ -144,6 +160,9 @@ def test_ask_maps_a_ragfabric_error_to_exit_1(monkeypatch):
         def __init__(self, *args, **kwargs):
             pass
 
+        def close(self):
+            pass
+
         def ask_stream(self, query, **params):
             raise AuthError("bad token", 401)
             yield  # pragma: no cover - never reached
@@ -157,6 +176,9 @@ def test_ask_maps_a_ragfabric_error_to_exit_1(monkeypatch):
 def test_ask_maps_a_connection_failure_to_exit_1(monkeypatch):
     class FakeClient:
         def __init__(self, *args, **kwargs):
+            pass
+
+        def close(self):
             pass
 
         def ask_stream(self, query, **params):
