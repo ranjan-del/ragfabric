@@ -6,7 +6,7 @@ from ragfabric_core.auth import service
 from ragfabric_core.auth.policy import compute_access_filter
 from ragfabric_core.auth.principal import Principal
 from ragfabric_core.models import Base
-from ragfabric_core.models.access import ApiKey
+from ragfabric_core.models.access import ApiKey, CollectionGrant
 from ragfabric_core.models.document import Collection, Document
 from ragfabric_core.models.user import User
 
@@ -193,3 +193,36 @@ def test_grant_upsert_and_revoke(world):
     db.commit()
     f = compute_access_filter(db, principal(users["alice"], [hr_group.id]))
     assert cols["hr"].id in f.collection_ids  # no grants left, so the collection is open again
+
+
+def test_grant_collection_upsert_is_idempotent(world):
+    """The upsert replaced a read-then-write pattern (select for an existing
+    row, then insert or update) that left a race window between two
+    concurrently granting callers. A genuinely concurrent test against a
+    single SQLite connection in this fixture cannot exercise that race
+    directly, so this instead asserts the property the atomic upsert is
+    supposed to guarantee: granting the same (group, collection) pair twice
+    never raises and never leaves two rows for the same pair, which a
+    non-atomic insert racing with itself could produce (two inserts both
+    passing a "no existing row" check, one then failing the unique
+    constraint, or worse, succeeding as a duplicate without one).
+    """
+    db, users, cols, docs, hr_group = world
+    new_group = service.create_group(db, "finance-team")
+    db.flush()
+
+    first = service.grant_collection(db, new_group.id, cols["hr"].id, "read")
+    second = service.grant_collection(db, new_group.id, cols["hr"].id, "read")
+    db.commit()
+
+    assert first.id == second.id
+    rows = (
+        db.query(CollectionGrant)
+        .filter(
+            CollectionGrant.group_id == new_group.id,
+            CollectionGrant.collection_id == cols["hr"].id,
+        )
+        .all()
+    )
+    assert len(rows) == 1
+    assert rows[0].permission == "read"
