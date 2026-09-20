@@ -13,7 +13,7 @@ import numpy as np
 from fastapi.testclient import TestClient
 
 from ragfabric_core.db.session import SessionLocal
-from ragfabric_core.ingest.embed import HashingEmbedder
+from ragfabric_core.ingest.embed import HashingEmbedder, get_embedder
 from ragfabric_core.models.document import Chunk
 from ragfabric_core.store.vector_store import InMemoryVectorStore, get_store
 from ragfabric_server.main import app
@@ -167,12 +167,23 @@ def test_upsert_tolerates_the_same_chunk_id_twice_in_one_batch():
 
 
 def test_rebuild_restores_the_index_after_a_simulated_restart(client, auth_headers):
+    """``InMemoryVectorStore.rebuild_from_db`` restores a cleared index.
+
+    Task 10 moved ``/api/search/query`` onto the durable pgvector-backed
+    table, so it no longer round-trips through this in-memory index and can
+    no longer serve as this test's observation point (a restart no longer
+    loses anything for that endpoint, which is the point of that task). The
+    in-memory store and its rebuild-on-restart path are still real and still
+    used at process startup (see ``ragfabric_server.main``), so this test now
+    observes the store directly instead of through an HTTP endpoint that no
+    longer touches it.
+    """
     _upload(client, auth_headers, "handbook.txt", HANDBOOK)
     _upload(client, auth_headers, "runbook.txt", RUNBOOK)
 
-    question = {"query": "how many vacation days do employees receive"}
-    before = client.post("/api/search/query", json=question, headers=auth_headers).json()
-    assert before["citations"]
+    query_vector = get_embedder().embed_one("how many vacation days do employees receive")
+    before = get_store().search(query_vector, top_k=5)
+    assert before
 
     indexed = len(get_store())
     assert indexed > 0
@@ -180,20 +191,15 @@ def test_rebuild_restores_the_index_after_a_simulated_restart(client, auth_heade
     # Simulate a process restart: memory is gone, only the database survives.
     get_store().clear()
     assert len(get_store()) == 0
-    empty = client.post("/api/search/query", json=question, headers=auth_headers).json()
-    assert empty["citations"] == []  # proves the assertion below is not vacuous
+    assert get_store().search(query_vector, top_k=5) == []  # proves the assertion below is not vacuous
 
     with SessionLocal() as db:
         restored = get_store().rebuild_from_db(db)
     assert restored == indexed
 
-    after = client.post("/api/search/query", json=question, headers=auth_headers).json()
-    assert after["answer"] == before["answer"]
-    assert after["confidence"] == before["confidence"]
-    assert [c["chunk_id"] for c in after["citations"]] == [
-        c["chunk_id"] for c in before["citations"]
-    ]
-    assert [c["score"] for c in after["citations"]] == [c["score"] for c in before["citations"]]
+    after = get_store().search(query_vector, top_k=5)
+    assert [c["chunk_id"] for c in after] == [c["chunk_id"] for c in before]
+    assert [c["score"] for c in after] == [c["score"] for c in before]
 
 
 def test_rebuild_is_idempotent(client, auth_headers):

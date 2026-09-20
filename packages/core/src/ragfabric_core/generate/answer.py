@@ -238,13 +238,21 @@ def _build_citations(
     return citations
 
 
-def build_answer(query: str, retrieved: list[dict]) -> dict:
+def build_answer(query: str, retrieved: list[dict], answer_text: str | None = None) -> dict:
     """Assemble the final answer payload returned to the UI.
 
     Args:
         query: the user's question.
         retrieved: ranked chunks from a retriever (each with ``text``, ``score``
             and citation metadata).
+        answer_text: when given, used verbatim as the answer instead of running
+            the offline extractive generator, so a caller that already produced
+            an answer (an LLM completion, or an extractive fallback higher up
+            the stack) doesn't have that text discarded and regenerated here.
+            Everything downstream, confidence, citations, highlights and the
+            source document, is derived exactly as before: all of it comes from
+            the answer string and the retrieved rows, not from how that string
+            was produced.
 
     Returns:
         ``{question, answer, confidence, citations, highlights, source_document,
@@ -253,7 +261,7 @@ def build_answer(query: str, retrieved: list[dict]) -> dict:
     if not retrieved:
         return {
             "question": query,
-            "answer": llm.extractive_answer(query, []),
+            "answer": answer_text if answer_text is not None else llm.extractive_answer(query, []),
             "confidence": 0.0,
             "citations": [],
             "highlights": [],
@@ -266,8 +274,9 @@ def build_answer(query: str, retrieved: list[dict]) -> dict:
     # sources of truth for the same fact, and any future change to the scoring
     # would silently desynchronise the quote from the span it is meant to mark.
     support = llm.select_support(query, retrieved)
-    context = _assemble_context(retrieved)
-    answer_text = llm.generate(query, context, chunks=retrieved, support=support)
+    if answer_text is None:
+        context = _assemble_context(retrieved)
+        answer_text = llm.generate(query, context, chunks=retrieved, support=support)
 
     top = retrieved[0]
     source_document = {

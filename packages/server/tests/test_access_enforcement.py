@@ -37,7 +37,10 @@ def test_viewer_without_grant_gets_nothing_from_a_restricted_collection(
     answer = client.post(
         "/api/search/query", json={"query": "how many days of annual leave"}, headers=auth_headers
     ).json()
-    assert answer["citations"] == [] and "enough information" in answer["answer"]
+    # The wording comes from generate.cited's no-chunks path (Task 10 moved
+    # /query onto generate_cited_answer); the point being verified is that
+    # the viewer got zero citations, not the exact sentence.
+    assert answer["citations"] == [] and "could not find" in answer["answer"]
     assert client.get(f"/api/documents/{doc['id']}", headers=auth_headers).status_code == 404
     assert all(
         d["id"] != doc["id"]
@@ -117,7 +120,10 @@ def test_query_records_a_retrieval_run_with_sources_and_is_readable_by_its_owner
     r = client.get(f"/api/runs/{run.id}", headers=auth_headers)
     assert r.status_code == 200 and r.json()["sources"] and r.json()["question"] == "rollout steps"
     names = [s["name"] for s in r.json()["trace"]]
-    assert "hybrid_search" in names or "semantic_search" in names
+    # Task 10 moved retrieval onto TraditionalRAGStrategy, whose spans are
+    # named "embed_query"/"vector_search"/... rather than the legacy
+    # in-memory retriever's "semantic_search"/"hybrid_search".
+    assert "vector_search" in names
     assert "answer" in names
     assert client.get(f"/api/runs/{run.id}", headers=admin_headers).status_code == 200
     client.post(
