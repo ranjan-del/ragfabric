@@ -18,6 +18,9 @@ class MemVector:
     def count(self):
         return 0
 
+    def access_stats(self, filters, access):
+        return (0, 0)
+
 
 class MemLexical:
     name = "bm25"

@@ -1,8 +1,8 @@
 """Collection management routes.
 
 Collections group related documents so search can be scoped to a subset of the
-knowledge base. Deleting a collection cascades to its documents; the deleted
-documents' vectors are also removed from the in-memory index.
+knowledge base. Deleting a collection cascades to its documents (and their
+chunks) at the database level.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from sqlalchemy.orm import Session
 from ragfabric_core.db.session import get_db
 from ragfabric_core.models.document import Collection, Document
 from ragfabric_core.models.user import User
-from ragfabric_core.store.vector_store import get_store
 from ragfabric_server.deps import get_current_user
 from ragfabric_server.schemas.document import CollectionCreate, CollectionDetail, CollectionOut
 
@@ -102,12 +101,6 @@ def delete_collection(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You may only delete your own collections.",
         )
-    document_ids = [
-        d.id for d in db.query(Document).filter(Document.collection_id == collection_id).all()
-    ]
     db.delete(collection)  # cascades to documents + chunks
     db.commit()
-    store = get_store()
-    for document_id in document_ids:
-        store.delete_document(document_id)
     return {"detail": "Collection deleted.", "id": collection_id}

@@ -32,7 +32,6 @@ from ragfabric_core.models.document import QueryLog
 from ragfabric_core.models.runs import RetrievalRun, Source
 from ragfabric_core.providers.base import LLMProvider
 from ragfabric_core.runtime import get_config
-from ragfabric_core.store.vector_store import get_store
 from ragfabric_core.stores.base import LexicalStore
 from ragfabric_core.strategies.base import (
     RetrievalContext,
@@ -252,10 +251,10 @@ def query(
         }
     )
     used_chunks = {c["chunk_id"] for c in result_payload["citations"] if c["used"]}
-    # Task 11 moves access_stats onto the vector stores and retires this
-    # legacy in-memory index; until then it is the one place that number
-    # lives, so it stays here rather than being duplicated early.
-    before, after = get_store().access_stats(
+    # access_stats lives on the vector store itself (Task 13), called on the
+    # exact store instance that just answered this request, so the count is
+    # measured against the same candidates the strategy actually searched.
+    before, after = strategy.store.access_stats(
         {
             "collection_id": payload.collection_id,
             "document_id": payload.document_id,
@@ -333,7 +332,8 @@ def semantic_search(
 ) -> SearchResults:
     """Return the most semantically similar chunks for a query."""
     payload.mode = "semantic"
-    before, after = get_store().access_stats(
+    strategy = _strategy_for(payload.rerank, registry, llm)
+    before, after = strategy.store.access_stats(
         {
             "collection_id": payload.collection_id,
             "document_id": payload.document_id,
@@ -341,7 +341,6 @@ def semantic_search(
         },
         access,
     )
-    strategy = _strategy_for(payload.rerank, registry, llm)
     result = strategy.retrieve(payload.query, _context(payload, principal, access))
     results = [_to_result_item(c) for c in result.chunks]
     db.add(
@@ -378,7 +377,8 @@ def hybrid_search(
     here would pull Phase 4's whole subject forward into this task.
     """
     payload.mode = "hybrid"
-    before, after = get_store().access_stats(
+    strategy = _strategy_for(payload.rerank, registry, llm)
+    before, after = strategy.store.access_stats(
         {
             "collection_id": payload.collection_id,
             "document_id": payload.document_id,
@@ -386,7 +386,6 @@ def hybrid_search(
         },
         access,
     )
-    strategy = _strategy_for(payload.rerank, registry, llm)
     vector_result = strategy.retrieve(payload.query, _context(payload, principal, access))
     filters = _lexical_filters(payload)
     lexical_hits = lexical.search(

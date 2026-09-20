@@ -1,7 +1,13 @@
-"""Unit tests for the offline ingestion + retrieval building blocks.
+"""Unit tests for the offline ingestion + answer-assembly building blocks.
 
-These exercise the deterministic core (parse, chunk, embed, vector store,
-retrievers, answer assembly) without a database or the API layer.
+These exercise the deterministic core (parse, chunk, embed, answer assembly)
+without a database or the API layer. Several tests below need a plausible
+"retrieved chunks" list to feed ``build_answer``; ``_retrieve`` produces one by
+embedding the corpus and the query with the real ``HashingEmbedder`` and
+ranking by cosine similarity, which is exactly what the deleted
+``InMemoryVectorStore``/``Retriever`` pair did and nothing more, so the ranking
+these tests observe is unchanged even though the deleted classes are gone
+(Task 13).
 """
 
 from __future__ import annotations
@@ -15,29 +21,31 @@ from ragfabric_core.generate.answer import _confidence, _find_term_spans, build_
 from ragfabric_core.ingest.chunk import chunk_text
 from ragfabric_core.ingest.embed import HashingEmbedder, content_tokens, tokenize
 from ragfabric_core.ingest.parser import PAGE_BREAK, parse
-from ragfabric_core.retrieve.hybrid import HybridRetriever
-from ragfabric_core.retrieve.retriever import Retriever
-from ragfabric_core.store.vector_store import InMemoryVectorStore
 
 
-def _build_store(docs: list[str], embedder: HashingEmbedder) -> InMemoryVectorStore:
-    store = InMemoryVectorStore(dim=embedder.dim)
+def _retrieve(docs: list[str], query: str, embedder: HashingEmbedder, top_k: int) -> list[dict]:
+    """Rank ``docs`` by cosine similarity to ``query`` with the real embedder.
+
+    Unit-normalised vectors make dot product equal cosine similarity, the same
+    scoring the deleted ``InMemoryVectorStore.search`` used.
+    """
     vectors = embedder.embed(docs)
-    records = [
+    query_vector = embedder.embed_one(query)
+    scores = vectors @ query_vector
+    order = sorted(range(len(docs)), key=lambda i: (-float(scores[i]), i))[:top_k]
+    return [
         {
-            "vector": vec.tolist(),
             "chunk_id": i,
             "document_id": 1,
             "collection_id": None,
             "filename": "kb.txt",
             "page": 1,
             "chunk_index": i,
-            "text": text,
+            "text": docs[i],
+            "score": float(scores[i]),
         }
-        for i, (text, vec) in enumerate(zip(docs, vectors, strict=True))
+        for i in order
     ]
-    store.upsert(records)
-    return store
 
 
 def test_parse_txt_and_csv():
@@ -63,48 +71,15 @@ def test_embedder_is_deterministic_and_normalized():
     assert abs(float(np.linalg.norm(a)) - 1.0) < 1e-5  # unit length
 
 
-def test_semantic_retriever_ranks_relevant_chunk_first():
-    embedder = HashingEmbedder(dim=256)
-    docs = [
-        "The vacation policy grants employees twenty paid leave days per year.",
-        "The office cafeteria serves lunch between noon and two in the afternoon.",
-        "Expense reports must be submitted within thirty days of travel.",
-    ]
-    store = _build_store(docs, embedder)
-    retriever = Retriever(store=store, embedder=embedder)
-
-    results = retriever.retrieve("How many paid leave days do employees get?", top_k=3)
-    assert results
-    assert "leave days" in results[0]["text"]
-    assert results[0]["score"] >= results[-1]["score"]
-
-
-def test_hybrid_retriever_returns_ranked_results():
-    embedder = HashingEmbedder(dim=256)
-    docs = [
-        "Kubernetes handles container orchestration across the cluster.",
-        "The quarterly revenue report shows growth in the cloud segment.",
-        "Onboarding new engineers takes about two weeks.",
-    ]
-    store = _build_store(docs, embedder)
-    hybrid = HybridRetriever(store=store, embedder=embedder, alpha=0.5)
-
-    results = hybrid.retrieve("container orchestration cluster", top_k=3)
-    assert results
-    assert "Kubernetes" in results[0]["text"]
-    assert "hybrid_score" in results[0]
-
-
 def test_build_answer_produces_citations_confidence_and_highlights():
     embedder = HashingEmbedder(dim=256)
     docs = [
         "The security policy requires multi factor authentication for all admins.",
         "Coffee is available on every floor of the building.",
     ]
-    store = _build_store(docs, embedder)
-    retriever = Retriever(store=store, embedder=embedder)
-
-    retrieved = retriever.retrieve("What authentication is required for admins?", top_k=2)
+    retrieved = _retrieve(
+        docs, "What authentication is required for admins?", embedder, top_k=2
+    )
     result = build_answer("What authentication is required for admins?", retrieved)
 
     assert result["answer"]
@@ -136,13 +111,11 @@ def test_content_tokens_drop_stopwords_but_never_everything():
 def test_stopwords_stop_off_topic_queries_from_scoring():
     embedder = HashingEmbedder(dim=256)
     docs = ["The vacation policy grants employees twenty paid leave days per year."]
-    store = _build_store(docs, embedder)
-    retriever = Retriever(store=store, embedder=embedder)
 
     # Shares only function words with the corpus, so it must score ~0. With
     # stopwords left in, this query scored 0.228 against this same chunk.
-    off_topic = retriever.retrieve("what is the capital of france", top_k=1)
-    on_topic = retriever.retrieve("how many paid leave days", top_k=1)
+    off_topic = _retrieve(docs, "what is the capital of france", embedder, top_k=1)
+    on_topic = _retrieve(docs, "how many paid leave days", embedder, top_k=1)
     assert off_topic[0]["score"] == 0.0
     assert on_topic[0]["score"] > 0.2
 
@@ -178,11 +151,9 @@ def test_answer_text_is_lifted_from_the_cited_chunk():
         "The security policy requires multi factor authentication for admins. "
         "Passwords rotate every ninety days.",
     ]
-    store = _build_store(docs, embedder)
-    retriever = Retriever(store=store, embedder=embedder)
     query = "when must expense reports be submitted"
 
-    retrieved = retriever.retrieve(query, top_k=2)
+    retrieved = _retrieve(docs, query, embedder, top_k=2)
     result = build_answer(query, retrieved)
 
     body = result["answer"].split(":", 1)[1]
@@ -205,11 +176,9 @@ def test_citations_record_which_sources_the_answer_used():
         "Bicycle parking is available in the basement.",
         "Visitor badges must be returned at reception.",
     ]
-    store = _build_store(docs, embedder)
-    retriever = Retriever(store=store, embedder=embedder)
     query = "when must expense reports be submitted"
 
-    retrieved = retriever.retrieve(query, top_k=4)
+    retrieved = _retrieve(docs, query, embedder, top_k=4)
     result = build_answer(query, retrieved)
 
     # Every retrieved chunk gets a citation entry, but "retrieved" and "used"
@@ -237,13 +206,10 @@ def test_confidence_separates_answerable_from_unanswerable_questions():
         "Full time employees receive twenty five paid vacation days each year.",
         "Managers approve leave requests two weeks in advance.",
     ]
-    store = _build_store(docs, embedder)
-    retriever = Retriever(store=store, embedder=embedder)
-
     good = "how many paid vacation days do employees receive"
     bad = "what is the airspeed velocity of an unladen swallow"
-    good_conf = build_answer(good, retriever.retrieve(good, top_k=2))["confidence"]
-    bad_conf = build_answer(bad, retriever.retrieve(bad, top_k=2))["confidence"]
+    good_conf = build_answer(good, _retrieve(docs, good, embedder, top_k=2))["confidence"]
+    bad_conf = build_answer(bad, _retrieve(docs, bad, embedder, top_k=2))["confidence"]
 
     assert 0.0 <= bad_conf <= 1.0 and 0.0 <= good_conf <= 1.0
     assert good_conf > 0.5
@@ -273,11 +239,9 @@ def test_highlight_spans_index_into_the_text_they_describe():
 def test_citation_highlights_are_relative_to_the_snippet():
     embedder = HashingEmbedder(dim=256)
     docs = ["The security policy requires multi factor authentication for admins."]
-    store = _build_store(docs, embedder)
-    retriever = Retriever(store=store, embedder=embedder)
     query = "what authentication is required for admins"
 
-    result = build_answer(query, retriever.retrieve(query, top_k=1))
+    result = build_answer(query, _retrieve(docs, query, embedder, top_k=1))
     citation = result["citations"][0]
     assert citation["highlights"]
     for span in citation["highlights"]:
@@ -291,11 +255,9 @@ def test_supporting_span_marks_the_sentence_the_answer_quoted():
         "Company Leave Policy. Full time employees receive twenty five paid "
         "vacation days each year. Coffee is available on every floor.",
     ]
-    store = _build_store(docs, embedder)
-    retriever = Retriever(store=store, embedder=embedder)
     query = "how many paid vacation days do employees receive"
 
-    result = build_answer(query, retriever.retrieve(query, top_k=1))
+    result = build_answer(query, _retrieve(docs, query, embedder, top_k=1))
     citation = result["citations"][0]
     span = citation["supporting_span"]
 
@@ -315,11 +277,9 @@ def test_retrieved_but_unquoted_chunks_have_no_supporting_span():
         "Bicycle parking is available in the basement.",
         "Visitor badges must be returned at reception.",
     ]
-    store = _build_store(docs, embedder)
-    retriever = Retriever(store=store, embedder=embedder)
     query = "when must expense reports be submitted"
 
-    result = build_answer(query, retriever.retrieve(query, top_k=4))
+    result = build_answer(query, _retrieve(docs, query, embedder, top_k=4))
 
     # A chunk is quoted only if it cleared the relevance floors, so the two
     # flags have to agree in both directions: a span means it was used, and no
@@ -373,31 +333,12 @@ def test_snippet_window_follows_the_supporting_sentence_into_a_long_chunk():
 def test_answer_highlights_index_into_the_answer_text():
     embedder = HashingEmbedder(dim=256)
     docs = ["The security policy requires multi factor authentication for admins."]
-    store = _build_store(docs, embedder)
-    retriever = Retriever(store=store, embedder=embedder)
     query = "what authentication is required for admins"
 
-    result = build_answer(query, retriever.retrieve(query, top_k=1))
+    result = build_answer(query, _retrieve(docs, query, embedder, top_k=1))
     assert result["highlights"]
     for span in result["highlights"]:
         assert result["answer"][span["start"] : span["end"]].lower() == span["term"]
-
-
-def test_hybrid_exposes_both_component_scores():
-    embedder = HashingEmbedder(dim=256)
-    docs = [
-        "Kubernetes handles container orchestration across the cluster.",
-        "Onboarding new engineers takes about two weeks.",
-    ]
-    store = _build_store(docs, embedder)
-    hybrid = HybridRetriever(store=store, embedder=embedder, alpha=0.5)
-
-    top = hybrid.retrieve("container orchestration cluster", top_k=2)[0]
-    # score stays the raw cosine so it is comparable across queries and modes;
-    # the fused rank score is reported separately rather than dressed up as one.
-    assert 0.0 <= top["score"] <= 1.0
-    assert top["lexical_score"] == 1.0  # every query term is present
-    assert 0.0 <= top["hybrid_score"] <= 1.0
 
 
 # --- offline answer generation ------------------------------------------------

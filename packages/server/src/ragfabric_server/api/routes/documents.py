@@ -2,9 +2,8 @@
 
 Uploading a file runs the full ingestion pipeline (parse -> chunk -> embed ->
 persist -> index) synchronously and returns the created document with its
-ingestion status and chunk count. Deleting a document removes its rows, its
-vectors from the legacy in-memory index, and its rows from the configured
-vector and lexical stores.
+ingestion status and chunk count. Deleting a document removes its rows and its
+rows from the configured vector and lexical stores.
 """
 
 from __future__ import annotations
@@ -21,7 +20,6 @@ from ragfabric_core.ingest.storage import get_storage
 from ragfabric_core.models.document import Collection, Document
 from ragfabric_core.models.user import Role, User
 from ragfabric_core.runtime import get_config, get_session_factory
-from ragfabric_core.store.vector_store import get_store
 from ragfabric_core.stores.access_sql import access_clause
 from ragfabric_core.stores.registry import build_lexical_store, build_vector_store
 from ragfabric_server.deps import get_access_filter, get_current_user, get_principal
@@ -188,7 +186,6 @@ def delete_document(
         )
     db.delete(document)  # cascades to chunks
     db.commit()
-    get_store().delete_document(document_id)  # legacy in-memory index
     # The ORM cascade above deletes `chunks` rows. `chunk_embeddings` and
     # `chunk_search` have an ON DELETE CASCADE foreign key to `chunks.id`, but
     # that is a database-level constraint, and SQLite does not enforce foreign

@@ -37,6 +37,51 @@ class _FakeClient:
         return self._collection
 
 
+def _matches(where: dict | None, metadata: dict) -> bool:
+    """A tiny interpreter for the where documents chroma_where/access_stats build.
+
+    Only the operators those two producers actually emit (``$and``, ``$or``,
+    ``$eq``, ``$in``, ``$nin``) need to be understood here.
+    """
+    if where is None:
+        return True
+    if "$and" in where:
+        return all(_matches(clause, metadata) for clause in where["$and"])
+    if "$or" in where:
+        return any(_matches(clause, metadata) for clause in where["$or"])
+    ((field, op_value),) = where.items()
+    ((op, value),) = op_value.items()
+    if op == "$eq":
+        return metadata.get(field) == value
+    if op == "$in":
+        return metadata.get(field) in value
+    if op == "$nin":
+        return metadata.get(field) not in value
+    raise AssertionError(f"unsupported operator {op!r} in a test where document")
+
+
+class _FakeCollectionWithData(_FakeCollection):
+    """A fake collection that actually stores rows, for ``get(where=...)``.
+
+    ``_FakeCollection`` above only needs to record ``query`` calls; proving
+    ``access_stats`` counts real, access-narrowed candidates needs a fake that
+    can be queried back, not just inspected after the fact.
+    """
+
+    def __init__(self, rows: dict[int, dict]) -> None:
+        super().__init__()
+        self._rows = rows
+        self.get_calls: list[dict] = []
+
+    def get(self, where=None, include=None):
+        self.get_calls.append({"where": where, "include": include})
+        ids = [cid for cid, metadata in self._rows.items() if _matches(where, metadata)]
+        return {"ids": ids}
+
+    def get_or_create_collection(self, name, metadata):
+        return self._collection
+
+
 def test_an_empty_allow_set_never_reaches_chroma_as_a_request():
     collection = _FakeCollection()
     store = ChromaVectorStore(_FakeClient(collection))
@@ -95,3 +140,80 @@ def test_prune_unsatisfiable_fails_loud_not_open_on_a_malformed_empty_and():
     """
     with pytest.raises(IndexError):
         _prune_unsatisfiable({"$and": []})
+
+
+def test_access_stats_reports_the_real_before_and_after_counts():
+    """Prove access_stats measures the access-narrowed count, not an estimate.
+
+    Two chunks exist: one in collection 100, one in collection 200. A
+    restrictive access filter genuinely removes the second, so ``before`` and
+    ``after`` must differ by exactly that one row, not merely satisfy
+    ``before >= after``.
+    """
+    rows = {
+        1: {"document_id": 10, "collection_id": 100, "model": "hashing-8"},
+        2: {"document_id": 20, "collection_id": 200, "model": "hashing-8"},
+    }
+    collection = _FakeCollectionWithData(rows)
+    store = ChromaVectorStore(_FakeClient(collection), model="hashing-8")
+
+    restricted = AccessFilter(collection_ids=frozenset({100}))
+    assert store.access_stats({}, restricted) == (2, 1)
+    assert store.access_stats({}, AccessFilter.unrestricted()) == (2, 2)
+
+    # A metadata filter narrows the candidate pool before access is applied:
+    # only chunk 2 matches document_id 20, and it is not in the permitted
+    # collection.
+    assert store.access_stats({"document_id": 20}, restricted) == (1, 0)
+
+    # A denied document wins over an otherwise unrestricted filter.
+    denied = AccessFilter(denied_document_ids=frozenset({20}))
+    assert store.access_stats({}, denied) == (2, 1)
+
+    # A store pinned to a different model never sees these rows at all.
+    other_model = ChromaVectorStore(_FakeClient(collection), model="nomic-embed-text")
+    assert other_model.access_stats({}, AccessFilter.unrestricted()) == (0, 0)
+
+
+def test_access_stats_resolves_a_format_filter_against_the_chunks_table():
+    """format is not Chroma metadata (see module docstring), so a format
+    filter must fall back to resolving the surviving ids against the chunks
+    table rather than silently being ignored."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from ragfabric_core.models import Base
+    from ragfabric_core.models.document import Chunk, Document
+
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sf = sessionmaker(bind=engine, expire_on_commit=False)
+    with sf() as db:
+        doc_txt = Document(filename="a.txt", format="txt", status="ready")
+        doc_pdf = Document(filename="b.pdf", format="pdf", status="ready")
+        db.add_all([doc_txt, doc_pdf])
+        db.flush()
+        chunk_txt = Chunk(
+            document_id=doc_txt.id,
+            chunk_index=0,
+            text="txt chunk",
+            embedding=[],
+        )
+        chunk_pdf = Chunk(
+            document_id=doc_pdf.id,
+            chunk_index=0,
+            text="pdf chunk",
+            embedding=[],
+        )
+        db.add_all([chunk_txt, chunk_pdf])
+        db.commit()
+        txt_id, pdf_id, txt_doc, pdf_doc = chunk_txt.id, chunk_pdf.id, doc_txt.id, doc_pdf.id
+
+    rows = {
+        txt_id: {"document_id": txt_doc, "collection_id": -1, "model": "hashing-8"},
+        pdf_id: {"document_id": pdf_doc, "collection_id": -1, "model": "hashing-8"},
+    }
+    collection = _FakeCollectionWithData(rows)
+    store = ChromaVectorStore(_FakeClient(collection), model="hashing-8", session_factory=sf)
+
+    assert store.access_stats({"format": "txt"}, AccessFilter.unrestricted()) == (1, 1)
