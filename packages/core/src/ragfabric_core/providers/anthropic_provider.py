@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Iterator
 from typing import Any
 
 from ragfabric_core.providers.base import Completion, Message, ProviderError
@@ -78,3 +79,36 @@ class AnthropicProvider:
             latency_ms=int((time.perf_counter() - started) * 1000),
             finish_reason=getattr(response, "stop_reason", None),
         )
+
+    def stream(
+        self,
+        messages: list[Message],
+        *,
+        model: str | None = None,
+        max_tokens: int = 1024,
+        temperature: float = 0.0,
+    ) -> Iterator[str]:
+        """Yield text deltas using the SDK's streaming context manager.
+
+        Usage is not surfaced by ``text_stream``, so no token count is
+        returned here; zero would be a lie and an estimate would be a
+        fabrication (ADR 0004), so the caller of a streamed answer accounts
+        for tokens as unknown rather than guessing.
+        """
+        system_parts = [m.content for m in messages if m.role == "system"]
+        kwargs: dict[str, Any] = {
+            "model": model or self.default_model,
+            "max_tokens": max_tokens,
+            "messages": [
+                {"role": m.role, "content": m.content} for m in messages if m.role != "system"
+            ],
+        }
+        if system_parts:
+            kwargs["system"] = "\n\n".join(system_parts)
+        try:
+            with self._client.messages.stream(**kwargs) as stream:
+                yield from stream.text_stream
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(self.name, str(exc)) from exc

@@ -46,6 +46,23 @@ class ScriptedLLMProvider:
             finish_reason="stop",
         )
 
+    def stream(self, messages, *, model=None, max_tokens=1024, temperature=0.0):
+        """Yield the scripted response word by word so tests exercise a real stream.
+
+        An exhausted script yields nothing rather than raising, unlike
+        ``complete``: a caller that streams is by definition prepared to see
+        zero tokens (an empty answer is a valid outcome for a stream), so
+        raising here would only make the offline double behave differently
+        from a real provider under the one condition streaming exists to
+        avoid surprising, namely "nothing came back".
+        """
+        if not self._responses:
+            return
+        text = self._responses.pop(0)
+        parts = text.split(" ")
+        for i, word in enumerate(parts):
+            yield word if i == len(parts) - 1 else word + " "
+
 
 class HashingEmbeddingProvider:
     name = "offline"
