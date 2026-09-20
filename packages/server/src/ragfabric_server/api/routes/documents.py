@@ -99,7 +99,15 @@ async def upload_document(
     validated here, at the edge, rather than clamped: a caller who asks for
     an overlap that does not fit its chunk size gets a 422, never a silently
     adjusted document.
+
+    ``limits.allowed_types`` and ``limits.max_upload_mb`` (ragfabric.yaml) are
+    enforced here too: a format outside the deployment's own allow-list (a
+    narrower, operator-configured subset of ``SUPPORTED_FORMATS``, the
+    parser's fixed capability list) is rejected the same as an unparseable
+    one, and a file over the configured size is rejected before it is ever
+    handed to the ingestion pipeline.
     """
+    cfg = get_config()
     filename = file.filename or "upload"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in SUPPORTED_FORMATS:
@@ -108,6 +116,14 @@ async def upload_document(
             detail=(
                 f"Unsupported format '{ext or filename}'. "
                 f"Supported: {', '.join(SUPPORTED_FORMATS)}."
+            ),
+        )
+    if ext not in cfg.limits.allowed_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"File type '.{ext}' is not allowed by this deployment's configuration. "
+                f"Allowed: {', '.join(cfg.limits.allowed_types)}."
             ),
         )
     if collection_id is not None:
@@ -125,9 +141,18 @@ async def upload_document(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty."
         )
+    max_bytes = cfg.limits.max_upload_mb * 1024 * 1024
+    if len(data) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=(
+                f"Uploaded file is {len(data) / (1024 * 1024):.1f} MB, over the configured "
+                f"limit of {cfg.limits.max_upload_mb} MB."
+            ),
+        )
 
     if chunk_size is not None or chunk_overlap is not None:
-        cfg_ingestion = get_config().ingestion
+        cfg_ingestion = cfg.ingestion
         effective_size = chunk_size if chunk_size is not None else cfg_ingestion.chunk_size
         effective_overlap = (
             chunk_overlap if chunk_overlap is not None else cfg_ingestion.chunk_overlap

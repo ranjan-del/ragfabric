@@ -57,7 +57,10 @@ class ApiKeyCreate(BaseModel):
     user_id: int
     collection_ids: list[int] = []
     strategies: list[str] = []
-    rate_limit_per_minute: int = Field(default=60, ge=1, le=100000)
+    # None (the default: no explicit limit named) takes the deployment's
+    # configured limits.rate_limit_per_minute at creation time instead of a
+    # value fixed in this schema.
+    rate_limit_per_minute: int | None = Field(default=None, ge=1, le=100000)
     expires_at: datetime | None = None
 
 

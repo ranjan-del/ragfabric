@@ -146,6 +146,56 @@ def test_unsupported_format_rejected(client, auth_headers):
     assert resp.status_code == 400
 
 
+def test_upload_rejects_a_type_outside_the_configured_allow_list(client, auth_headers):
+    """limits.allowed_types (ragfabric.yaml) is a narrower, operator-set
+    allow list on top of SUPPORTED_FORMATS (the parser's fixed capability
+    list): csv is one of SUPPORTED_FORMATS, so this asserts the deployment's
+    own configuration is what rejects it here, not the parser.
+    """
+    from ragfabric_core.runtime import get_config
+
+    cfg = get_config()
+    original = cfg.limits.allowed_types
+    cfg.limits.allowed_types = [t for t in original if t != "csv"]
+    try:
+        resp = client.post(
+            "/api/documents/upload",
+            files={"file": ("data.csv", b"a,b\n1,2\n", "text/csv")},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 400
+        assert "not allowed" in resp.json()["detail"]
+    finally:
+        cfg.limits.allowed_types = original
+
+
+def test_upload_rejects_a_file_over_the_configured_size_limit(client, auth_headers):
+    from ragfabric_core.runtime import get_config
+
+    cfg = get_config()
+    original = cfg.limits.max_upload_mb
+    cfg.limits.max_upload_mb = 1
+    try:
+        oversized = b"x" * (2 * 1024 * 1024)  # 2 MB against a 1 MB cap
+        resp = client.post(
+            "/api/documents/upload",
+            files={"file": ("big.txt", oversized, "text/plain")},
+            headers=auth_headers,
+        )
+        assert resp.status_code == 413
+        assert "1 MB" in resp.json()["detail"]
+
+        within_limit = b"well under the cap"  # a few bytes, under the same 1 MB cap
+        ok = client.post(
+            "/api/documents/upload",
+            files={"file": ("small.txt", within_limit, "text/plain")},
+            headers=auth_headers,
+        )
+        assert ok.status_code == 201, ok.text
+    finally:
+        cfg.limits.max_upload_mb = original
+
+
 def test_collections_scope_search(client, auth_headers):
     created = client.post(
         "/api/collections",
@@ -261,9 +311,7 @@ def test_delete_collection_removes_vector_and_lexical_index_rows(client, auth_he
 
     with SessionLocal() as db:
         for doc_id in doc_ids:
-            assert (
-                db.query(ChunkEmbedding).filter(ChunkEmbedding.document_id == doc_id).count() > 0
-            )
+            assert db.query(ChunkEmbedding).filter(ChunkEmbedding.document_id == doc_id).count() > 0
             assert db.query(ChunkSearch).filter(ChunkSearch.document_id == doc_id).count() > 0
 
     delete = client.delete(f"/api/collections/{collection_id}", headers=auth_headers)

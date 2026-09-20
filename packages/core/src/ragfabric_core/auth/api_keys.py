@@ -18,6 +18,7 @@ from ragfabric_core.auth.principal import Principal
 from ragfabric_core.auth.service import group_ids_for_user
 from ragfabric_core.models.access import ApiKey
 from ragfabric_core.models.user import User
+from ragfabric_core.runtime import get_config
 
 KEY_PREFIX = "rf_"
 PREFIX_LEN = 12
@@ -39,10 +40,19 @@ def create_api_key(
     user_id: int,
     collection_ids=(),
     strategies=(),
-    rate_limit_per_minute: int = 60,
+    rate_limit_per_minute: int | None = None,
     expires_at: datetime | None = None,
 ) -> tuple[ApiKey, str]:
+    """Create a key. ``rate_limit_per_minute`` left unset (``None``, the
+    default for every caller that names no explicit limit) takes the
+    deployment's configured ``limits.rate_limit_per_minute`` at the moment the
+    key is created, rather than a value fixed in this function's signature: a
+    config key that only affected keys created before it was ever read would
+    not really be "wired in".
+    """
     plaintext, prefix, digest = generate_api_key()
+    if rate_limit_per_minute is None:
+        rate_limit_per_minute = get_config().limits.rate_limit_per_minute
     key = ApiKey(
         name=name,
         key_prefix=prefix,
