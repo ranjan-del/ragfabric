@@ -83,6 +83,49 @@ def test_strategy_for_rerank_builds_a_fresh_strategy_without_mutating_the_shared
     assert still_shared._reranker is original_reranker  # noqa: SLF001 (test-only introspection)
 
 
+def test_get_reranker_returns_the_same_instance_for_the_same_kind():
+    """Fix round 1: two lookups of the same kind must be the SAME object, so
+    a repeated ``rerank: "cross_encoder"`` request never reconstructs (and
+    for a real cross encoder, never reloads) the reranker.
+    """
+    from ragfabric_server.deps import get_reranker
+
+    first = get_reranker("none")
+    second = get_reranker("none")
+    assert first is second
+
+
+def test_get_reranker_returns_different_instances_for_different_kinds():
+    from ragfabric_server.deps import get_reranker
+
+    none_reranker = get_reranker("none")
+    llm_reranker = get_reranker("llm", llm=object())
+    assert none_reranker is not llm_reranker
+    assert none_reranker.name == "none"
+    assert llm_reranker.name == "llm"
+
+
+def test_strategy_for_reuses_the_cached_reranker_across_calls():
+    """Two per-request strategies built for the same rerank kind must share
+    ONE reranker instance (the cache), while remaining distinct STRATEGY
+    objects (the Task 12 no-mutation guarantee is not weakened by adding a
+    reranker cache underneath it).
+    """
+    shared = TraditionalRAGStrategy(
+        embedding_provider=HashingEmbeddingProvider(dim=16),
+        vector_store=_StubStore(),
+        reranker=None,
+    )
+    registry = StrategyRegistry()
+    registry.register(shared)
+
+    first = _strategy_for("llm", registry, llm=object())
+    second = _strategy_for("llm", registry, llm=object())
+
+    assert first is not second  # distinct strategy wrappers, per request
+    assert first.reranker is second.reranker  # same cached reranker, no reload
+
+
 def test_similarity_threshold_in_the_request_filters_results(client, admin_token, ingested_doc):
     loose = client.post(
         "/api/search/semantic",
