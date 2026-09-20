@@ -88,6 +88,13 @@ class Client:
         handling this event should REPLACE whatever it has drawn from the
         preceding ``token`` events with ``event.data["text"]``, the same way
         the ``ragfabric ask`` command does.
+
+        Per the SSE wire format, a ``data:`` line with no preceding
+        ``event:`` line for that block defaults to the event name
+        ``"message"``. The RagFabric server always sends an explicit
+        ``event:`` line today, but a client library follows the spec rather
+        than only the one server it was written against, so a bare
+        ``data:`` line is still yielded rather than silently dropped.
         """
         with self._http.stream(
             "POST", "/api/ask", json={"query": query, "stream": True, **params}
@@ -99,8 +106,11 @@ class Client:
             for line in res.iter_lines():
                 if line.startswith("event:"):
                     name = line.split(":", 1)[1].strip()
-                elif line.startswith("data:") and name is not None:
-                    yield AskEvent(event=name, data=json.loads(line.split(":", 1)[1].strip()))
+                elif line.startswith("data:"):
+                    yield AskEvent(
+                        event=name if name is not None else "message",
+                        data=json.loads(line.split(":", 1)[1].strip()),
+                    )
                     name = None
 
     def search(self, query: str, mode: str = "semantic", **params) -> list[SearchResult]:
