@@ -43,7 +43,6 @@ from fastapi.testclient import TestClient  # noqa: E402
 from ragfabric_core import runtime  # noqa: E402
 from ragfabric_core.db.session import Base, SessionLocal, engine  # noqa: E402
 from ragfabric_core.providers.base import Completion, Message  # noqa: E402
-from ragfabric_core.store.vector_store import get_store  # noqa: E402
 from ragfabric_server.deps import get_llm_provider  # noqa: E402
 from ragfabric_server.main import app  # noqa: E402
 
@@ -138,13 +137,11 @@ def client() -> Iterator[TestClient]:
     """
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
-    get_store().clear()
     app.dependency_overrides[get_llm_provider] = lambda: _FakeCitingLLM()
     with TestClient(app) as test_client:  # triggers lifespan (seeds admin)
         yield test_client
     app.dependency_overrides.pop(get_llm_provider, None)
     Base.metadata.drop_all(bind=engine)
-    get_store().clear()
 
 
 def _register_and_login(client: TestClient, email: str, password: str = "password123") -> str:

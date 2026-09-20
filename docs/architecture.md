@@ -161,14 +161,12 @@ ragfabric_core/
   models/          base.py, user.py, document.py, access.py, runs.py, evaluation.py, graph.py, index.py
   providers/       base.py, offline.py, openai_compat.py, anthropic_provider.py, registry.py
   queue/           base.py (Job, JobQueue), memory_queue.py, redis_queue.py, registry.py (build_queue)
-  retrieve/        hybrid.py, retriever.py (v1 pipeline, now access filtered)
   runtime.py       get_config, reset_config, get_session_factory
-  store/           vector_store.py (v1 store, now access filtered)
   stores/          base.py (VectorStore, LexicalStore, GraphStore, Cache), pgvector_store.py,
                    postgres_fts.py, memory_cache.py, redis_cache.py, access_sql.py (access_clause), registry.py
   strategies/      base.py (StrategyName, RetrievedChunk, TraceSpan, StrategyParams, Budget,
                    RetrievalContext, RetrievalResult, RetrieverStrategy, StrategyRegistry),
-                   contract.py, legacy.py (LegacyHybridStrategy)
+                   contract.py
   telemetry/       tracing.py (start_trace, trace, configure_otel, otel_enabled)
   testing/         fixtures.py
   workers/         handlers.py (index_document, extract_graph), runner.py (Worker, default_handlers)

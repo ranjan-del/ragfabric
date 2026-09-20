@@ -32,9 +32,6 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(
         session_module, "SessionLocal", sessionmaker(bind=engine, autoflush=False, autocommit=False)
     )
-    from ragfabric_core.store.vector_store import get_store
-
-    get_store().clear()
     assert runner.invoke(app, ["db", "upgrade"]).exit_code == 0
     yield tmp_path
     runtime.reset_config()

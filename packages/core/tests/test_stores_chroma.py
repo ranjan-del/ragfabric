@@ -126,3 +126,21 @@ def test_chroma_denies_everything_for_an_empty_allow_set(store, two_collections)
     )
     access = AccessFilter(document_ids=frozenset(), collection_ids=None)
     assert store.query([1.0] + [0.0] * 7, top_k=10, access=access) == []
+
+
+def test_chroma_access_stats_reports_the_real_before_and_after_counts(store, two_collections):
+    """Against a live collection: a restrictive filter must remove exactly the
+    chunks it should, and the counts must be measured, not estimated."""
+    a_doc, a_col, a_chunks = two_collections["a"]
+    b_doc, b_col, b_chunks = two_collections["b"]
+    for doc_id, col_id, ids in ((a_doc, a_col, a_chunks), (b_doc, b_col, b_chunks)):
+        store.upsert(
+            ids,
+            [[1.0] + [0.0] * 7] * 3,
+            [{"document_id": doc_id, "collection_id": col_id, "model": "hashing-8", "dim": 8}] * 3,
+        )
+
+    access = AccessFilter(document_ids=None, collection_ids=frozenset({a_col}))
+    assert store.access_stats({}, access) == (6, 3)
+    assert store.access_stats({}, AccessFilter.unrestricted()) == (6, 6)
+    assert store.access_stats({"document_id": b_doc}, access) == (3, 0)

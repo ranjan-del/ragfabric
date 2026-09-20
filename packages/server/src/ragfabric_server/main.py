@@ -1,13 +1,11 @@
 """FastAPI application entrypoint for RagFabric.
 
 Wires the API routers together, configures CORS for the Angular frontend, and on
-startup: creates the database tables, seeds a bootstrap admin (if configured), and
-rebuilds the in-memory vector index from the persisted chunk embeddings so search
-works immediately after a restart.
+startup creates the database tables and seeds a bootstrap admin (if configured).
 
 The default configuration is fully offline: SQLite database, deterministic
-hashing embedder, in-memory vector store, and an extractive answer generator. No
-API key or external service is required to run or test the app.
+hashing embedder, and an extractive answer generator. No API key or external
+service is required to run or test the app.
 """
 
 from __future__ import annotations
@@ -21,9 +19,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from ragfabric_core.config import get_settings
 from ragfabric_core.db.session import SessionLocal, init_db
 from ragfabric_core.models.user import Role, User
-from ragfabric_core.runtime import get_config
+from ragfabric_core.runtime import get_config, get_session_factory
 from ragfabric_core.security import hash_password
-from ragfabric_core.store.vector_store import get_store
+from ragfabric_core.stores.registry import build_vector_store
 from ragfabric_core.telemetry.tracing import configure_otel
 from ragfabric_server.api.routes import (
     access,
@@ -61,20 +59,11 @@ def _seed_admin() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup/shutdown: prepare the database and warm the vector index.
-
-    The rebuild is what makes a restart safe. Vectors live in process memory, so
-    without reloading them from ``chunks.embedding`` here, every document
-    uploaded before the restart would still be listed in the UI but would be
-    invisible to search.
-    """
+    """Startup/shutdown: prepare the database."""
     init_db()
     export_on = configure_otel(get_config().telemetry.otlp_endpoint)
     logger.info("OTLP export %s", "enabled" if export_on else "disabled")
     _seed_admin()
-    with SessionLocal() as db:
-        restored = get_store().rebuild_from_db(db)
-    logger.info("vector index warm: %d chunk vectors restored from the database", restored)
     yield
 
 
@@ -109,12 +98,14 @@ app.include_router(ask.router, prefix="/api", tags=["ask"])
 def health() -> dict:
     """Liveness/readiness probe used by Docker and the hosting platform.
 
-    Reports the live vector-index size too, which is the cheapest way to confirm
-    from outside the process that the startup rebuild actually ran.
+    Reports the live vector count from the configured store too, a cheap way
+    to confirm from outside the process that the store is reachable.
     """
+    cfg = get_config()
+    store = build_vector_store(cfg.vector_store, get_session_factory())
     return {
         "status": "ok",
         "service": settings.app_name,
         "version": settings.version,
-        "index": get_store().stats(),
+        "index": {"vectors": store.count()},
     }

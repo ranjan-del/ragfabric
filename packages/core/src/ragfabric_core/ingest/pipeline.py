@@ -1,20 +1,16 @@
 """End-to-end ingestion: parse -> chunk -> embed -> persist -> index.
 
 This is the single function the upload endpoint calls. It turns raw uploaded
-bytes into a queryable document by running every stage of the pipeline and
-keeping the SQL database and the in-memory vector index in sync:
+bytes into a queryable document by running every stage of the pipeline:
 
     parse (parser.py) -> chunk (chunk.py) -> embed (embed.py)
       -> persist Document + Chunk rows (SQLite/Postgres)
-      -> upsert vectors into the in-memory store
+      -> fan out to the configured vector and lexical stores (indexing.py)
 
-Chunk embeddings are persisted as JSON on the ``chunks`` table, so the in-memory
-index can be rebuilt from the database on startup (see
-``InMemoryVectorStore.rebuild_from_db``).
-
-Two indexes are written during Phase 2: the v1 in memory index (still the live
-query path) and the pgvector plus full text tables that Phases 3 and 4 will
-query. The duplication ends when Phase 3 retires the in memory index.
+Chunk embeddings are also persisted as JSON on the ``chunks`` table
+(``Chunk.embedding``); nothing reads that column back today (Task 13 retired
+the last reader, the v1 in-memory index's startup rebuild), but the column is
+``NOT NULL`` and dropping it needs a migration, so it is still written here.
 """
 
 from __future__ import annotations
@@ -30,7 +26,6 @@ from ragfabric_core.ingest.storage import get_storage
 from ragfabric_core.models.document import Chunk, Document
 from ragfabric_core.queue.registry import build_queue
 from ragfabric_core.runtime import get_config
-from ragfabric_core.store.vector_store import get_store
 from ragfabric_core.telemetry.tracing import trace
 
 EMPTY_TEXT_NOTE = (
@@ -94,9 +89,7 @@ def _index_content(
         embedder = get_embedder()
         vectors = embedder.embed([c["text"] for c in chunks])
 
-        store_records: list[dict] = []
         for chunk_meta, vector in zip(chunks, vectors, strict=True):
-            embedding = vector.tolist()
             chunk_row = Chunk(
                 document_id=document.id,
                 collection_id=document.collection_id,
@@ -105,34 +98,16 @@ def _index_content(
                 char_start=chunk_meta["char_start"],
                 char_end=chunk_meta["char_end"],
                 text=chunk_meta["text"],
-                embedding=embedding,
+                embedding=vector.tolist(),
                 section=chunk_meta.get("section"),
             )
             db.add(chunk_row)
-            db.flush()  # assign chunk_row.id for the vector-store record
-            store_records.append(
-                {
-                    "vector": embedding,
-                    "chunk_id": chunk_row.id,
-                    "document_id": document.id,
-                    "collection_id": document.collection_id,
-                    "filename": document.filename,
-                    "format": document.format,
-                    "page": chunk_meta["page"],
-                    "chunk_index": chunk_meta["chunk_index"],
-                    "text": chunk_meta["text"],
-                }
-            )
 
     document.status = "processing"
     document.num_chunks = len(chunks)
     document.error = ""
     db.commit()
     db.refresh(document)
-
-    # Index only after a successful commit so the vector store mirrors the DB.
-    # If the commit had failed we would have raised before touching the index.
-    get_store().upsert(store_records)
 
     try:
         with trace("schedule_indexing", mode=get_config().ingestion.indexing):
@@ -198,12 +173,15 @@ def reingest_document(
 
     This is what "versioning" means here: the document keeps its id, owner and
     collection (so existing references stay valid) while its chunks are fully
-    replaced. Old chunks are removed from BOTH the database and the vector index
-    before the new ones are written, otherwise stale text from the previous
-    revision would keep surfacing in search results forever.
+    replaced. Old chunks are removed from the database before the new ones are
+    written, otherwise stale text from the previous revision would keep
+    surfacing in search results forever. On PostgreSQL the ``ON DELETE
+    CASCADE`` from ``chunk_embeddings``/``chunk_search`` to ``chunks.id``
+    cleans the real vector/lexical rows too; on SQLite (no FK enforcement) or
+    a Chroma deployment (no FK at all) that cascade does not happen, which is
+    a pre-existing gap this task did not introduce and does not fix.
     """
     db.query(Chunk).filter(Chunk.document_id == document.id).delete(synchronize_session=False)
-    get_store().delete_document(document.id)
 
     document.filename = filename
     get_storage().delete(document.id)

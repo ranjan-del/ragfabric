@@ -56,7 +56,7 @@ from ragfabric_core.models.access import AuditLog
 from ragfabric_core.models.document import QueryLog
 from ragfabric_core.models.runs import RetrievalRun, Source
 from ragfabric_core.providers.base import LLMProvider, Message
-from ragfabric_core.store.vector_store import get_store
+from ragfabric_core.stores.base import VectorStore
 from ragfabric_core.strategies.base import (
     RetrievalContext,
     RetrievedChunk,
@@ -120,6 +120,7 @@ def _record(
     payload: AskRequest,
     principal: Principal,
     access: AccessFilter,
+    store: VectorStore,
     result,
     answer: dict,
     spans: list[dict],
@@ -137,18 +138,13 @@ def _record(
     touches the database at all.
 
     ``access_stats`` (candidate counts before/after the access filter, for the
-    audit row's ``sources_filtered``) is read from the legacy in-memory index
-    via ``get_store()``, exactly as ``search.py``'s ``/query`` currently does,
-    not from ``strategy.store``: neither real vector store implementation
-    (``PgVectorStore``, ``ChromaVectorStore``) has an ``access_stats`` method
-    today (verified by inspection; grepping ``stores/*.py`` finds none), and
-    the plan itself assigns adding it there to a later task. Calling it on
-    ``strategy.store`` here would raise on every single request. Using the
-    same legacy singleton the sibling endpoints already use keeps this number
-    exactly as reliable as theirs, no worse, until that task lands.
+    audit row's ``sources_filtered``) is read from ``store``, the exact vector
+    store the strategy just retrieved through (``strategy.store``, passed in
+    by the caller), so the count is measured against the same candidates this
+    request actually searched, the same as ``search.py``'s three endpoints.
     """
     used = {c["chunk_id"] for c in answer["citations"] if c["used"]}
-    before, after = get_store().access_stats(
+    before, after = store.access_stats(
         {
             "collection_id": payload.collection_id,
             "document_id": payload.document_id,
@@ -253,6 +249,7 @@ def ask(
             payload=payload,
             principal=principal,
             access=access,
+            store=strategy.store,
             result=result,
             answer=answer,
             spans=[s.model_dump() for s in result.trace] + [s.model_dump() for s in tracing.spans],
@@ -353,6 +350,7 @@ def ask(
             payload=payload,
             principal=principal,
             access=access,
+            store=strategy.store,
             result=result,
             answer=answer,
             spans=spans,

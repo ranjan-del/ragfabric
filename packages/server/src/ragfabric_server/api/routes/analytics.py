@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 from ragfabric_core.db.session import get_db
 from ragfabric_core.models.document import Chunk, Collection, Document, QueryLog
 from ragfabric_core.models.user import User
-from ragfabric_core.store.vector_store import get_store
+from ragfabric_core.runtime import get_config, get_session_factory
+from ragfabric_core.stores.registry import build_vector_store
 from ragfabric_server.deps import get_current_user
 
 router = APIRouter()
@@ -28,9 +29,12 @@ def overview(
         "users": db.query(User).count(),
         "queries": db.query(QueryLog).count(),
         "ready_documents": db.query(Document).filter(Document.status == "ready").count(),
-        # Live index size. Comparing this against ``chunks`` is the quickest way
-        # to spot the vector index drifting out of sync with the database.
-        "indexed_vectors": len(get_store()),
+        # Live vector count from the configured store. Comparing this against
+        # ``chunks`` is the quickest way to spot the vector index drifting out
+        # of sync with the database.
+        "indexed_vectors": build_vector_store(
+            get_config().vector_store, get_session_factory()
+        ).count(),
     }
 
 

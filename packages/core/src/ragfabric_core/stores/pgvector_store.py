@@ -13,7 +13,7 @@ from collections.abc import Callable
 
 import numpy as np
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import delete, func, select, type_coerce
+from sqlalchemy import case, delete, func, select, type_coerce
 from sqlalchemy.orm import Session
 
 from ragfabric_core.auth.principal import AccessFilter
@@ -127,3 +127,41 @@ class PgVectorStore:
     def count(self) -> int:
         with self._sf() as db:
             return int(db.execute(select(func.count()).select_from(ChunkEmbedding)).scalar() or 0)
+
+    def access_stats(self, filters: dict, access: AccessFilter) -> tuple[int, int]:
+        """Candidate counts before and after the access filter (audit row's
+        ``sources_filtered``; ADR 0004: a measured number, not an estimate).
+
+        One round trip, one scan: ``before`` is ``count(*)`` over the rows that
+        match ``filters`` (and the store's pinned model, same as ``query``
+        above, so the count reflects the same candidate universe a real query
+        would ever see), and ``after`` is a conditional sum of the exact same
+        access predicate ``query`` puts in its own WHERE clause, evaluated as a
+        CASE inside the same aggregate. That avoids running the query twice
+        (once unrestricted, once restricted) to get both numbers.
+        """
+        with self._sf() as db:
+            base = select(
+                ChunkEmbedding.chunk_id, ChunkEmbedding.document_id, ChunkEmbedding.collection_id
+            ).join(Document, Document.id == ChunkEmbedding.document_id)
+            if self._model is not None:
+                base = base.where(ChunkEmbedding.model == self._model)
+            for key, value in (filters or {}).items():
+                if value is None:
+                    continue
+                if key == "document_id":
+                    base = base.where(ChunkEmbedding.document_id == value)
+                elif key == "collection_id":
+                    base = base.where(ChunkEmbedding.collection_id == value)
+                elif key == "format":
+                    base = base.where(Document.format == value)
+            subquery = base.subquery()
+            clause = access_clause(access, subquery.c.document_id, subquery.c.collection_id)
+            if clause is None:
+                total = int(db.execute(select(func.count()).select_from(subquery)).scalar() or 0)
+                return total, total
+            after_flag = case((clause, 1), else_=0)
+            before, after = db.execute(
+                select(func.count(), func.coalesce(func.sum(after_flag), 0)).select_from(subquery)
+            ).one()
+            return int(before), int(after)

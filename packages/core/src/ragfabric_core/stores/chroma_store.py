@@ -207,3 +207,55 @@ class ChromaVectorStore:
 
     def count(self) -> int:
         return int(self._collection.count())
+
+    def access_stats(self, filters: dict, access: AccessFilter) -> tuple[int, int]:
+        """Candidate counts before and after the access filter.
+
+        Chroma has no count-with-predicate primitive: ``count()`` takes no
+        ``where``, so the only true (measured, not estimated) count is asking
+        Chroma for the matching ids and counting them in Python, with
+        ``include=[]`` so no vectors/documents/metadata cross the wire, only
+        ids. That is one Chroma round trip for ``before`` (metadata filters
+        plus the pinned model, no access predicate) and a second one for
+        ``after`` (the same, plus the access predicate), because Chroma has no
+        operator to fold both counts into a single request the way
+        ``PgVectorStore`` folds them into one conditional-aggregate query.
+        When ``filters`` includes ``format`` (not stored in Chroma metadata,
+        per this module's docstring) each id set is additionally resolved
+        against the chunks/documents tables and counted there, a third and
+        fourth round trip. This costs more than an estimate would, but every
+        number this returns is real, per ADR 0004.
+        """
+        fmt = (filters or {}).get("format")
+
+        def count_for(for_access: AccessFilter) -> int:
+            where = chroma_where(for_access, self._model)
+            for key in ("document_id", "collection_id"):
+                if filters and filters.get(key) is not None:
+                    clause = {
+                        key: {
+                            "$eq": _cid(filters[key]) if key == "collection_id" else filters[key]
+                        }
+                    }
+                    where = {"$and": [where, clause]} if where else clause
+            where, always_false = _prune_unsatisfiable(where)
+            if always_false:
+                return 0
+            res = self._collection.get(where=where, include=[])
+            ids = [int(i) for i in res.get("ids", [])]
+            return self._count_matching(ids, fmt)
+
+        return count_for(AccessFilter.unrestricted()), count_for(access)
+
+    def _count_matching(self, ids: list[int], fmt: str | None) -> int:
+        """Narrow an id set down to a format, resolving against the chunks table.
+
+        Only called when a format filter is present: Chroma holds no format
+        metadata, so this is the one place ``access_stats`` needs a database
+        round trip rather than a pure Chroma count.
+        """
+        if fmt is None:
+            return len(ids)
+        if not ids:
+            return 0
+        return sum(1 for _, _, row_fmt in self._resolve(ids) if row_fmt == fmt)

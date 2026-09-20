@@ -142,3 +142,37 @@ def test_query_ignores_rows_written_by_another_embedding_model(sf):
     assert [h.chunk_id for h in hits] == [ids[1]], (
         "a query for one model returned a row written by another model"
     )
+
+
+def test_access_stats_reports_the_real_before_and_after_counts(sf):
+    """Prove access_stats measures, rather than guesses at, both numbers.
+
+    Three chunks exist: two in the open collection (c1), one in the secret
+    collection (c2). A restrictive access filter genuinely removes the secret
+    chunk, so ``before`` and ``after`` must differ by exactly that one row,
+    not merely satisfy ``before >= after``.
+    """
+    factory, ids, (d1, d2), (c1, c2) = sf
+    store = PgVectorStore(factory, model="hashing-3")
+    vecs = [unit([1, 0, 0]), unit([0, 1, 0]), unit([0.9, 0.1, 0])]
+    payloads = [
+        {"model": "hashing-3", "dim": 3, "document_id": d, "collection_id": c}
+        for d, c in ((d1, c1), (d1, c1), (d2, c2))
+    ]
+    store.upsert(ids, vecs, payloads)
+
+    restricted = AccessFilter(collection_ids=frozenset({c1}))
+    assert store.access_stats({}, restricted) == (3, 2)
+    assert store.access_stats({}, AccessFilter.unrestricted()) == (3, 3)
+
+    # A metadata filter narrows the candidate pool before access is applied:
+    # only d2's one chunk matches, and d2 is not in the permitted collection.
+    assert store.access_stats({"document_id": d2}, restricted) == (1, 0)
+
+    # A denied document wins over an otherwise unrestricted filter.
+    denied = AccessFilter(denied_document_ids=frozenset({d2}))
+    assert store.access_stats({}, denied) == (3, 2)
+
+    # A store pinned to a different model never sees these rows at all.
+    other_model = PgVectorStore(factory, model="nomic-embed-text")
+    assert other_model.access_stats({}, AccessFilter.unrestricted()) == (0, 0)

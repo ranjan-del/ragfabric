@@ -15,7 +15,6 @@ from ragfabric_core.ingest.pipeline import reingest_document
 from ragfabric_core.ingest.storage import get_storage
 from ragfabric_core.models.document import Document
 from ragfabric_core.models.user import Role, User
-from ragfabric_core.store.vector_store import get_store
 from ragfabric_server.deps import require_role
 from ragfabric_server.schemas.document import DocumentOut
 from ragfabric_server.schemas.user import PermissionUpdate, UserOut
@@ -111,22 +110,6 @@ async def create_version(
     )
 
 
-@router.post("/index/rebuild", status_code=status.HTTP_200_OK)
-def rebuild_index(
-    db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin")),
-) -> dict:
-    """Rebuild the in-memory vector index from the persisted chunk rows.
-
-    The same call the application makes on startup, exposed so an operator can
-    repair drift without a restart. ``/api/analytics/overview`` reports
-    ``chunks`` (from SQL) next to ``indexed_vectors`` (from memory); when those
-    two disagree, this is the fix.
-    """
-    restored = get_store().rebuild_from_db(db)
-    return {"detail": "Vector index rebuilt.", "vectors": restored}
-
-
 @router.delete("/documents/{document_id}", status_code=status.HTTP_200_OK)
 def admin_delete_document(
     document_id: int,
@@ -139,6 +122,5 @@ def admin_delete_document(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
     db.delete(document)
     db.commit()
-    get_store().delete_document(document_id)
     get_storage().delete(document_id)
     return {"detail": "Document deleted.", "id": document_id}
