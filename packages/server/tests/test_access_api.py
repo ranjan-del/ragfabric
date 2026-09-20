@@ -78,3 +78,39 @@ def test_api_key_is_shown_once_and_authenticates(client, admin_headers):
         ).status_code
         == 401
     )
+
+
+def test_api_key_with_no_explicit_limit_inherits_the_configured_default(client, admin_headers):
+    """limits.rate_limit_per_minute (ragfabric.yaml) must be the default for a
+    key that names no explicit limit, not a value fixed independently of the
+    deployment's configuration.
+    """
+    from ragfabric_core.runtime import get_config
+
+    cfg = get_config()
+    original = cfg.limits.rate_limit_per_minute
+    cfg.limits.rate_limit_per_minute = 17
+    try:
+        admin = client.get("/api/auth/me", headers=admin_headers).json()
+        created = client.post(
+            "/api/admin/keys",
+            json={"name": "no-explicit-limit", "user_id": admin["id"]},
+            headers=admin_headers,
+        )
+        assert created.status_code == 201
+        assert created.json()["rate_limit_per_minute"] == 17
+
+        # An explicit limit still overrides the configured default.
+        explicit = client.post(
+            "/api/admin/keys",
+            json={
+                "name": "explicit-limit",
+                "user_id": admin["id"],
+                "rate_limit_per_minute": 5,
+            },
+            headers=admin_headers,
+        )
+        assert explicit.status_code == 201
+        assert explicit.json()["rate_limit_per_minute"] == 5
+    finally:
+        cfg.limits.rate_limit_per_minute = original

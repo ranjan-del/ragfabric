@@ -333,9 +333,7 @@ def test_moving_a_document_updates_denormalised_collection_ids(client, admin_hea
     from ragfabric_core.models.index import ChunkSearch
 
     with SessionLocal() as db:
-        embeddings = (
-            db.query(ChunkEmbedding).filter(ChunkEmbedding.document_id == doc["id"]).all()
-        )
+        embeddings = db.query(ChunkEmbedding).filter(ChunkEmbedding.document_id == doc["id"]).all()
         searches = db.query(ChunkSearch).filter(ChunkSearch.document_id == doc["id"]).all()
         chunks = db.query(Chunk).filter(Chunk.document_id == doc["id"]).all()
     assert embeddings and all(row.collection_id == new["id"] for row in embeddings)

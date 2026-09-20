@@ -93,7 +93,11 @@ def create_key(
     user: str = typer.Option(...),
     collection: list[str] = typer.Option([], "--collection"),
     strategy: list[str] = typer.Option([], "--strategy"),
-    rate_limit: int = typer.Option(60, "--rate-limit"),
+    rate_limit: int | None = typer.Option(
+        None,
+        "--rate-limit",
+        help="Requests/minute; defaults to limits.rate_limit_per_minute in ragfabric.yaml.",
+    ),
 ) -> None:
     with session() as db:
         owner = user_by_email(db, user)
