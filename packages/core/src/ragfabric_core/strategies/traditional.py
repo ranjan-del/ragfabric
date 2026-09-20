@@ -64,6 +64,18 @@ class TraditionalRAGStrategy:
         """
         return self._store
 
+    @property
+    def embedder(self) -> EmbeddingProvider:
+        """The embedding provider this strategy was built with (read only).
+
+        Per request tuning (Task 12) may build a fresh strategy instance
+        around a different reranker without mutating the shared registry
+        instance; that fresh instance must embed with the exact same
+        provider the shared one uses, not an equivalent-by-config copy, so
+        this is read off here rather than rebuilt from configuration.
+        """
+        return self._embedder
+
     def retrieve(self, query: str, ctx: RetrievalContext) -> RetrievalResult:
         started = time.perf_counter()
         spans: list[TraceSpan] = []

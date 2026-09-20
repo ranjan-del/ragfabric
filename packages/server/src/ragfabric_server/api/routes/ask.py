@@ -60,13 +60,12 @@ from ragfabric_core.store.vector_store import get_store
 from ragfabric_core.strategies.base import (
     RetrievalContext,
     RetrievedChunk,
-    StrategyName,
     StrategyParams,
     StrategyRegistry,
     TraceSpan,
 )
 from ragfabric_core.telemetry.tracing import start_trace, trace
-from ragfabric_server.api.routes.search import _chunk_to_row, _cited_llm_calls
+from ragfabric_server.api.routes.search import _chunk_to_row, _cited_llm_calls, _strategy_for
 from ragfabric_server.deps import (
     get_access_filter,
     get_embedding_model,
@@ -87,11 +86,12 @@ def _event(name: str, data: dict) -> str:
 def _context(payload: AskRequest, principal: Principal, access: AccessFilter) -> RetrievalContext:
     """Build the strategy's per-request context.
 
-    Not reused from ``search.py``'s ``_context``: ``AskRequest`` carries a
-    ``similarity_threshold`` field that ``SearchRequest`` does not, and
-    ``search._context`` never reads one (it relies on ``StrategyParams``'s own
-    default). Calling that function here would silently drop a threshold an
-    ``/api/ask`` caller actually set.
+    Kept as its own function rather than reused from ``search.py``: the two
+    payload types are structurally identical for this purpose since Task 12
+    (both carry ``top_k``, ``similarity_threshold`` and ``rerank``), but they
+    remain distinct pydantic models with their own validation, and this
+    module already keeps its own thin route layer independent of
+    ``search.py`` except for the pieces it explicitly imports.
     """
     filters: dict[str, str | int | float | bool] = {}
     if payload.document_id is not None:
@@ -231,7 +231,12 @@ def ask(
     llm: LLMProvider = Depends(get_llm_provider),
     embedding_model: str = Depends(get_embedding_model),
 ) -> StreamingResponse | AnswerResponse:
-    strategy = registry.get(StrategyName(payload.strategy))
+    # AskRequest.strategy is pinned to "traditional" (pattern-validated), so
+    # this resolves to the same shared instance StrategyName(payload.strategy)
+    # would; _strategy_for additionally honours payload.rerank, building a
+    # per-request strategy around the shared store/embedder rather than
+    # mutating the shared one when a reranker override is present.
+    strategy = _strategy_for(payload.rerank, registry, llm)
 
     if not payload.stream:
         started = time.perf_counter()

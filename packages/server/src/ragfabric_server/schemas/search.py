@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1)
     top_k: int = Field(default=5, ge=1, le=50)
+    # Out of range is rejected (422 via this Field's bounds), never clamped:
+    # a caller who asks for a 0.99 floor and silently gets 0.0 back would draw
+    # false conclusions from the results.
+    similarity_threshold: float = Field(default=0.0, ge=0.0, le=1.0)
+    # None means "use whatever the shared strategy is configured with" (no
+    # override, no per-request strategy built). Naming a value, including
+    # "none", asks for a strategy built fresh around that reranker instead of
+    # the shared registry instance; see api/routes/search.py:_strategy_for.
+    rerank: Literal["none", "llm", "cross_encoder"] | None = None
     # Metadata filters. All are ANDed together and applied before ranking.
     collection_id: int | None = None
     document_id: int | None = None

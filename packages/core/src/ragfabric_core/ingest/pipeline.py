@@ -43,12 +43,24 @@ def _extension(filename: str) -> str:
     return filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
 
-def _index_content(db: Session, document: Document, data: bytes) -> Document:
+def _index_content(
+    db: Session,
+    document: Document,
+    data: bytes,
+    *,
+    chunk_size: int | None = None,
+    chunk_overlap: int | None = None,
+) -> Document:
     """Parse/chunk/embed ``data`` into chunks for an already-persisted document.
 
     Shared by first ingest and re-ingest (versioning). The document row is
     assumed to exist and to already carry ``filename`` / ``format``; this
     function owns everything from parsing to committing and indexing.
+
+    ``chunk_size``/``chunk_overlap`` of ``None`` (the default for every
+    existing caller) means "use the configured value from
+    ``get_config().ingestion``", so a caller that never mentions either
+    keeps the exact chunking behaviour it always had.
     """
     try:
         with trace("parse", format=document.format):
@@ -56,10 +68,10 @@ def _index_content(db: Session, document: Document, data: bytes) -> Document:
         with trace("clean"):
             text = clean_text(text)
         cfg = get_config().ingestion
-        with trace("chunk", chunk_size=cfg.chunk_size, overlap=cfg.chunk_overlap):
-            chunks = chunk_text(
-                text, chunk_size=cfg.chunk_size, overlap=cfg.chunk_overlap, sections=True
-            )
+        size = chunk_size if chunk_size is not None else cfg.chunk_size
+        overlap = chunk_overlap if chunk_overlap is not None else cfg.chunk_overlap
+        with trace("chunk", chunk_size=size, overlap=overlap):
+            chunks = chunk_text(text, chunk_size=size, overlap=overlap, sections=True)
     except Exception as exc:  # unsupported format, corrupt file, etc.
         document.status = "failed"
         document.error = str(exc)[:500]
@@ -143,12 +155,20 @@ def ingest_document(
     content_type: str = "",
     collection_id: int | None = None,
     owner_id: int | None = None,
+    chunk_size: int | None = None,
+    chunk_overlap: int | None = None,
 ) -> Document:
     """Ingest one uploaded file and return the persisted ``Document`` row.
 
     The document is created immediately (status ``processing``) so a row always
     exists; on success it flips to ``ready`` with ``num_chunks`` set, and on any
     parse/index error it flips to ``failed`` with the error recorded.
+
+    ``chunk_size``/``chunk_overlap`` default to ``None``, meaning "use the
+    configured value from ``get_config().ingestion``" (see ``_index_content``),
+    so every existing caller that never passes them keeps its current
+    behaviour unchanged. The upload route validates any caller-supplied pair
+    at the edge before this is ever called; this function trusts its inputs.
     """
     document = Document(
         filename=filename,
@@ -163,7 +183,7 @@ def ingest_document(
     db.flush()  # assign document.id without committing yet
     if get_config().ingestion.retain_originals:
         document.storage_path = get_storage().save(document.id, filename, data)
-    return _index_content(db, document, data)
+    return _index_content(db, document, data, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
 
 def reingest_document(
