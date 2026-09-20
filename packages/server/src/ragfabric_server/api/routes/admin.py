@@ -15,6 +15,8 @@ from ragfabric_core.ingest.pipeline import reingest_document
 from ragfabric_core.ingest.storage import get_storage
 from ragfabric_core.models.document import Document
 from ragfabric_core.models.user import Role, User
+from ragfabric_core.runtime import get_config, get_session_factory
+from ragfabric_core.stores.registry import build_lexical_store, build_vector_store
 from ragfabric_server.deps import require_role
 from ragfabric_server.schemas.document import DocumentOut
 from ragfabric_server.schemas.user import PermissionUpdate, UserOut
@@ -120,7 +122,15 @@ def admin_delete_document(
     document = db.get(Document, document_id)
     if document is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
-    db.delete(document)
+    db.delete(document)  # cascades to chunks
     db.commit()
+    # As with the owner-facing delete route, the relational cascade does not
+    # reach the configured vector/lexical stores (SQLite does not enforce the
+    # chunk_embeddings/chunk_search foreign keys, and Chroma has none at all),
+    # so those rows must be dropped explicitly or they accumulate as orphans.
+    cfg = get_config()
+    sf = get_session_factory()
+    build_vector_store(cfg.vector_store, sf).delete_document(document_id)
+    build_lexical_store(cfg.lexical_store, sf).delete_document(document_id)
     get_storage().delete(document_id)
     return {"detail": "Document deleted.", "id": document_id}
