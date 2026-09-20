@@ -619,3 +619,58 @@ def test_upload_retains_the_original_and_download_returns_it(client, auth_header
     assert (
         client.get(f"/api/documents/{doc['id']}/download", headers=auth_headers).status_code == 404
     )
+
+
+def test_download_pins_the_content_type_and_forces_a_save(client, auth_headers):
+    """A caller can set an arbitrary multipart Content-Type on upload (here,
+    text/html on a .txt file, exactly what a browser would render as a page
+    rather than save if the download route trusted it back). The download
+    route must ignore that stored value and serve a type pinned from the
+    file's own extension, with the response forced to save rather than
+    render in the browser origin.
+    """
+    from ragfabric_core.testing.fixtures import make_txt
+
+    data = make_txt("<script>alert(document.domain)</script>")
+    doc = client.post(
+        "/api/documents/upload",
+        files={"file": ("notes.txt", data, "text/html")},
+        headers=auth_headers,
+    ).json()
+    assert doc["content_type"] == "text/html"  # exactly the untrusted value stored at upload
+
+    r = client.get(f"/api/documents/{doc['id']}/download", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.headers["content-type"].split(";")[0] == "text/plain"
+    assert r.headers["content-disposition"].startswith("attachment")
+    assert r.headers["content-disposition"].endswith('filename="notes.txt"')
+    assert r.headers["x-content-type-options"] == "nosniff"
+
+
+def test_download_defaults_an_unmapped_extension_to_octet_stream(client, auth_headers):
+    """Belt and braces: even a filename extension this deployment does not
+    recognise must never fall back to the caller-supplied Content-Type.
+
+    The upload route's own format allow-list means a file cannot arrive with
+    an unrecognised extension through upload alone, so this renames the
+    document's recorded filename after the fact (the actual bytes on disk are
+    untouched) to exercise the download route's default branch directly.
+    """
+    from ragfabric_core.db.session import SessionLocal
+    from ragfabric_core.models.document import Document
+
+    doc = client.post(
+        "/api/documents/upload",
+        files={"file": ("payload.txt", b"hello", "text/html")},
+        headers=auth_headers,
+    ).json()
+
+    with SessionLocal() as db:
+        row = db.get(Document, doc["id"])
+        row.filename = "payload.unknownext"
+        db.commit()
+
+    r = client.get(f"/api/documents/{doc['id']}/download", headers=auth_headers)
+    assert r.status_code == 200
+    assert r.headers["content-type"].split(";")[0] == "application/octet-stream"
+    assert r.headers["x-content-type-options"] == "nosniff"

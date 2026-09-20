@@ -35,6 +35,28 @@ from ragfabric_server.schemas.document import DocumentList, DocumentMove, Docume
 
 router = APIRouter()
 
+# Content type served on download, chosen from the file's own extension and
+# never from the caller-supplied Content-Type recorded at upload (that value
+# is untrusted input: an upload's multipart Content-Type can name anything
+# regardless of the actual bytes or the extension the format allow-list
+# checked). An extension outside this map, or no extension at all, serves as
+# application/octet-stream so a caller's browser is never handed a type it
+# might render, such as text/html, for a file this deployment never classified
+# as one of its own supported formats.
+_DOWNLOAD_CONTENT_TYPES: dict[str, str] = {
+    "pdf": "application/pdf",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "txt": "text/plain",
+    "csv": "text/csv",
+    "md": "text/markdown",
+}
+
+
+def _download_content_type(filename: str) -> str:
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    return _DOWNLOAD_CONTENT_TYPES.get(ext, "application/octet-stream")
+
 
 @router.get("", response_model=DocumentList)
 def list_documents(
@@ -156,7 +178,15 @@ def download_document(
     principal: Principal = Depends(get_principal),
     access: AccessFilter = Depends(get_access_filter),
 ) -> FileResponse:
-    """Return the retained original file, if the deployment keeps originals."""
+    """Return the retained original file, if the deployment keeps originals.
+
+    The response's content type is pinned from the file's own extension (see
+    ``_download_content_type``), never from the value recorded at upload, and
+    always carries ``Content-Disposition: attachment`` and
+    ``X-Content-Type-Options: nosniff`` so an uploaded HTML (or otherwise
+    renderable) file can never be served in a way a browser would render in
+    this origin.
+    """
     document = db.get(Document, document_id)
     if document is None or not document.storage_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Original not available.")
@@ -173,7 +203,9 @@ def download_document(
     return FileResponse(
         path,
         filename=document.filename,
-        media_type=document.content_type or "application/octet-stream",
+        media_type=_download_content_type(document.filename),
+        content_disposition_type="attachment",
+        headers={"X-Content-Type-Options": "nosniff"},
     )
 
 
