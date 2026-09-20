@@ -6,6 +6,7 @@ packages/server/src/ragfabric_server/api/routes/ and schemas in
 packages/server/src/ragfabric_server/schemas/.
 """
 
+import email
 import json
 
 import httpx
@@ -13,6 +14,7 @@ import pytest
 
 from ragfabric_sdk import Client
 from ragfabric_sdk.errors import AuthError, NotFoundError, RateLimitError
+from ragfabric_sdk.models import Document
 
 
 def transport(handler):
@@ -21,6 +23,43 @@ def transport(handler):
 
 def client_with(handler, **kwargs):
     return Client("http://server", token="t", transport=transport(handler), **kwargs)
+
+
+def parse_multipart(request: httpx.Request) -> dict[str, str | bytes]:
+    """Decode a MockTransport-captured multipart/form-data request into a
+    {field name: value} dict, keyed exactly by the field's ``name`` so
+    "collection" and "collection_id" are never confused with one another.
+
+    Uses the standard library's ``email`` parser rather than substring
+    matching on the raw bytes, since a substring check for ``name="x"``
+    would also match inside ``name="x_id"``.
+    """
+    content_type = request.headers["content-type"]
+    raw = b"Content-Type: " + content_type.encode() + b"\r\n\r\n" + request.content
+    message = email.message_from_bytes(raw)
+    fields: dict[str, str | bytes] = {}
+    for part in message.get_payload():
+        name = part.get_param("name", header="Content-Disposition")
+        payload = part.get_payload(decode=True)
+        fields[name] = payload if part.get_filename() else payload.decode()
+    return fields
+
+
+_DOCUMENT_RESPONSE = {
+    "id": 1,
+    "filename": "doc.txt",
+    "format": "txt",
+    "document_type": "",
+    "storage_path": None,
+    "content_type": "text/plain",
+    "status": "ready",
+    "collection_id": 42,
+    "owner_id": 1,
+    "version": 1,
+    "num_chunks": 2,
+    "error": "",
+    "created_at": "2026-09-18T00:00:00",
+}
 
 
 def test_ask_returns_a_typed_answer():
@@ -147,6 +186,22 @@ def test_ask_stream_surfaces_a_superseded_event():
     assert superseded.data["reason"] == "citation contract"
 
 
+def test_ask_stream_defaults_a_bare_data_line_to_the_message_event():
+    """Per the SSE wire format, a data: line with no preceding event: line
+    defaults to the event name "message". The real server always sends an
+    explicit event: line today, but the parser should follow the spec, not
+    just the one server it was written against."""
+    body = 'data: {"chunks": 2}\n\n'
+
+    def handler(request):
+        return httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+
+    events = list(client_with(handler).ask_stream("q"))
+    assert len(events) == 1
+    assert events[0].event == "message"
+    assert events[0].data == {"chunks": 2}
+
+
 def test_a_401_becomes_an_auth_error():
     def handler(request):
         return httpx.Response(401, json={"detail": "not authenticated"})
@@ -206,6 +261,54 @@ def test_search_hybrid_uses_the_hybrid_path():
         )
 
     client_with(handler).search("q", mode="hybrid")
+
+
+def test_ingest_sends_the_real_multipart_shape(tmp_path):
+    """The plan's reference sent the collection as a form field named
+    "collection"; the real upload route (api/routes/documents.py) reads
+    "collection_id", "chunk_size" and "chunk_overlap" as Form fields. This
+    test inspects the outgoing request rather than only the parsed response,
+    so a regression back to the wrong field name would be caught here."""
+    file_path = tmp_path / "doc.txt"
+    file_path.write_text("hello world")
+    captured: dict[str, httpx.Request] = {}
+
+    def handler(request):
+        assert request.url.path == "/api/documents/upload"
+        captured["request"] = request
+        return httpx.Response(201, json=_DOCUMENT_RESPONSE)
+
+    doc = client_with(handler).ingest(file_path, collection=42, chunk_size=500)
+
+    fields = parse_multipart(captured["request"])
+    assert fields["file"] == b"hello world"
+    assert fields["collection_id"] == "42"
+    assert "collection" not in fields
+    assert fields["chunk_size"] == "500"
+    # chunk_overlap was never supplied: the server treats an absent field as
+    # "use the configured value", which is a different thing from a form
+    # field carrying an empty string or the literal text "None".
+    assert "chunk_overlap" not in fields
+    assert isinstance(doc, Document)
+    assert doc.filename == "doc.txt"
+
+
+def test_ingest_omits_every_optional_field_when_none_are_given(tmp_path):
+    """With no collection/chunk_size/chunk_overlap supplied, the client must
+    send only the file: it must not stringify None into any of these form
+    fields."""
+    file_path = tmp_path / "doc.txt"
+    file_path.write_text("hello world")
+    captured: dict[str, httpx.Request] = {}
+
+    def handler(request):
+        captured["request"] = request
+        return httpx.Response(201, json=_DOCUMENT_RESPONSE)
+
+    client_with(handler).ingest(file_path)
+
+    fields = parse_multipart(captured["request"])
+    assert set(fields) == {"file"}
 
 
 def test_documents_parses_the_items_envelope():
