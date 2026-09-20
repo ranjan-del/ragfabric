@@ -76,6 +76,19 @@ class TraditionalRAGStrategy:
         """
         return self._embedder
 
+    @property
+    def reranker(self) -> Reranker | None:
+        """The reranker this strategy was built with (read only), or ``None``.
+
+        Lets a caller (a test, or a later reporting task) confirm which
+        reranker instance a strategy is actually using without a private
+        attribute reach-around, the same reasoning as ``store``/``embedder``
+        above. In particular this is what lets a test prove a cached
+        reranker (``ragfabric_server.deps.get_reranker``) is genuinely being
+        reused across two per-request strategies rather than rebuilt.
+        """
+        return self._reranker
+
     def retrieve(self, query: str, ctx: RetrievalContext) -> RetrievalResult:
         started = time.perf_counter()
         spans: list[TraceSpan] = []

@@ -24,7 +24,6 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ragfabric_core.auth.principal import AccessFilter, Principal
-from ragfabric_core.config_file import RerankerConfig
 from ragfabric_core.db.session import get_db
 from ragfabric_core.generate.answer import build_answer
 from ragfabric_core.generate.cited import CitedAnswer, generate_cited_answer
@@ -32,7 +31,6 @@ from ragfabric_core.models.access import AuditLog
 from ragfabric_core.models.document import QueryLog
 from ragfabric_core.models.runs import RetrievalRun, Source
 from ragfabric_core.providers.base import LLMProvider
-from ragfabric_core.rerank.registry import build_reranker
 from ragfabric_core.runtime import get_config
 from ragfabric_core.store.vector_store import get_store
 from ragfabric_core.stores.base import LexicalStore
@@ -52,6 +50,7 @@ from ragfabric_server.deps import (
     get_lexical_store,
     get_llm_provider,
     get_principal,
+    get_reranker,
     get_strategy_registry,
 )
 from ragfabric_server.schemas.search import (
@@ -117,6 +116,15 @@ def _strategy_for(
     reranker swapped in. The fresh instance is local to this request/response
     cycle and is discarded afterwards, so one caller's reranker choice can
     never be observed by another in-flight request.
+
+    The STRATEGY WRAPPER is what gets rebuilt per request, and that part is
+    genuinely cheap: it is a thin object holding references, not a load. The
+    reranker itself is NOT rebuilt per request: it comes from
+    ``deps.get_reranker``, a process-wide cache keyed by kind. Without that
+    cache, naming ``rerank: "cross_encoder"`` would reconstruct
+    ``CrossEncoderReranker()`` (and reload its model from disk) on every
+    single request; the cache makes repeated cross-encoder requests as cheap
+    as the ``none``/``llm`` cases always were.
     """
     base = registry.get(StrategyName.TRADITIONAL)
     if rerank is None:
@@ -125,7 +133,7 @@ def _strategy_for(
         # Only the traditional strategy is rerank-overridable in this phase;
         # any other registered strategy is returned untouched.
         return base
-    reranker = build_reranker(RerankerConfig(kind=rerank), llm=llm if rerank == "llm" else None)
+    reranker = get_reranker(rerank, llm=llm if rerank == "llm" else None)
     cfg = get_config()
     return TraditionalRAGStrategy(
         embedding_provider=base.embedder,

@@ -29,6 +29,7 @@ from ragfabric_core.auth.ratelimit import check_rate_limit
 from ragfabric_core.db.session import get_db
 from ragfabric_core.models.user import User
 from ragfabric_core.providers.base import LLMProvider
+from ragfabric_core.rerank.base import Reranker
 from ragfabric_core.runtime import get_config, get_session_factory
 from ragfabric_core.security import ACCESS, JWTError, decode_token
 from ragfabric_core.stores.base import Cache, LexicalStore, VectorStore
@@ -155,6 +156,41 @@ def get_llm_provider() -> LLMProvider:
 
         _llm_provider = build_llm_provider(get_config().llm)
     return _llm_provider
+
+
+_rerankers: dict[str, Reranker] = {}
+
+
+def get_reranker(kind: str, llm: LLMProvider | None = None) -> Reranker:
+    """The process wide reranker instance for ``kind``, built once and reused.
+
+    Same manual module-level singleton pattern as ``get_cache``/
+    ``get_llm_provider`` above, keyed by kind rather than a single default,
+    because Task 12 lets a request name any of the three kinds and each one
+    needs its own cached instance. Deliberately NOT ``functools.lru_cache``:
+    this package uses manual module-level globals throughout and
+    ``lru_cache`` appears nowhere else in it.
+
+    Sharing a reranker across requests is safe because rerankers carry no
+    per-request mutable state: Task 8 rejected a mutable call counter on the
+    reranker specifically because the registry already shares one instance
+    across every concurrent request, which established that ``NoopReranker``
+    and ``LlmReranker`` hold only read-only references. ``CrossEncoderReranker``
+    is the case this cache actually exists for: its only mutable state is its
+    lazily loaded model (loaded from disk on first use, per Task 6's ruling
+    that the load must not block server startup), and that cached model is
+    exactly the state a per-kind cache is meant to share. Without this cache,
+    a per-request ``TraditionalRAGStrategy`` built fresh around a brand new
+    ``CrossEncoderReranker()`` would reload that model from disk on every
+    single request naming ``rerank: "cross_encoder"``, turning a one-word
+    request body into a way to force a multi-gigabyte reload per call.
+    """
+    if kind not in _rerankers:
+        from ragfabric_core.config_file import RerankerConfig
+        from ragfabric_core.rerank.registry import build_reranker
+
+        _rerankers[kind] = build_reranker(RerankerConfig(kind=kind), llm=llm)
+    return _rerankers[kind]
 
 
 _vector_store: VectorStore | None = None
