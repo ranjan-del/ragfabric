@@ -1838,6 +1838,7 @@ version = "0.1.0a0"
 source = { editable = "packages/cli" }
 dependencies = [
     { name = "ragfabric-core" },
+    { name = "ragfabric-sdk" },
     { name = "ragfabric-server" },
     { name = "typer" },
 ]
@@ -1845,6 +1846,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "ragfabric-core", editable = "packages/core" },
+    { name = "ragfabric-sdk", editable = "packages/sdk-python" },
     { name = "ragfabric-server", editable = "packages/server" },
     { name = "typer", specifier = ">=0.27" },
 ]
