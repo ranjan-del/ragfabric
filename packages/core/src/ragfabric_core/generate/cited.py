@@ -37,7 +37,11 @@ from ragfabric_core.strategies.base import RetrievedChunk
 # the substring the contract checks for cannot drift apart (Ruling B).
 NO_EVIDENCE_ANSWER = f"I {NO_EVIDENCE} an answer to that in the documents provided."
 
-_SYSTEM = (
+# Public (not module-private) because the ask route streams a completion with
+# this exact same system prompt before checking the result against the same
+# citation contract, and a duplicated copy of the wording could drift from
+# what generate_cited_answer actually asks the model to do.
+SYSTEM_PROMPT = (
     "You answer strictly from the numbered passages provided. "
     "Cite every claim with the passage number in square brackets, for example [1]. "
     "Quote verbatim only, inside double quotation marks; paraphrase everything else. "
@@ -98,7 +102,7 @@ def generate_cited_answer(
     for attempt in (1, 2):
         completion = llm.complete(
             [
-                Message(role="system", content=_SYSTEM),
+                Message(role="system", content=SYSTEM_PROMPT),
                 Message(role="user", content=build_prompt(query, chunks, violation)),
             ],
             model=model,

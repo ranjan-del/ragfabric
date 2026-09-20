@@ -13,6 +13,7 @@ how it counts.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
@@ -53,6 +54,15 @@ class LLMProvider(Protocol):
         temperature: float = 0.0,
         json_schema: dict | None = None,
     ) -> Completion: ...
+
+    def stream(
+        self,
+        messages: list[Message],
+        *,
+        model: str | None = None,
+        max_tokens: int = 1024,
+        temperature: float = 0.0,
+    ) -> Iterator[str]: ...
 
 
 class EmbeddingResult(BaseModel):

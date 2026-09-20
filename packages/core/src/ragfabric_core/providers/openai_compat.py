@@ -14,6 +14,7 @@ is only sent for models outside REASONING_MODEL_PREFIXES.
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
 from typing import Any
 
 from ragfabric_core.providers.base import Completion, EmbeddingResult, Message, ProviderError
@@ -87,6 +88,44 @@ class OpenAICompatibleLLM:
             latency_ms=latency_ms,
             finish_reason=getattr(choice, "finish_reason", None),
         )
+
+    def stream(
+        self,
+        messages: list[Message],
+        *,
+        model: str | None = None,
+        max_tokens: int = 1024,
+        temperature: float = 0.0,
+    ) -> Iterator[str]:
+        """Yield text deltas from a server sent event stream.
+
+        Shared by ``OpenAIProvider`` and ``OllamaProvider``, since Ollama serves
+        the same streamed chunk shape at its OpenAI compatible endpoint. Usage
+        is not reported on streamed chunks by either vendor, so no token count
+        is returned here; the caller accounts for that honestly rather than
+        estimating (ADR 0004).
+        """
+        chosen = model or self.default_model
+        kwargs: dict[str, Any] = {
+            "model": chosen,
+            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "max_completion_tokens": max_tokens,
+            "stream": True,
+        }
+        if not chosen.startswith(REASONING_MODEL_PREFIXES):
+            kwargs["temperature"] = temperature
+        try:
+            chunks = self._client.chat.completions.create(**kwargs)
+        except ProviderError:
+            raise
+        except Exception as exc:  # the SDK raises many types; callers get one
+            raise ProviderError(self.name, str(exc)) from exc
+        for chunk in chunks:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta.content
+            if delta is not None:
+                yield delta
 
 
 class OpenAIProvider(OpenAICompatibleLLM):

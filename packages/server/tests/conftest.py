@@ -107,6 +107,27 @@ class _FakeCitingLLM:
             finish_reason="stop",
         )
 
+    def stream(
+        self,
+        messages: list[Message],
+        *,
+        model: str | None = None,
+        max_tokens: int = 1024,
+        temperature: float = 0.0,
+    ):
+        """Yield the same deterministic text ``complete`` would return, in
+        pieces, so ``/api/ask`` can be exercised as a real stream without a
+        network call. Built on ``complete`` rather than duplicating its
+        passage-quoting logic, so a streamed answer and a non-streamed one for
+        the same prompt are always textually identical.
+        """
+        text = self.complete(
+            messages, model=model, max_tokens=max_tokens, temperature=temperature
+        ).text
+        words = text.split(" ")
+        for i, word in enumerate(words):
+            yield word if i == len(words) - 1 else word + " "
+
 
 @pytest.fixture()
 def client() -> Iterator[TestClient]:
