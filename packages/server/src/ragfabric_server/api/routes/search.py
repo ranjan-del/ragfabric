@@ -1,13 +1,19 @@
 """Search + answer routes.
 
-- ``POST /query`` runs retrieval (semantic or hybrid) then assembles a cited
-  answer with confidence, citations, highlighted supporting text, and the source
-  document, and logs the question for analytics. It also records a
+- ``POST /query`` runs retrieval through the traditional RAG strategy, generates
+  a cited answer through the configured LLM provider (falling back to the
+  extractive generator on a citation contract violation), then assembles a
+  response with confidence, citations, highlighted supporting text, and the
+  source document, and logs the question for analytics. It also records a
   ``RetrievalRun`` with its ``Source`` rows and an ``AuditLog`` row, so every
   answer can be traced and audited later.
 - ``POST /semantic`` and ``POST /hybrid`` return raw ranked chunks for callers
   that want to build their own UI over the results, and each writes an
   ``AuditLog`` row too.
+
+Task 10 moves all three endpoints off the v1 in-memory index and onto the real
+stores built in Tasks 2-9: the traditional strategy for the vector side, and
+``PostgresLexicalStore`` for the keyword side of ``/hybrid``.
 """
 
 from __future__ import annotations
@@ -20,34 +26,137 @@ from sqlalchemy.orm import Session
 from ragfabric_core.auth.principal import AccessFilter, Principal
 from ragfabric_core.db.session import get_db
 from ragfabric_core.generate.answer import build_answer
-from ragfabric_core.ingest.embed import get_embedder
+from ragfabric_core.generate.cited import CitedAnswer, generate_cited_answer
 from ragfabric_core.models.access import AuditLog
 from ragfabric_core.models.document import QueryLog
 from ragfabric_core.models.runs import RetrievalRun, Source
-from ragfabric_core.retrieve.hybrid import HybridRetriever
-from ragfabric_core.retrieve.retriever import Retriever
+from ragfabric_core.providers.base import LLMProvider
 from ragfabric_core.store.vector_store import get_store
+from ragfabric_core.stores.base import LexicalStore
+from ragfabric_core.strategies.base import (
+    RetrievalContext,
+    RetrievedChunk,
+    StrategyName,
+    StrategyParams,
+    StrategyRegistry,
+)
 from ragfabric_core.telemetry.tracing import start_trace, trace
-from ragfabric_server.deps import get_access_filter, get_principal
-from ragfabric_server.schemas.search import AnswerResponse, SearchRequest, SearchResults
+from ragfabric_server.deps import (
+    get_access_filter,
+    get_embedding_model,
+    get_lexical_store,
+    get_llm_provider,
+    get_principal,
+    get_strategy_registry,
+)
+from ragfabric_server.schemas.search import (
+    AnswerResponse,
+    SearchRequest,
+    SearchResultItem,
+    SearchResults,
+)
 
 router = APIRouter()
 
 
-def _retrieve(payload: SearchRequest, access: AccessFilter) -> list[dict]:
-    """Dispatch to the semantic or hybrid retriever based on the request mode."""
-    if payload.mode == "hybrid":
-        retriever = HybridRetriever()
-    else:
-        retriever = Retriever()
-    return retriever.retrieve(
-        payload.query,
-        top_k=payload.top_k,
-        collection_id=payload.collection_id,
-        document_id=payload.document_id,
-        format=payload.format,
-        access=access,
+def _context(payload: SearchRequest, principal: Principal, access: AccessFilter) -> RetrievalContext:
+    """Build the strategy's per-request context.
+
+    ``SearchRequest`` carries no ``similarity_threshold`` field, and neither
+    the v1 ``Retriever``/``HybridRetriever`` this replaces nor
+    ``default_registry`` wires one in from configuration, so this stays at
+    ``StrategyParams``'s own default of ``0.0`` (no floor): every one of the
+    three endpoints returns its top_k nearest neighbours regardless of
+    absolute score, exactly as the retrievers they replace did.
+    """
+    filters: dict[str, str | int | float | bool] = {}
+    if payload.document_id is not None:
+        filters["document_id"] = payload.document_id
+    if payload.format is not None:
+        filters["format"] = payload.format
+    return RetrievalContext(
+        principal=principal,
+        access_filter=access,
+        collection_ids=[payload.collection_id] if payload.collection_id is not None else None,
+        params=StrategyParams(
+            top_k=payload.top_k,
+            metadata_filters=filters,
+        ),
     )
+
+
+def _lexical_filters(payload: SearchRequest) -> dict[str, str | int]:
+    """The metadata filters ``/hybrid`` applies to both the vector and lexical legs."""
+    filters: dict[str, str | int] = {}
+    if payload.collection_id is not None:
+        filters["collection_id"] = payload.collection_id
+    if payload.document_id is not None:
+        filters["document_id"] = payload.document_id
+    if payload.format is not None:
+        filters["format"] = payload.format
+    return filters
+
+
+def _to_result_item(
+    chunk: RetrievedChunk,
+    *,
+    lexical_score: float | None = None,
+    hybrid_score: float | None = None,
+) -> SearchResultItem:
+    return SearchResultItem(
+        chunk_id=chunk.chunk_id,
+        document_id=chunk.document_id,
+        filename=chunk.metadata.get("filename"),
+        format=chunk.metadata.get("format"),
+        page=chunk.page,
+        # RetrievedChunk carries no chunk_index (only the legacy in-memory
+        # store's dicts did); left unset rather than guessed at.
+        chunk_index=None,
+        score=chunk.score if chunk.score is not None else 0.0,
+        lexical_score=lexical_score,
+        hybrid_score=hybrid_score,
+        text=chunk.text,
+    )
+
+
+def _chunk_to_row(chunk: RetrievedChunk) -> dict:
+    """``build_answer``/``Source`` still work over plain dicts (unchanged by Task 10)."""
+    return {
+        "chunk_id": chunk.chunk_id,
+        "document_id": chunk.document_id,
+        "collection_id": chunk.collection_id,
+        "text": chunk.text,
+        "page": chunk.page,
+        "score": chunk.score,
+        "char_start": chunk.char_start,
+        "char_end": chunk.char_end,
+        "filename": chunk.metadata.get("filename"),
+        "format": chunk.metadata.get("format"),
+    }
+
+
+def _cited_llm_calls(cited: CitedAnswer) -> int:
+    """How many real model calls ``generate_cited_answer`` actually issued.
+
+    ``generator == "extractive"`` does NOT mean zero calls: on the fallback
+    path (two rejected attempts) two real calls were made before the
+    extractive generator produced the text. The only case with zero calls is
+    the no-chunks short-circuit, which returns ``generator == "extractive"``
+    and ``retried == False``. So:
+
+      - ``retried`` is only ever set True after a genuine second attempt, so
+        it always means exactly two calls were issued, regardless of which
+        generator ended up producing the text.
+      - not retried and ``generator == "llm"`` means the first attempt was
+        accepted: exactly one call.
+      - not retried and ``generator == "extractive"`` is the no-chunks path:
+        no call was made at all.
+    """
+    if cited.retried:
+        return 2
+    if cited.generator == "extractive":
+        return 0
+    return 1
 
 
 @router.post("/query", response_model=AnswerResponse)
@@ -56,26 +165,37 @@ def query(
     db: Session = Depends(get_db),
     principal: Principal = Depends(get_principal),
     access: AccessFilter = Depends(get_access_filter),
+    registry: StrategyRegistry = Depends(get_strategy_registry),
+    llm: LLMProvider = Depends(get_llm_provider),
+    embedding_model: str = Depends(get_embedding_model),
 ) -> AnswerResponse:
     """Ask a question and get a cited, grounded answer."""
     started = time.perf_counter()
-    with start_trace() as ctx:
-        retrieved = _retrieve(payload, access)
+    strategy = registry.get(StrategyName.TRADITIONAL)
+    with start_trace() as tracing:
+        result = strategy.retrieve(payload.query, _context(payload, principal, access))
         retrieval_ms = int((time.perf_counter() - started) * 1000)
         with trace("answer"):
-            result = build_answer(payload.query, retrieved)
+            cited = generate_cited_answer(
+                payload.query, result.chunks, llm, model=None, max_tokens=800
+            )
+        retrieved = [_chunk_to_row(c) for c in result.chunks]
+        result_payload = build_answer(payload.query, retrieved, answer_text=cited.text)
     total_ms = int((time.perf_counter() - started) * 1000)
 
     # Record only the documents the answer actually cited, so the analytics
     # "most referenced" panel reflects usage rather than corpus size.
-    cited = sorted(
+    cited_document_ids = sorted(
         {
             c["document_id"]
-            for c in result["citations"]
+            for c in result_payload["citations"]
             if c["used"] and c["document_id"] is not None
         }
     )
-    used_chunks = {c["chunk_id"] for c in result["citations"] if c["used"]}
+    used_chunks = {c["chunk_id"] for c in result_payload["citations"] if c["used"]}
+    # Task 11 moves access_stats onto the vector stores and retires this
+    # legacy in-memory index; until then it is the one place that number
+    # lives, so it stays here rather than being duplicated early.
     before, after = get_store().access_stats(
         {
             "collection_id": payload.collection_id,
@@ -91,17 +211,17 @@ def query(
         mode="manual",
         requested_strategy="traditional",
         selected_strategy="traditional",
-        answer=result["answer"],
+        answer=result_payload["answer"],
         latency_ms=total_ms,
         retrieval_latency_ms=retrieval_ms,
         generation_latency_ms=total_ms - retrieval_ms,
-        llm_calls=0,
-        retrieval_calls=1,
-        input_tokens=0,
-        output_tokens=0,
+        llm_calls=result.llm_calls + _cited_llm_calls(cited),
+        retrieval_calls=result.retrieval_calls,
+        input_tokens=result.input_tokens + cited.input_tokens,
+        output_tokens=result.output_tokens + cited.output_tokens,
         estimated_cost_usd=0.0,
-        embedding_model=f"hashing-{get_embedder().dim}",
-        trace=[s.model_dump() for s in ctx.spans],
+        embedding_model=embedding_model,
+        trace=[s.model_dump() for s in result.trace] + [s.model_dump() for s in tracing.spans],
     )
     db.add(run)
     db.flush()
@@ -135,12 +255,12 @@ def query(
             user_id=principal.user_id,
             collection_id=payload.collection_id,
             question=payload.query,
-            confidence=result["confidence"],
-            cited_document_ids=cited,
+            confidence=result_payload["confidence"],
+            cited_document_ids=cited_document_ids,
         )
     )
     db.commit()
-    return AnswerResponse(**result)
+    return AnswerResponse(**result_payload)
 
 
 @router.post("/semantic", response_model=SearchResults)
@@ -149,6 +269,7 @@ def semantic_search(
     db: Session = Depends(get_db),
     principal: Principal = Depends(get_principal),
     access: AccessFilter = Depends(get_access_filter),
+    registry: StrategyRegistry = Depends(get_strategy_registry),
 ) -> SearchResults:
     """Return the most semantically similar chunks for a query."""
     payload.mode = "semantic"
@@ -160,7 +281,9 @@ def semantic_search(
         },
         access,
     )
-    results = _retrieve(payload, access)
+    strategy = registry.get(StrategyName.TRADITIONAL)
+    result = strategy.retrieve(payload.query, _context(payload, principal, access))
+    results = [_to_result_item(c) for c in result.chunks]
     db.add(
         AuditLog(
             principal_user_id=principal.user_id,
@@ -183,8 +306,16 @@ def hybrid_search(
     db: Session = Depends(get_db),
     principal: Principal = Depends(get_principal),
     access: AccessFilter = Depends(get_access_filter),
+    registry: StrategyRegistry = Depends(get_strategy_registry),
+    lexical: LexicalStore = Depends(get_lexical_store),
 ) -> SearchResults:
-    """Return chunks ranked by a blend of lexical and semantic scores."""
+    """Return chunks ranked by a blend of lexical and semantic scores.
+
+    The fusion is a simple normalised score sum over the vector-side and
+    lexical-side hits, the same approach the v1 hybrid retriever used. Phase 4
+    replaces this with BM25 plus phrase and identifier boosting; doing that
+    here would pull Phase 4's whole subject forward into this task.
+    """
     payload.mode = "hybrid"
     before, after = get_store().access_stats(
         {
@@ -194,7 +325,17 @@ def hybrid_search(
         },
         access,
     )
-    results = _retrieve(payload, access)
+    strategy = registry.get(StrategyName.TRADITIONAL)
+    vector_result = strategy.retrieve(payload.query, _context(payload, principal, access))
+    filters = _lexical_filters(payload)
+    lexical_hits = lexical.search(
+        payload.query, payload.top_k * 3, access, filters=filters or None
+    )
+    fused = _fuse(vector_result.chunks, lexical_hits, payload.top_k)
+    results = [
+        _to_result_item(chunk, lexical_score=lex_score, hybrid_score=vec_score + lex_score)
+        for chunk, vec_score, lex_score in fused
+    ]
     db.add(
         AuditLog(
             principal_user_id=principal.user_id,
@@ -209,3 +350,20 @@ def hybrid_search(
     )
     db.commit()
     return SearchResults(query=payload.query, mode="hybrid", results=results)
+
+
+def _fuse(
+    vector_hits: list[RetrievedChunk], lexical_hits: list[RetrievedChunk], top_k: int
+) -> list[tuple[RetrievedChunk, float, float]]:
+    """Normalised score sum. Phase 4 replaces this with BM25 plus boosting."""
+
+    def norm(hits: list[RetrievedChunk]) -> dict[int, float]:
+        scores = [h.score or 0.0 for h in hits]
+        top = max(scores, default=0.0)
+        return {h.chunk_id: ((h.score or 0.0) / top if top > 0 else 0.0) for h in hits}
+
+    v, lex = norm(vector_hits), norm(lexical_hits)
+    by_id = {h.chunk_id: h for h in vector_hits} | {h.chunk_id: h for h in lexical_hits}
+    fused = [(by_id[cid], v.get(cid, 0.0), lex.get(cid, 0.0)) for cid in by_id]
+    fused.sort(key=lambda row: (-(row[1] + row[2]), row[0].chunk_id))
+    return fused[:top_k]
