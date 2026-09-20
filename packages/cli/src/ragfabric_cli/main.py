@@ -159,11 +159,25 @@ def init(
 
 @app.command()
 def serve(
-    host: str = typer.Option("0.0.0.0", help="Bind address."),
+    host: str = typer.Option(
+        "127.0.0.1",
+        help=(
+            "Bind address. Defaults to localhost only; pass --host 0.0.0.0 "
+            "explicitly to expose this on every network interface."
+        ),
+    ),
     port: int = typer.Option(8000, help="Port."),
     reload: bool = typer.Option(False, help="Auto reload (development only)."),
 ) -> None:
-    """Run the HTTP API with uvicorn."""
+    """Run the HTTP API with uvicorn.
+
+    Behaviour change: this used to default to 0.0.0.0, which exposed a
+    development server on every network interface unless a caller happened
+    to override it. It now defaults to 127.0.0.1 (localhost only); naming
+    --host 0.0.0.0 explicitly still works exactly as before for a deployment
+    that means to bind every interface (e.g. inside a container behind its
+    own network boundary).
+    """
     import uvicorn
 
     uvicorn.run("ragfabric_server.main:app", host=host, port=port, reload=reload)

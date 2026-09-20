@@ -46,3 +46,21 @@ def test_config_validate_fails_on_typo(tmp_path):
     p.write_text("llm:\n  provdier: openai\n")
     result = runner.invoke(app, ["config", "validate", "--path", str(p)])
     assert result.exit_code == 1 and "provdier" in result.stdout
+
+
+def test_serve_defaults_to_localhost_only(monkeypatch):
+    """ragfabric serve used to default to 0.0.0.0, exposing a development
+    server on every network interface unless a caller happened to override
+    it. It must default to 127.0.0.1 and still accept 0.0.0.0 explicitly for
+    a deployment that means to bind every interface.
+    """
+    calls = []
+    monkeypatch.setattr("uvicorn.run", lambda app, **kwargs: calls.append(kwargs), raising=False)
+
+    result = runner.invoke(app, ["serve"])
+    assert result.exit_code == 0, result.stdout
+    assert calls[-1]["host"] == "127.0.0.1"
+
+    result = runner.invoke(app, ["serve", "--host", "0.0.0.0"])
+    assert result.exit_code == 0, result.stdout
+    assert calls[-1]["host"] == "0.0.0.0"
