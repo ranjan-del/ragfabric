@@ -1,5 +1,8 @@
 """Phase 2 exit criterion: a viewer without a grant gets zero chunks from a restricted collection."""
 
+from ragfabric_core.db.session import SessionLocal
+from ragfabric_core.models.index import ChunkEmbedding
+from ragfabric_core.models.runs import RetrievalRun, Source
 from ragfabric_core.testing.fixtures import make_txt
 
 
@@ -136,3 +139,121 @@ def test_query_records_a_retrieval_run_with_sources_and_is_readable_by_its_owner
         client.get(f"/api/runs/{run.id}", headers={"Authorization": f"Bearer {tok}"}).status_code
         == 404
     )
+
+
+def test_a_restricted_user_never_sees_a_forbidden_chunk_on_the_real_vector_path(
+    client, admin_headers, auth_headers
+):
+    """Task 10 Step 7: a restricted principal must never get a forbidden chunk back
+    through the real vector path (/api/search/query -> TraditionalRAGStrategy ->
+    store.query(access=...) -> generate_cited_answer), the same property
+    test_viewer_without_grant_gets_nothing_from_a_restricted_collection already
+    proves for /api/search/semantic.
+
+    The corpus is built so the property is checked, not assumed:
+      (a) the forbidden document is proven to be genuinely indexed and genuinely
+          retrievable for the exact query used below, two independent ways, while
+          it is still unrestricted;
+      (b) the restricted principal's own request for the same query returns a
+          real, non-empty answer (from a second, allowed document), so a leak
+          cannot hide behind an empty/"could not find" response and enforcement
+          cannot hide behind a corpus that never matched anything;
+      (c) neither the AnswerResponse citations nor the persisted Source rows for
+          that request reference the forbidden document.
+    """
+    hr = client.post("/api/collections", json={"name": "payroll"}, headers=admin_headers).json()
+    forbidden_text = (
+        "Confidential salary band memo: executive base pay ranges from two hundred "
+        "thousand to four hundred thousand dollars per year, reviewed each quarter."
+    )
+    forbidden = _upload(client, admin_headers, "payroll-bands.txt", forbidden_text, hr["id"])
+    forbidden_id = forbidden["id"]
+    assert forbidden["status"] == "ready"
+
+    query_text = "confidential salary band pay ranges"
+
+    # (a) Proof #1: real chunk_embeddings rows exist for the forbidden document.
+    with SessionLocal() as db:
+        embedding_rows = (
+            db.query(ChunkEmbedding).filter(ChunkEmbedding.document_id == forbidden_id).all()
+        )
+    assert embedding_rows, (
+        "forbidden document has no chunk_embeddings rows; the property below "
+        "would hold vacuously (nothing was ever indexed for it)"
+    )
+
+    # (a) Proof #2: an unrestricted principal (admin, still no grant exists yet)
+    # genuinely retrieves it for this exact query through the same endpoint and
+    # strategy the restricted principal below will use.
+    admin_answer = client.post(
+        "/api/search/query", json={"query": query_text, "top_k": 10}, headers=admin_headers
+    ).json()
+    assert any(c["document_id"] == forbidden_id for c in admin_answer["citations"]), (
+        "admin (unrestricted) did not retrieve the forbidden document for this "
+        "query; the property below would hold vacuously (the query never "
+        "matched the forbidden chunk in the first place)"
+    )
+
+    # Now restrict the collection to a group the ordinary user is not a member of.
+    group = client.post(
+        "/api/admin/groups", json={"name": "payroll-only"}, headers=admin_headers
+    ).json()
+    client.post(
+        "/api/admin/grants",
+        json={"group_id": group["id"], "collection_id": hr["id"], "permission": "read"},
+        headers=admin_headers,
+    )
+
+    # Give the restricted user something else real to find for the same query
+    # (uploaded outside any collection, so v1's "no collection -> open" rule
+    # keeps it visible to them), so that a genuine, non-empty answer is
+    # possible without ever touching the forbidden document.
+    allowed_text = (
+        "Public salary band overview: entry level roles start near fifty thousand "
+        "dollars, and pay bands are published on the intranet every year."
+    )
+    allowed = client.post(
+        "/api/documents/upload",
+        files={"file": ("public-bands.txt", make_txt(allowed_text), "text/plain")},
+        headers=auth_headers,
+    ).json()
+    assert allowed["status"] == "ready"
+
+    res = client.post(
+        "/api/search/query",
+        json={"query": query_text, "top_k": 10},
+        headers=auth_headers,
+    )
+    assert res.status_code == 200
+    answer = res.json()
+
+    # (b) A genuine, non-empty answer, not the no-chunks short circuit that
+    # test_viewer_without_grant_gets_nothing_from_a_restricted_collection checks
+    # separately (there, the ONLY matching document is the forbidden one, so an
+    # empty answer is itself the correct, meaningful outcome; here a second,
+    # allowed document guarantees a real answer is possible either way, so an
+    # empty one here would signal a broken query path rather than enforcement).
+    assert answer["citations"], "restricted user's query returned no citations at all"
+    assert "could not find" not in answer["answer"]
+
+    # (c) No citation, and no source document, names the forbidden document.
+    assert all(c["document_id"] != forbidden_id for c in answer["citations"])
+    if answer["source_document"] is not None:
+        assert answer["source_document"]["document_id"] != forbidden_id
+
+    # (c) The persisted Source rows for this exact run (all retrieved chunks,
+    # cited or not) also never name the forbidden document, confirming the
+    # access filter kept it out of retrieval itself rather than merely out of
+    # the rendered answer.
+    me = client.get("/api/auth/me", headers=auth_headers).json()
+    with SessionLocal() as db:
+        run = (
+            db.query(RetrievalRun)
+            .filter(RetrievalRun.user_id == me["id"])
+            .order_by(RetrievalRun.id.desc())
+            .first()
+        )
+        assert run is not None and run.question == query_text
+        sources = db.query(Source).filter(Source.retrieval_run_id == run.id).all()
+    assert sources, "restricted user's run recorded no Source rows at all"
+    assert all(s.document_id != forbidden_id for s in sources)
