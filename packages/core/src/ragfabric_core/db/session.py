@@ -10,9 +10,11 @@ callers can do ``from ragfabric_core.db.session import Base``.
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Iterator
 
 from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from ragfabric_core.config import get_settings
@@ -33,26 +35,44 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 
-if engine.dialect.name == "sqlite":
+@event.listens_for(Engine, "connect")
+def _enforce_sqlite_foreign_keys(dbapi_connection, connection_record) -> None:  # noqa: ANN001, ARG001
+    """Turn on foreign-key enforcement for every new SQLite DB-API connection,
+    on every ``Engine`` in the process, not only the module-level ``engine``
+    above.
 
-    @event.listens_for(engine, "connect")
-    def _enforce_sqlite_foreign_keys(dbapi_connection, connection_record) -> None:  # noqa: ANN001, ARG001
-        """Turn on foreign-key enforcement for every new SQLite DB-API connection.
+    SQLite ships with foreign-key checking OFF by default and SQLAlchemy
+    does not turn it on for you, so every ``ondelete="CASCADE"`` (and
+    ``SET NULL``) declared on the models is silently inert on SQLite, the
+    dialect this project uses for local development and for most of the test
+    suite. That let at least one real bug through: an
+    ``embeddings.chunk_embeddings`` row survived the deletion of its parent
+    ``chunks`` row, because nothing was actually enforcing the cascade.
 
-        SQLite ships with foreign-key checking OFF by default and SQLAlchemy
-        does not turn it on for you, so every ``ondelete="CASCADE"`` (and
-        ``SET NULL``) declared on the models is silently inert on SQLite, the
-        dialect this project uses for local development and for the entire
-        test suite. That let at least one real bug through: an
-        ``embeddings.chunk_embeddings`` row survived the deletion of its
-        parent ``chunks`` row, because nothing was actually enforcing the
-        cascade. ``PRAGMA foreign_keys=ON`` must be set on every connection
-        (SQLite does not persist it in the file), which is exactly what a
-        ``connect`` event listener gives us.
-        """
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+    This is registered on the ``Engine`` class itself (a global SQLAlchemy
+    event, not one bound to this module's own ``engine`` instance) because a
+    per-instance guard, ``if engine.dialect.name == "sqlite": event.listens_for(engine,
+    ...)``, only covers that one object. A dozen test files build their own
+    engine directly with ``create_engine("sqlite:///...")`` for a throwaway
+    database, and none of those ever passed through this module, so a
+    per-instance listener left every one of them exactly as unenforced as
+    before this fix. Registering on the class fires for all of them,
+    including ones this module never sees.
+
+    The dialect guard moves from "only register on a sqlite engine" to "only
+    act on a sqlite DB-API connection", since one global listener now runs
+    for every engine regardless of dialect: ``isinstance(dbapi_connection,
+    sqlite3.Connection)`` is a no-op on a PostgreSQL connection (a psycopg
+    ``Connection``, not a ``sqlite3.Connection``), so this changes nothing
+    for the ``postgresql`` dialect. ``PRAGMA foreign_keys=ON`` must be set on
+    every connection (SQLite does not persist it in the file), which is
+    exactly what a ``connect`` event listener gives us.
+    """
+    if not isinstance(dbapi_connection, sqlite3.Connection):
+        return
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 
 def init_db() -> None:
