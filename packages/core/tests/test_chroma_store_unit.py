@@ -217,3 +217,17 @@ def test_access_stats_resolves_a_format_filter_against_the_chunks_table():
     store = ChromaVectorStore(_FakeClient(collection), model="hashing-8", session_factory=sf)
 
     assert store.access_stats({"format": "txt"}, AccessFilter.unrestricted()) == (1, 1)
+
+
+def test_chroma_store_satisfies_the_vector_store_protocol():
+    """VectorStore is runtime_checkable: a store missing any method (including
+    access_stats, added in Task 13) fails isinstance rather than raising at
+    call time. PgVectorStore already has this assertion
+    (test_stores_sqlite.py::test_stores_satisfy_the_protocols); this is the
+    matching one for ChromaVectorStore, which needs no live server, only a
+    stub client, to construct.
+    """
+    from ragfabric_core.stores.base import VectorStore
+
+    store = ChromaVectorStore(_FakeClient(_FakeCollection()))
+    assert isinstance(store, VectorStore)
