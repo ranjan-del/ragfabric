@@ -121,6 +121,20 @@ def reconcile_stuck_indexing(
     overwritten with the same values, and gets its missing lexical rows
     written for the first time, ending in exactly the state one clean run
     would have produced.
+
+    Known limitation: age against `Document.created_at` is the only signal
+    used to tell "stuck" apart from "in flight". There is no lock, heartbeat,
+    or worker-ownership record, so a document that is merely slow (a large
+    file, or a rate-limited embedding provider) rather than crashed can be
+    picked up here WHILE a live worker is still processing it. The two writes
+    still converge to the same end state because they are idempotent, but the
+    embedding provider itself gets called twice, which costs money and can
+    itself trigger the same rate limiting that made the document slow in the
+    first place, and two uncoordinated sessions end up committing the same
+    `Document` row. This is not fixed here; a proper fix is a lease or
+    heartbeat, tracked as hardening-phase work, not something this function
+    does. The safe operating procedure until then is to stop the worker(s)
+    before running a reconciliation pass.
     """
     cutoff = _now() - timedelta(seconds=older_than_seconds)
     stuck = (
