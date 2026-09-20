@@ -17,6 +17,7 @@ from ragfabric_cli.commands import access as access_commands
 from ragfabric_cli.commands import ingest as ingest_commands
 from ragfabric_cli.commands import users as users_commands
 from ragfabric_cli.commands.ask import ask as ask_command
+from ragfabric_cli.commands.reconcile import reconcile as reconcile_command
 from ragfabric_cli.commands.reindex import reindex as reindex_command
 from ragfabric_cli.commands.worker import worker as worker_command
 from ragfabric_core import __version__
@@ -39,6 +40,7 @@ app.add_typer(access_commands.keys_app, name="keys")
 app.command("ingest")(ingest_commands.ingest)
 app.command("worker")(worker_command)
 app.command("reindex")(reindex_command)
+app.command("reconcile")(reconcile_command)
 app.command("ask")(ask_command)
 
 
