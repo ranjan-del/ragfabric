@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -11,7 +13,7 @@ from ragfabric_core.queue.base import Job
 from ragfabric_core.queue.memory_queue import MemoryJobQueue
 from ragfabric_core.stores.pgvector_store import PgVectorStore
 from ragfabric_core.stores.postgres_fts import PostgresLexicalStore
-from ragfabric_core.workers.handlers import index_document
+from ragfabric_core.workers.handlers import index_document, reconcile_stuck_indexing
 from ragfabric_core.workers.runner import Worker, default_handlers
 
 
@@ -165,3 +167,110 @@ def test_inline_indexing_failure_marks_the_document_failed(db_and_doc, monkeypat
         doc = db.get(Document, doc_id)
         result = pipeline._index_content(db, doc, b"annual leave is twelve days")
         assert result.status == "failed" and "store down" in result.error
+
+
+def test_index_document_is_idempotent_when_called_twice(db_and_doc):
+    """The fan out writes the vector store and the lexical store as two
+    separate commits (a deferred item: a crash between them leaves a
+    document indexed in one store only). The reconciliation approach for
+    that gap only works if re-running index_document for an already-indexed
+    document is safe, i.e. it never produces duplicate rows and always ends
+    in the same state one clean run would have. This checks that property
+    directly, independent of the reconcile helper itself.
+    """
+    factory, doc_id = db_and_doc
+    with factory() as db:
+        first = index_document(
+            db,
+            doc_id,
+            embedding_provider=HashingEmbeddingProvider(dim=16),
+            vector_store=PgVectorStore(factory),
+            lexical_store=PostgresLexicalStore(factory),
+        )
+    with factory() as db:
+        second = index_document(
+            db,
+            doc_id,
+            embedding_provider=HashingEmbeddingProvider(dim=16),
+            vector_store=PgVectorStore(factory),
+            lexical_store=PostgresLexicalStore(factory),
+        )
+    assert first == second == 2
+    with factory() as db:
+        assert db.query(ChunkEmbedding).filter(ChunkEmbedding.document_id == doc_id).count() == 2
+        assert db.query(ChunkSearch).filter(ChunkSearch.document_id == doc_id).count() == 2
+        assert db.get(Document, doc_id).status == "ready"
+
+
+def test_reconcile_recovers_a_document_stuck_by_a_crash_between_the_two_writes(db_and_doc):
+    """Simulates the exact crash the fan out cannot make atomic: the vector
+    store commit succeeded, the process died before the lexical store commit,
+    so the document is left in "indexing" forever with no exception raised
+    anywhere for the worker to have caught. reconcile_stuck_indexing must
+    find it and finish the job.
+    """
+    factory, doc_id = db_and_doc
+    with factory() as db:
+        document = db.get(Document, doc_id)
+        # Half of the crash: the vector store write already landed...
+        PgVectorStore(factory).upsert(
+            [c.id for c in document.chunks],
+            [[0.0] * 16 for _ in document.chunks],
+            [
+                {
+                    "document_id": doc_id,
+                    "collection_id": document.collection_id,
+                    "model": "m",
+                    "dim": 16,
+                }
+                for _ in document.chunks
+            ],
+        )
+        # ...but the lexical write never ran, and the document is stuck where
+        # schedule_indexing leaves it while a queued job is in flight, well
+        # past any reasonable grace period.
+        document.status = "indexing"
+        document.created_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)
+        db.commit()
+
+    with factory() as db:
+        assert db.query(ChunkSearch).filter(ChunkSearch.document_id == doc_id).count() == 0
+        reconciled = reconcile_stuck_indexing(
+            db,
+            embedding_provider=HashingEmbeddingProvider(dim=16),
+            vector_store=PgVectorStore(factory),
+            lexical_store=PostgresLexicalStore(factory),
+            older_than_seconds=300,
+        )
+        assert reconciled == 1
+
+    with factory() as db:
+        assert db.get(Document, doc_id).status == "ready"
+        assert db.query(ChunkEmbedding).filter(ChunkEmbedding.document_id == doc_id).count() == 2
+        assert db.query(ChunkSearch).filter(ChunkSearch.document_id == doc_id).count() == 2
+
+
+def test_reconcile_leaves_a_recently_stuck_document_alone(db_and_doc):
+    """A document only just enqueued for indexing is not a crash, it is
+    normal in-flight work; retrying it before the grace period elapses would
+    race a worker that is still legitimately processing it.
+    """
+    factory, doc_id = db_and_doc
+    with factory() as db:
+        document = db.get(Document, doc_id)
+        document.status = "indexing"
+        db.commit()
+
+    with factory() as db:
+        reconciled = reconcile_stuck_indexing(
+            db,
+            embedding_provider=HashingEmbeddingProvider(dim=16),
+            vector_store=PgVectorStore(factory),
+            lexical_store=PostgresLexicalStore(factory),
+            older_than_seconds=300,
+        )
+        assert reconciled == 0
+
+    with factory() as db:
+        assert db.get(Document, doc_id).status == "indexing"
+        assert db.query(ChunkEmbedding).filter(ChunkEmbedding.document_id == doc_id).count() == 0
