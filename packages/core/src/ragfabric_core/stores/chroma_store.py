@@ -212,50 +212,55 @@ class ChromaVectorStore:
         """Candidate counts before and after the access filter.
 
         Chroma has no count-with-predicate primitive: ``count()`` takes no
-        ``where``, so the only true (measured, not estimated) count is asking
-        Chroma for the matching ids and counting them in Python, with
-        ``include=[]`` so no vectors/documents/metadata cross the wire, only
-        ids. That is one Chroma round trip for ``before`` (metadata filters
-        plus the pinned model, no access predicate) and a second one for
-        ``after`` (the same, plus the access predicate), because Chroma has no
-        operator to fold both counts into a single request the way
-        ``PgVectorStore`` folds them into one conditional-aggregate query.
-        When ``filters`` includes ``format`` (not stored in Chroma metadata,
-        per this module's docstring) each id set is additionally resolved
-        against the chunks/documents tables and counted there, a third and
-        fourth round trip. This costs more than an estimate would, but every
-        number this returns is real, per ADR 0004.
+        ``where`` at all, so there is still no way to ask Chroma for two
+        different counts (unrestricted vs. access-restricted) in a single
+        aggregate the way ``PgVectorStore`` folds both into one
+        conditional-aggregate SQL query. What Chroma's ``get()`` *does* give
+        us, though, is every candidate id's stored metadata, including the
+        ``document_id`` and ``collection_id`` fields the access predicate is
+        actually evaluated over (``chroma_where`` builds that same predicate
+        as a Chroma ``where`` document elsewhere in this class). So rather
+        than sending the metadata-only filters once and the metadata+access
+        filters again, this makes a single ``get(where=..., include=
+        ["metadatas"])`` call for the unrestricted candidate set, and decides
+        "after" for each row in Python with ``AccessFilter.allows``, which
+        encodes the identical allow/deny logic ``chroma_where`` sends to
+        Chroma. That is one Chroma round trip total, down from two, and every
+        number is still measured off real metadata, never estimated (ADR
+        0004). When ``filters`` includes ``format`` (not stored in Chroma
+        metadata, per this module's docstring) the surviving ids are resolved
+        against the chunks/documents tables once, also down from the
+        previous two such lookups, because "after" is always a subset of
+        "before" and both can be read off the same resolved format map.
         """
         fmt = (filters or {}).get("format")
+        where = chroma_where(AccessFilter.unrestricted(), self._model)
+        for key in ("document_id", "collection_id"):
+            if filters and filters.get(key) is not None:
+                clause = {
+                    key: {"$eq": _cid(filters[key]) if key == "collection_id" else filters[key]}
+                }
+                where = {"$and": [where, clause]} if where else clause
+        where, always_false = _prune_unsatisfiable(where)
+        if always_false:
+            return 0, 0
 
-        def count_for(for_access: AccessFilter) -> int:
-            where = chroma_where(for_access, self._model)
-            for key in ("document_id", "collection_id"):
-                if filters and filters.get(key) is not None:
-                    clause = {
-                        key: {
-                            "$eq": _cid(filters[key]) if key == "collection_id" else filters[key]
-                        }
-                    }
-                    where = {"$and": [where, clause]} if where else clause
-            where, always_false = _prune_unsatisfiable(where)
-            if always_false:
-                return 0
-            res = self._collection.get(where=where, include=[])
-            ids = [int(i) for i in res.get("ids", [])]
-            return self._count_matching(ids, fmt)
+        res = self._collection.get(where=where, include=["metadatas"])
+        ids = [int(i) for i in res.get("ids", [])]
+        metadatas = res.get("metadatas") or []
 
-        return count_for(AccessFilter.unrestricted()), count_for(access)
+        fmt_by_id = None
+        if fmt is not None and ids:
+            fmt_by_id = {chunk.id: row_fmt for chunk, _, row_fmt in self._resolve(ids)}
 
-    def _count_matching(self, ids: list[int], fmt: str | None) -> int:
-        """Narrow an id set down to a format, resolving against the chunks table.
-
-        Only called when a format filter is present: Chroma holds no format
-        metadata, so this is the one place ``access_stats`` needs a database
-        round trip rather than a pure Chroma count.
-        """
-        if fmt is None:
-            return len(ids)
-        if not ids:
-            return 0
-        return sum(1 for _, _, row_fmt in self._resolve(ids) if row_fmt == fmt)
+        before = after = 0
+        for chunk_id, meta in zip(ids, metadatas, strict=True):
+            if fmt_by_id is not None and fmt_by_id.get(chunk_id) != fmt:
+                continue
+            before += 1
+            document_id = int(meta["document_id"])
+            raw_collection_id = meta.get("collection_id")
+            collection_id = None if raw_collection_id == NO_COLLECTION else int(raw_collection_id)
+            if access.allows(document_id, collection_id):
+                after += 1
+        return before, after

@@ -76,7 +76,11 @@ class _FakeCollectionWithData(_FakeCollection):
     def get(self, where=None, include=None):
         self.get_calls.append({"where": where, "include": include})
         ids = [cid for cid, metadata in self._rows.items() if _matches(where, metadata)]
-        return {"ids": ids}
+        # Real Chroma returns metadata alongside ids when ``include`` asks for
+        # it; ``access_stats`` now reads document_id/collection_id straight
+        # off that metadata instead of making a second request, so the fake
+        # has to hand it back too, not just the ids.
+        return {"ids": ids, "metadatas": [self._rows[cid] for cid in ids]}
 
     def get_or_create_collection(self, name, metadata):
         return self._collection
@@ -159,6 +163,9 @@ def test_access_stats_reports_the_real_before_and_after_counts():
 
     restricted = AccessFilter(collection_ids=frozenset({100}))
     assert store.access_stats({}, restricted) == (2, 1)
+    assert len(collection.get_calls) == 1, (
+        "before and after must come from one Chroma get() call, not one per count"
+    )
     assert store.access_stats({}, AccessFilter.unrestricted()) == (2, 2)
 
     # A metadata filter narrows the candidate pool before access is applied:
