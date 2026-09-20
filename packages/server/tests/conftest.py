@@ -10,43 +10,91 @@ from __future__ import annotations
 
 import os
 import re
-import tempfile
 import time
 from collections.abc import Iterator
 
 import pytest
 from sqlalchemy.orm import Session
 
-# --- configure the environment before importing the app -----------------------
-_TMP_DB = os.path.join(tempfile.gettempdir(), "rag_test.db")
-os.environ["DATABASE_URL"] = f"sqlite:///{_TMP_DB}"
-os.environ["JWT_SECRET"] = "test-secret"
-os.environ["FIRST_ADMIN_EMAIL"] = "admin@example.com"
-os.environ["FIRST_ADMIN_PASSWORD"] = "adminpass123"
-os.environ.pop("ANTHROPIC_API_KEY", None)  # force the offline answer path
+# The names below are bound inside ``pytest_configure`` (see below), not here,
+# so nothing at module scope forces the app's modules to import (and therefore
+# bind DATABASE_URL/RAGFABRIC_CONFIG) before we know this process's own tmp dir.
+TestClient = runtime = Base = SessionLocal = engine = None
+Completion = Message = get_llm_provider = app = None
 
-_UPLOADS = os.path.join(tempfile.gettempdir(), "ragfabric_test_uploads")
-_CFG = os.path.join(tempfile.gettempdir(), "ragfabric_test_config.yaml")
-with open(_CFG, "w") as fh:
-    fh.write(
-        f"ingestion:\n  uploads_dir: {_UPLOADS}\ncache:\n  kind: memory\n"
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Point the app at a database and uploads dir private to this process.
+
+    The test database and uploads dir used to be fixed paths under
+    ``tempfile.gettempdir()``, shared by every pytest process on the machine.
+    Two overlapping runs (e.g. two CI jobs, or a developer running the suite
+    twice) would then read and write the same SQLite file and the same
+    uploads directory at once, producing spurious SQLAlchemy errors that look
+    like product bugs but are really just two processes fighting over one
+    file. ``pytest.TempPathFactory`` is the same machinery the ``tmp_path``
+    and ``tmp_path_factory`` fixtures are built on; calling it here, from
+    ``pytest_configure``, gives this process its own numbered directory
+    (``pytest-of-<user>/pytest-<N>/...``) using the same collision-proof
+    locking pytest itself uses, before those fixtures would normally be
+    available. ``pytest_configure`` is a "historic" hook, so pytest replays it
+    for this conftest the moment the module is registered, which happens
+    before any test module in this directory is imported, even though this
+    conftest is discovered during collection rather than at startup. That
+    ordering is what lets us set environment variables here and still have
+    them in place before ``ragfabric_core.db.session`` (and everything else
+    imported below) binds to them at import time.
+    """
+    global TestClient, runtime, Base, SessionLocal, engine
+    global Completion, Message, get_llm_provider, app
+
+    tmp_path_factory = pytest.TempPathFactory.from_config(config, _ispytest=True)
+    tmp_dir = tmp_path_factory.mktemp("ragfabric-server-tests")
+
+    os.environ["DATABASE_URL"] = f"sqlite:///{tmp_dir / 'rag_test.db'}"
+    os.environ["JWT_SECRET"] = "test-secret"
+    os.environ["FIRST_ADMIN_EMAIL"] = "admin@example.com"
+    os.environ["FIRST_ADMIN_PASSWORD"] = "adminpass123"
+    os.environ.pop("ANTHROPIC_API_KEY", None)  # force the offline answer path
+
+    uploads_dir = tmp_dir / "uploads"
+    cfg_path = tmp_dir / "config.yaml"
+    cfg_path.write_text(
+        f"ingestion:\n  uploads_dir: {uploads_dir}\ncache:\n  kind: memory\n"
         # dim: 32 is too small for the bag-of-words hashing embedder to
         # reliably discriminate unrelated text from related text (hash
         # collisions dominate at that width); 128 is still fast and offline
         # but stops "unrelated query" tests from scoring a false positive.
         "embeddings:\n  provider: offline\n  dim: 128\n"
     )
-os.environ["RAGFABRIC_CONFIG"] = _CFG
+    os.environ["RAGFABRIC_CONFIG"] = str(cfg_path)
 
-from fastapi.testclient import TestClient  # noqa: E402
+    from fastapi.testclient import TestClient as _TestClient
 
-from ragfabric_core import runtime  # noqa: E402
-from ragfabric_core.db.session import Base, SessionLocal, engine  # noqa: E402
-from ragfabric_core.providers.base import Completion, Message  # noqa: E402
-from ragfabric_server.deps import get_llm_provider  # noqa: E402
-from ragfabric_server.main import app  # noqa: E402
+    from ragfabric_core import runtime as _runtime
+    from ragfabric_core.db.session import Base as _Base
+    from ragfabric_core.db.session import SessionLocal as _SessionLocal
+    from ragfabric_core.db.session import engine as _engine
+    from ragfabric_core.providers.base import Completion as _Completion
+    from ragfabric_core.providers.base import Message as _Message
+    from ragfabric_server.deps import get_llm_provider as _get_llm_provider
+    from ragfabric_server.main import app as _app
 
-runtime.reset_config()
+    TestClient, runtime, Base, SessionLocal, engine = (
+        _TestClient,
+        _runtime,
+        _Base,
+        _SessionLocal,
+        _engine,
+    )
+    Completion, Message, get_llm_provider, app = (
+        _Completion,
+        _Message,
+        _get_llm_provider,
+        _app,
+    )
+
+    runtime.reset_config()
 
 
 class _FakeCitingLLM:
