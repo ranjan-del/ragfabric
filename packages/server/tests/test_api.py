@@ -216,6 +216,67 @@ def test_delete_document_removes_vector_and_lexical_index_rows(client, auth_head
         assert db.query(ChunkSearch).filter(ChunkSearch.document_id == doc_id).count() == 0
 
 
+def test_admin_delete_document_removes_vector_and_lexical_index_rows(client, admin_headers):
+    """The same delete leak as above, but through the admin hard-delete route
+    (`DELETE /api/admin/documents/{id}`), which used to drop only the
+    relational rows and never touch the configured vector/lexical stores.
+    """
+    from ragfabric_core.db.session import SessionLocal
+    from ragfabric_core.models.index import ChunkEmbedding, ChunkSearch
+
+    up = _upload(client, admin_headers, "leave.txt", VACATION_DOC)
+    doc_id = up.json()["id"]
+
+    with SessionLocal() as db:
+        assert db.query(ChunkEmbedding).filter(ChunkEmbedding.document_id == doc_id).count() > 0
+        assert db.query(ChunkSearch).filter(ChunkSearch.document_id == doc_id).count() > 0
+
+    delete = client.delete(f"/api/admin/documents/{doc_id}", headers=admin_headers)
+    assert delete.status_code == 200
+
+    with SessionLocal() as db:
+        assert db.query(ChunkEmbedding).filter(ChunkEmbedding.document_id == doc_id).count() == 0
+        assert db.query(ChunkSearch).filter(ChunkSearch.document_id == doc_id).count() == 0
+
+
+def test_delete_collection_removes_vector_and_lexical_index_rows(client, auth_headers):
+    """The same delete leak as above, but through a collection delete
+    (`DELETE /api/collections/{id}`), which removes every document the
+    collection carried and used to leave every one of them orphaned in the
+    configured vector/lexical stores.
+    """
+    from ragfabric_core.db.session import SessionLocal
+    from ragfabric_core.models.index import ChunkEmbedding, ChunkSearch
+
+    collection = client.post(
+        "/api/collections", json={"name": "hr-docs"}, headers=auth_headers
+    ).json()
+    collection_id = collection["id"]
+
+    first = _upload(client, auth_headers, "leave.txt", VACATION_DOC, collection_id=collection_id)
+    second = _upload(
+        client, auth_headers, "security.txt", SECURITY_DOC, collection_id=collection_id
+    )
+    doc_ids = [first.json()["id"], second.json()["id"]]
+
+    with SessionLocal() as db:
+        for doc_id in doc_ids:
+            assert (
+                db.query(ChunkEmbedding).filter(ChunkEmbedding.document_id == doc_id).count() > 0
+            )
+            assert db.query(ChunkSearch).filter(ChunkSearch.document_id == doc_id).count() > 0
+
+    delete = client.delete(f"/api/collections/{collection_id}", headers=auth_headers)
+    assert delete.status_code == 200
+
+    with SessionLocal() as db:
+        for doc_id in doc_ids:
+            assert (
+                db.query(ChunkEmbedding).filter(ChunkEmbedding.document_id == doc_id).count() == 0
+            )
+            assert db.query(ChunkSearch).filter(ChunkSearch.document_id == doc_id).count() == 0
+
+
 def test_analytics_overview(client, auth_headers):
     _upload(client, auth_headers, "leave.txt", VACATION_DOC)
     client.post("/api/search/query", json={"query": "vacation"}, headers=auth_headers)
