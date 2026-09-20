@@ -13,6 +13,8 @@
 429 Too Many Requests -> an API key went over its rate limit.
 """
 
+import threading
+
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -159,6 +161,7 @@ def get_llm_provider() -> LLMProvider:
 
 
 _rerankers: dict[str, Reranker] = {}
+_rerankers_lock = threading.Lock()
 
 
 def get_reranker(kind: str, llm: LLMProvider | None = None) -> Reranker:
@@ -184,13 +187,27 @@ def get_reranker(kind: str, llm: LLMProvider | None = None) -> Reranker:
     ``CrossEncoderReranker()`` would reload that model from disk on every
     single request naming ``rerank: "cross_encoder"``, turning a one-word
     request body into a way to force a multi-gigabyte reload per call.
-    """
-    if kind not in _rerankers:
-        from ragfabric_core.config_file import RerankerConfig
-        from ragfabric_core.rerank.registry import build_reranker
 
-        _rerankers[kind] = build_reranker(RerankerConfig(kind=kind), llm=llm)
-    return _rerankers[kind]
+    The check-then-set on ``_rerankers`` is not atomic by itself: two threads
+    can both see ``kind not in _rerankers`` before either has finished
+    building, and both go on to build. Harmless for ``none``/``llm``, which
+    are cheap to construct, but for ``cross_encoder`` it means two concurrent
+    first requests can each kick off a multi-gigabyte model load at once,
+    exactly the cost this cache exists to prevent. The lock below serialises
+    the build; the fast path (once a kind is already cached) stays lock-free,
+    and the re-check after acquiring the lock is what stops a second thread,
+    unblocked after the first thread finishes building, from building again.
+    """
+    if kind in _rerankers:
+        return _rerankers[kind]
+
+    with _rerankers_lock:
+        if kind not in _rerankers:
+            from ragfabric_core.config_file import RerankerConfig
+            from ragfabric_core.rerank.registry import build_reranker
+
+            _rerankers[kind] = build_reranker(RerankerConfig(kind=kind), llm=llm)
+        return _rerankers[kind]
 
 
 _vector_store: VectorStore | None = None
