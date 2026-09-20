@@ -6,6 +6,7 @@ requires-python = "==3.13.*"
 members = [
     "ragfabric",
     "ragfabric-core",
+    "ragfabric-sdk",
     "ragfabric-server",
     "ragfabric-workspace",
 ]
@@ -1911,6 +1912,21 @@ requires-dist = [
 provides-extras = ["chroma", "rerank"]
 
 [[package]]
+name = "ragfabric-sdk"
+version = "0.1.0a1"
+source = { editable = "packages/sdk-python" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "pydantic", specifier = ">=2.13" },
+]
+
+[[package]]
 name = "ragfabric-server"
 version = "0.1.0a0"
 source = { editable = "packages/server" }
@@ -1942,6 +1958,7 @@ dev = [
     { name = "pytest" },
     { name = "ragfabric" },
     { name = "ragfabric-core" },
+    { name = "ragfabric-sdk" },
     { name = "ragfabric-server" },
     { name = "ruff" },
 ]
@@ -1956,6 +1973,7 @@ dev = [
     { name = "pytest", specifier = ">=9.1" },
     { name = "ragfabric", editable = "packages/cli" },
     { name = "ragfabric-core", editable = "packages/core" },
+    { name = "ragfabric-sdk", editable = "packages/sdk-python" },
     { name = "ragfabric-server", editable = "packages/server" },
     { name = "ruff", specifier = ">=0.16" },
 ]
