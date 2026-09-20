@@ -257,3 +257,106 @@ def test_a_restricted_user_never_sees_a_forbidden_chunk_on_the_real_vector_path(
         sources = db.query(Source).filter(Source.retrieval_run_id == run.id).all()
     assert sources, "restricted user's run recorded no Source rows at all"
     assert all(s.document_id != forbidden_id for s in sources)
+
+
+def test_moving_a_document_updates_denormalised_collection_ids(client, admin_headers, auth_headers):
+    """chunk_embeddings and chunk_search each carry their own denormalised
+    collection_id so the access filter can apply inside the store query
+    (ADR 0003). A document moved to a new collection must update both, in the
+    same transaction as the move, or a principal granted only the OLD
+    collection could keep retrieving it out of the index forever.
+    """
+    old = client.post("/api/collections", json={"name": "old"}, headers=admin_headers).json()
+    new = client.post("/api/collections", json={"name": "new"}, headers=admin_headers).json()
+    group = client.post(
+        "/api/admin/groups", json={"name": "old-only"}, headers=admin_headers
+    ).json()
+    client.post(
+        "/api/admin/grants",
+        json={"group_id": group["id"], "collection_id": old["id"], "permission": "read"},
+        headers=admin_headers,
+    )
+    me = client.get("/api/auth/me", headers=auth_headers).json()
+    client.post(
+        f"/api/admin/groups/{group['id']}/members",
+        json={"user_id": me["id"]},
+        headers=admin_headers,
+    )
+    # A grant on "new" that the viewer is NOT part of. Without this, "new"
+    # would carry no grant at all and, per the v1 default, would be open to
+    # everyone regardless of the index rows, which would make the assertion
+    # below pass for the wrong reason (an open destination collection) rather
+    # than because the stale index rows were actually fixed up.
+    admin_me = client.get("/api/auth/me", headers=admin_headers).json()
+    decoy = client.post(
+        "/api/admin/groups", json={"name": "new-owner"}, headers=admin_headers
+    ).json()
+    client.post(
+        "/api/admin/grants",
+        json={"group_id": decoy["id"], "collection_id": new["id"], "permission": "read"},
+        headers=admin_headers,
+    )
+    client.post(
+        f"/api/admin/groups/{decoy['id']}/members",
+        json={"user_id": admin_me["id"]},
+        headers=admin_headers,
+    )
+
+    doc = _upload(
+        client, admin_headers, "policy.txt", "annual leave is twelve days for everyone", old["id"]
+    )
+
+    # Before the move: the viewer, granted only the OLD collection, can see it.
+    # This makes the test non-vacuous: it proves the grant actually reaches
+    # this document before checking that the move revokes it.
+    before = client.post(
+        "/api/search/semantic", json={"query": "annual leave"}, headers=auth_headers
+    ).json()
+    assert any(r["document_id"] == doc["id"] for r in before["results"]), before
+
+    moved = client.post(
+        f"/api/documents/{doc['id']}/move",
+        json={"collection_id": new["id"]},
+        headers=admin_headers,
+    )
+    assert moved.status_code == 200
+    assert moved.json()["collection_id"] == new["id"]
+
+    # After the move: the same viewer, still granted only the OLD collection,
+    # sees nothing, even though the document and its chunks still exist.
+    after = client.post(
+        "/api/search/semantic", json={"query": "annual leave"}, headers=auth_headers
+    ).json()
+    assert all(r["document_id"] != doc["id"] for r in after["results"]), after
+
+    from ragfabric_core.models.document import Chunk
+    from ragfabric_core.models.index import ChunkSearch
+
+    with SessionLocal() as db:
+        embeddings = (
+            db.query(ChunkEmbedding).filter(ChunkEmbedding.document_id == doc["id"]).all()
+        )
+        searches = db.query(ChunkSearch).filter(ChunkSearch.document_id == doc["id"]).all()
+        chunks = db.query(Chunk).filter(Chunk.document_id == doc["id"]).all()
+    assert embeddings and all(row.collection_id == new["id"] for row in embeddings)
+    assert searches and all(row.collection_id == new["id"] for row in searches)
+    assert chunks and all(row.collection_id == new["id"] for row in chunks)
+
+    # Granted only the NEW collection, the viewer can now retrieve it.
+    group2 = client.post(
+        "/api/admin/groups", json={"name": "new-only"}, headers=admin_headers
+    ).json()
+    client.post(
+        "/api/admin/grants",
+        json={"group_id": group2["id"], "collection_id": new["id"], "permission": "read"},
+        headers=admin_headers,
+    )
+    client.post(
+        f"/api/admin/groups/{group2['id']}/members",
+        json={"user_id": me["id"]},
+        headers=admin_headers,
+    )
+    after_regrant = client.post(
+        "/api/search/semantic", json={"query": "annual leave"}, headers=auth_headers
+    ).json()
+    assert any(r["document_id"] == doc["id"] for r in after_regrant["results"]), after_regrant

@@ -30,6 +30,13 @@ class DocumentList(BaseModel):
     total: int
 
 
+class DocumentMove(BaseModel):
+    """Move a document into a different collection, or out of any collection
+    (``collection_id: null``)."""
+
+    collection_id: int | None
+
+
 class CollectionCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = ""
