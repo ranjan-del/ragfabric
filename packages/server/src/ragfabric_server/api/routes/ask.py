@@ -6,16 +6,14 @@ flag is derived from the markers the answer actually contains, which is
 unknown until the final token: sending citations earlier would mean sending a
 guess about which sources the answer leans on.
 
-``superseded`` is not part of the documented event list yet (it is not in the
-brief this route was built from); it fires only when the streamed text fails
-the citation contract. A streamed answer cannot be retried in place because
-the client already rendered the rejected tokens, so the contract is still
-enforced but the repair is announced: the corrected text and the reason are
-sent, and the corrected text (not the streamed one) is what gets recorded.
-Recording an answer that disagrees with what the user watched stream would be
-worse than failing or announcing. ``docs/traditional-rag.md`` and the SDK's
-event handling (a later task) both need to learn about this event; this route
-only adds it and flags that gap.
+``superseded`` fires only when the streamed text fails the citation
+contract. A streamed answer cannot be retried in place because the client
+already rendered the rejected tokens, so the contract is still enforced but
+the repair is announced: the corrected text and the reason are sent, and the
+corrected text (not the streamed one) is what gets recorded. Recording an
+answer that disagrees with what the user watched stream would be worse than
+failing or announcing. ``docs/traditional-rag.md`` documents this event and
+the SDK (``ragfabric_sdk``) handles it.
 
 The run row is written after the stream finishes, never before: latency,
 token counts and the citation list are only final once the last token has
