@@ -799,11 +799,11 @@ Grants are the screen that decides who can read what. It must make the effective
 - Show the effective access for a chosen user, resolved through group membership, because that is the question an operator actually has.
 - Creating a grant that already exists is reported clearly, not duplicated silently.
 
-- [ ] **Step 1: Write failing specs** including `test_effective_access_resolves_through_group_membership`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run `npm test` and `npm run build`.**
-- [ ] **Step 5: Commit** `feat: add console collections and grants screens`
+- [x] **Step 1: Write failing specs** including `test_effective_access_resolves_through_group_membership`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run `npm test` and `npm run build`.**
+- [x] **Step 5: Commit** `feat: add console collections and grants screens`
 
 ---
 

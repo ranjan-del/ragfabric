@@ -70,6 +70,11 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./pages/console/groups/groups.component').then((m) => m.GroupsComponent),
       },
+      {
+        path: 'grants',
+        loadComponent: () =>
+          import('./pages/console/grants/grants.component').then((m) => m.GrantsComponent),
+      },
     ],
   },
   { path: '**', redirectTo: 'dashboard' },
