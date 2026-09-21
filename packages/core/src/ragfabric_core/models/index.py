@@ -11,10 +11,17 @@ query filters on the active model name. One deployment, one embedding model
 chunk_search holds the tsvector for full text search on PostgreSQL (Text on
 SQLite) with a GIN index. document_id and collection_id are copied here so the
 access filter can be applied inside the index query without a join.
+
+term_stats and corpus_stats support BM25 scoring on top of chunk_search's
+tsvector (Phase 4). term_stats.df is the number of chunks containing a term;
+corpus_stats is a single row (id=1) holding the running totals behind avgdl,
+n_chunks and sum_len, rather than a precomputed average, because updating a
+mean incrementally is lossy while a running sum stays exact. chunk_search.doc_len
+is the length of that chunk in terms, the |D| term in the BM25 formula.
 """
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import JSON, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import JSON, BigInteger, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -54,3 +61,22 @@ class ChunkSearch(Base):
     document_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     collection_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     tsv = mapped_column(TsvType, nullable=False)
+    doc_len: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+
+
+class TermStat(Base):
+    __tablename__ = "term_stats"
+
+    term: Mapped[str] = mapped_column(String(255), primary_key=True)
+    df: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class CorpusStat(Base):
+    """One row, id=1. Running totals, not averages: a mean cannot be
+    updated incrementally without drifting."""
+
+    __tablename__ = "corpus_stats"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    n_chunks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    sum_len: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)

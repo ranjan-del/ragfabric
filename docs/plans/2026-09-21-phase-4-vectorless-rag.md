@@ -107,7 +107,7 @@ BM25 needs three quantities the schema does not currently hold:
 
 `avgdl` is stored as `sum_len` and `n_chunks` rather than a float average, because incrementally updating a mean is lossy and a running sum is exact.
 
-- [ ] **Step 1: Write the failing model test**
+- [x] **Step 1: Write the failing model test**
 
 ```python
 def test_term_stat_and_corpus_stat_round_trip(session):
@@ -119,9 +119,9 @@ def test_term_stat_and_corpus_stat_round_trip(session):
     assert stats.n_chunks == 10 and stats.sum_len == 6000
 ```
 
-- [ ] **Step 2: Run it, confirm it fails** with `ImportError` or `NameError` on `TermStat`.
+- [x] **Step 2: Run it, confirm it fails** with `ImportError` or `NameError` on `TermStat`.
 
-- [ ] **Step 3: Add the models**
+- [x] **Step 3: Add the models**
 
 In `packages/core/src/ragfabric_core/models/index.py`:
 
@@ -150,18 +150,18 @@ Add to `ChunkSearch`:
     doc_len: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 ```
 
-- [ ] **Step 4: Write the migration**
+- [x] **Step 4: Write the migration**
 
 `down_revision = "0006"`. Upgrade creates both tables, adds `chunk_search.doc_len` with `server_default="0"`, and seeds `corpus_stats` with a single `id=1` row. Downgrade drops both tables and the column.
 
 `term` is `String(255)`: PostgreSQL B-tree keys are bounded, and a lexeme longer than 255 characters is not a word. Truncation is applied at write time in Task 2, not left to the database to reject.
 
-- [ ] **Step 5: Verify against real PostgreSQL**
+- [x] **Step 5: Verify against real PostgreSQL**
 
 Run: `RAGFABRIC_TEST_DATABASE_URL=... uv run pytest packages/core/tests/test_migrations_postgres.py -v`
 Expected: upgrade head, downgrade base, upgrade head all pass.
 
-- [ ] **Step 6: Commit** `feat: add term_stats, corpus_stats and chunk_search.doc_len for BM25`
+- [x] **Step 6: Commit** `feat: add term_stats, corpus_stats and chunk_search.doc_len for BM25`
 
 ---
 
