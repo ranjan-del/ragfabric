@@ -340,7 +340,7 @@ rrf_score(d) = sum over rankings r of  weight_r / (k + rank_r(d))
 
 **Why rank and not score.** BM25 is unbounded and corpus-dependent; `ts_rank_cd` is roughly 0 to 1. Normalising them onto a shared scale requires knowing each one's distribution, which changes per query. Ranks need no such assumption. This is the reason fusion is RRF and not a weighted score sum, and the reason must survive into the docstring.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_a_chunk_ranked_first_by_both_wins():
@@ -370,10 +370,10 @@ def test_the_result_carries_the_fused_score_not_an_input_score():
     assert rrf([[a]])[0].score != 999.0
 ```
 
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.** Ties break on `chunk_id` so ordering is deterministic.
-- [ ] **Step 4: Run tests, confirm they pass.**
-- [ ] **Step 5: Commit** `feat: add reciprocal rank fusion for lexical rankings`
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.** Ties break on `chunk_id` so ordering is deterministic.
+- [x] **Step 4: Run tests, confirm they pass.**
+- [x] **Step 5: Commit** `feat: add reciprocal rank fusion for lexical rankings`
 
 ---
 
