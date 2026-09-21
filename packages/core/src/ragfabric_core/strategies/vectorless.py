@@ -176,6 +176,7 @@ class VectorlessRAGStrategy:
             retrieval_calls=2,
             # Zero because nothing was called, not because nothing was counted.
             # This strategy embeds nothing and generates nothing (ADR 0004).
+            embedding_calls=0,
             llm_calls=0,
             input_tokens=0,
             output_tokens=0,

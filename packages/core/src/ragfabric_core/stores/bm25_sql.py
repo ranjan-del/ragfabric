@@ -40,7 +40,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 
-from sqlalchemy import func, select, text
+from sqlalchemy import case, func, select, text
 from sqlalchemy.orm import Session
 
 from ragfabric_core.auth.principal import AccessFilter
@@ -281,6 +281,42 @@ class Bm25Store:
                 scored.append((total, chunk, filename, fmt))
         scored.sort(key=lambda item: (-item[0], item[1].id))
         return [_to_chunk(c, f, m, s) for s, c, f, m in scored[:top_k]]
+
+    def access_stats(self, filters: dict, access: AccessFilter) -> tuple[int, int]:
+        """Candidate counts before and after the access filter, over chunk_search.
+
+        Mirrors PgVectorStore.access_stats so the audit row's
+        ``sources_filtered`` is a measured number on the vectorless path too,
+        not a zero standing in for "we did not look" (ADR 0004). Counted over
+        the same universe a real query sees, which excludes doc_len = 0 rows
+        because BM25 excludes them.
+        """
+        self._check_filters({k: v for k, v in (filters or {}).items() if v is not None})
+        with self._sf() as db:
+            base = (
+                select(ChunkSearch.chunk_id, ChunkSearch.document_id, ChunkSearch.collection_id)
+                .join(Document, Document.id == ChunkSearch.document_id)
+                .where(ChunkSearch.doc_len > 0)
+            )
+            for key, value in (filters or {}).items():
+                if value is None:
+                    continue
+                if key == "document_id":
+                    base = base.where(ChunkSearch.document_id == value)
+                elif key == "collection_id":
+                    base = base.where(ChunkSearch.collection_id == value)
+                elif key == "format":
+                    base = base.where(Document.format == value)
+            subquery = base.subquery()
+            clause = access_clause(access, subquery.c.document_id, subquery.c.collection_id)
+            if clause is None:
+                total = int(db.execute(select(func.count()).select_from(subquery)).scalar() or 0)
+                return total, total
+            after_flag = case((clause, 1), else_=0)
+            before, after = db.execute(
+                select(func.count(), func.coalesce(func.sum(after_flag), 0)).select_from(subquery)
+            ).one()
+            return int(before), int(after)
 
     def _materialise(self, db: Session, ranked: list[tuple[int, float]]) -> list[RetrievedChunk]:
         """Turn (chunk_id, score) pairs into the one result shape (ADR 0002)."""

@@ -161,6 +161,9 @@ class TraditionalRAGStrategy:
             strategy=self.name,
             chunks=chunks,
             retrieval_calls=1,
+            # Exactly one: retrieve() embeds the query once, unconditionally,
+            # at the top of this method.
+            embedding_calls=1,
             # This assumes LlmReranker makes exactly one model call per non-empty
             # invocation, which is true today (rerank/llm_reranker.py: a single
             # self._llm.complete() call per rerank()). A future reranker that

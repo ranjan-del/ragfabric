@@ -26,6 +26,12 @@ class SearchRequest(BaseModel):
         default=None, pattern="^(pdf|docx|pptx|txt|csv|md)$", description="File-type filter"
     )
     mode: str = Field(default="semantic", pattern="^(semantic|hybrid)$")
+    # Which retrieval strategy serves this request. A Literal rather than a
+    # free string so an unknown name is a 422 from validation rather than a
+    # KeyError inside the registry, which would surface as a 500.
+    # /api/search/hybrid rejects anything but "traditional": see
+    # api/routes/search.py:hybrid_search for why.
+    strategy: Literal["traditional", "vectorless"] = "traditional"
 
 
 class SearchResultItem(BaseModel):
@@ -46,7 +52,27 @@ class SearchResultItem(BaseModel):
 class SearchResults(BaseModel):
     query: str
     mode: str
+    # Which strategy actually produced these results. Reported rather than
+    # assumed, so a caller comparing strategies can tell from the response
+    # alone which one it is looking at.
+    strategy: str = "traditional"
     results: list[SearchResultItem]
+
+
+class Usage(BaseModel):
+    """What this request actually cost, in calls and tokens.
+
+    Every field is a count of something that happened (ADR 0004).
+    ``embedding_calls`` is the reason this block exists: the vectorless
+    strategy makes none, and "zero" has to be a reported measurement rather
+    than a field the response simply omits.
+    """
+
+    embedding_calls: int = 0
+    llm_calls: int = 0
+    retrieval_calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 class Highlight(BaseModel):
@@ -98,3 +124,6 @@ class AnswerResponse(BaseModel):
     # highlight without guessing at match positions itself.
     highlights: list[Highlight]
     source_document: SourceDocument | None = None
+    # None only where no retrieval ran to measure. Every route that retrieves
+    # populates it.
+    usage: Usage | None = None

@@ -653,8 +653,8 @@ def test_defaults_match_the_documented_bm25_defaults():
 
 **A Phase 3 defect to avoid repeating.** Task 12 of Phase 3 was dispatched on the claim that `SearchRequest.similarity_threshold` existed. It did not, which meant a shipped route could not honour a documented parameter. **Before writing anything, read the actual request models and confirm every field this task references exists.** If a field is missing, add it in this task and say so in the report rather than assuming.
 
-- [ ] **Step 1: Read `SearchRequest` and `AskRequest` and write down their real fields.**
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 1: Read `SearchRequest` and `AskRequest` and write down their real fields.**
+- [x] **Step 2: Write the failing tests**
 
 ```python
 def test_search_accepts_the_vectorless_strategy(client, token):
@@ -672,10 +672,10 @@ def test_an_unknown_strategy_is_a_422_not_a_500(client, token):
     assert client.post("/v1/search", json={"query": "x", "strategy": "nope"}, headers=auth(token)).status_code == 422
 ```
 
-- [ ] **Step 3: Run them, confirm they fail.**
-- [ ] **Step 4: Implement** across route, CLI and SDK.
-- [ ] **Step 5: Run the full suite** and confirm no Phase 3 route test regressed.
-- [ ] **Step 6: Commit** `feat: expose the vectorless strategy over the API, CLI and SDK`
+- [x] **Step 3: Run them, confirm they fail.**
+- [x] **Step 4: Implement** across route, CLI and SDK.
+- [x] **Step 5: Run the full suite** and confirm no Phase 3 route test regressed.
+- [x] **Step 6: Commit** `feat: expose the vectorless strategy over the API, CLI and SDK`
 
 ---
 ## Task 11: Close the API gaps the console needs
