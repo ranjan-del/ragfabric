@@ -168,7 +168,7 @@ def _record(
             retrieval_calls=result.retrieval_calls,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            estimated_cost_usd=0.0,
+            estimated_cost_usd=None,
             embedding_model=embedding_model,
             trace=spans,
         )
