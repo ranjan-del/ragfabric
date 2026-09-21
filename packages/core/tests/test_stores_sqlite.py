@@ -2,12 +2,13 @@
 
 import numpy as np
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 from ragfabric_core.auth.principal import AccessFilter
 from ragfabric_core.models import Base
 from ragfabric_core.models.document import Chunk, Collection, Document
+from ragfabric_core.models.index import ChunkEmbedding
 from ragfabric_core.stores.pgvector_store import PgVectorStore
 from ragfabric_core.stores.postgres_fts import PostgresLexicalStore
 
@@ -176,3 +177,69 @@ def test_access_stats_reports_the_real_before_and_after_counts(sf):
     # A store pinned to a different model never sees these rows at all.
     other_model = PgVectorStore(factory, model="nomic-embed-text")
     assert other_model.access_stats({}, AccessFilter.unrestricted()) == (0, 0)
+
+
+def test_foreign_keys_are_enforced_on_a_directly_constructed_engine(tmp_path):
+    """Guard against the pragma listener narrowing back to a single engine.
+
+    ``_enforce_sqlite_foreign_keys`` in ``db/session.py`` is registered on the
+    ``Engine`` class itself, not the app's module-level ``engine``, precisely
+    so that an engine built here with ``create_engine(...)`` also gets
+    ``PRAGMA foreign_keys=ON``. If a future change rebinds that listener to a
+    single engine instance, or moves its registration inside a factory, the
+    rest of the suite would stay green (nothing else on SQLite exercises an
+    ``ON DELETE CASCADE``), so this is the test that would actually notice.
+
+    Importing ``ragfabric_core.db.session`` is what registers that listener
+    (it is a module-level ``@event.listens_for`` side effect); this import is
+    here, not left to some other test module happening to run first, so this
+    test proves the same thing whether it runs alone or as part of the full
+    suite.
+    """
+    import ragfabric_core.db.session  # noqa: F401
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'fk.db'}")
+    Base.metadata.create_all(engine)
+
+    with engine.connect() as conn:
+        assert conn.execute(text("PRAGMA foreign_keys")).scalar() == 1
+
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with factory() as db:
+        collection = Collection(name="fk-test")
+        db.add(collection)
+        db.flush()
+        document = Document(
+            filename="fk.txt", format="txt", collection_id=collection.id, status="ready"
+        )
+        db.add(document)
+        db.flush()
+        chunk = Chunk(
+            document_id=document.id,
+            collection_id=collection.id,
+            chunk_index=0,
+            page=1,
+            char_start=0,
+            char_end=10,
+            text="cascade check",
+            embedding=[],
+        )
+        db.add(chunk)
+        db.flush()
+        db.add(
+            ChunkEmbedding(
+                chunk_id=chunk.id,
+                document_id=document.id,
+                collection_id=collection.id,
+                model="hashing-3",
+                dim=3,
+                embedding=[0.1, 0.2, 0.3],
+            )
+        )
+        db.commit()
+        chunk_id = chunk.id
+
+        db.delete(chunk)
+        db.commit()
+
+        assert db.get(ChunkEmbedding, chunk_id) is None
