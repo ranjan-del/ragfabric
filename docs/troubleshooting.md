@@ -12,6 +12,7 @@ it before changing anything.
 | No admin user after first start in production | The shipped bootstrap admin is refused in production by design | Set `FIRST_ADMIN_EMAIL` and `FIRST_ADMIN_PASSWORD` to your own values |
 | `ModuleNotFoundError` on Python 3.14 | Dependencies target 3.12 | `uv venv --python 3.12` |
 | Neo4j healthcheck never passes | Memory limits or password not set | `docker compose logs neo4j`; set `NEO4J_PASSWORD`; give Docker at least 4 GB |
+| The `api` or `worker` container exits at startup with `ProviderError: ollama: openai is not installed. Install it with: uv pip install 'ragfabric[openai]'` | Ollama is the shipped default provider and is served through the OpenAI compatible client, but `deploy/docker/api.Dockerfile`'s `uv sync --frozen --no-dev --all-packages` does not pull in the `openai` extra by default | Known issue with the default containerized build under the shipped configuration, not something you misconfigured; until the Dockerfile is fixed, run the CLI and `ragfabric serve` / `ragfabric worker` directly on the host (which does have the extra in a normal `uv sync`), or rebuild the image with the `openai` extra added explicitly |
 
 ## Ingestion
 
@@ -30,6 +31,11 @@ it before changing anything.
 | Exact ID query returns unrelated passages | Traditional selected | Force Vectorless; if AUTO chose wrong, file the question in the evaluation set |
 | Graph RAG returns nothing | Entities in the question did not match any node | Check the entities view in the console; review resolution merges |
 | Agentic RAG very slow | Loop ran to the budget | Trace page shows iterations; lower `max_iterations` or tighten `evaluate_evidence` |
+| A vector query fails with a dimension error from pgvector (something like "expected 768 dimensions, not N") | `embeddings.model` or `embeddings.dim` was changed in `ragfabric.yaml` without re-embedding the corpus; `chunk_embeddings.embedding` is fixed at one dimension by migration 0004 | Run `uv run ragfabric reindex`. If the new model's dimension differs from the pinned one, a new migration is needed first; see [configuration.md](configuration.md#changing-the-embedding-model) |
+| `ProviderError: ollama: ... model 'nomic-embed-text' not found` (or the equivalent from `ollama list`) | The default embedding model was never pulled into the local Ollama install | `ollama pull nomic-embed-text`. This is a one time step per machine, not something RagFabric can do for you |
+| Retrieval or ingestion fails with a connection error from the Chroma client | `vector_store.kind: chroma` but the Chroma container is not running, or `CHROMA_URL` points at the wrong port | `docker compose --profile full up -d chroma`; `curl http://localhost:8001/api/v2/heartbeat` (the compose file publishes Chroma on host port 8001, not 8000); set `CHROMA_URL=http://localhost:8001` |
+| `ProviderError: cross_encoder: sentence-transformers is not installed. Install the extra with 'ragfabric[rerank]' or set reranker.kind to none or llm.` | `reranker.kind: cross_encoder` without the extra installed | `uv pip install 'ragfabric[rerank]'`, or set `reranker.kind` to `none` or `llm` if you cannot install `torch` in this environment |
+| An answer is shorter than expected, has no citations at all, and every clause is a verbatim quote | The citation contract rejected the LLM's answer twice in a row and the run fell back to the extractive generator | Expected, not a bug: `generate_cited_answer` retries once with the specific violation quoted back to the model, and falls back to extraction on a second failure so a non-compliant answer is never shipped. Smaller local models (see `llama3.2:3b` in the getting started evidence) hit this more often; a stronger model or a lower `max_context_tokens` (fewer, more focused passages) can reduce it |
 
 ## Access control
 
