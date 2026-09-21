@@ -17,8 +17,14 @@ ragfabric = { workspace = true }
 ragfabric-sdk = { workspace = true }
 
 [dependency-groups]
+# The provider SDKs live in ragfabric-core extras, so a plain `uv sync` would
+# not install them and every test that builds a real provider would fail. Pull
+# them in via the extras rather than restating their version constraints here,
+# so the floors stay defined in exactly one place (packages/core/pyproject.toml).
+# `rerank` is deliberately absent: it pulls sentence-transformers and torch for
+# no CI gain, since the cross-encoder tests stub the model.
 dev = [
-  "ragfabric-core",
+  "ragfabric-core[openai,anthropic,chroma]",
   "ragfabric-server",
   "ragfabric",
   "ragfabric-sdk",
@@ -26,7 +32,6 @@ dev = [
   "httpx>=0.28",
   "ruff>=0.16",
   "import-linter>=2.15",
-  "chromadb>=1.5",
 ]
 
 [tool.pytest.ini_options]
