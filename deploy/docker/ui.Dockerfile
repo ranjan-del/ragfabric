@@ -7,6 +7,6 @@ COPY apps/assistant/ .
 RUN npm run build
 
 FROM nginx:1.29-alpine
-COPY --from=build /app/dist/frontend/browser /usr/share/nginx/html
+COPY --from=build /app/dist/assistant/browser /usr/share/nginx/html
 COPY deploy/docker/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
