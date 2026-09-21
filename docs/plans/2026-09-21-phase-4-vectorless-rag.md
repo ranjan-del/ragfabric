@@ -911,9 +911,9 @@ Steps 1 to 5 below are done. Steps 6 to 8 are the gated ones and are deliberatel
 - [x] **Step 3: Add the GHCR workflow.** Build and push the API and worker images on a `v*` tag. Multi-arch `linux/amd64,linux/arm64`. Images tagged with both the version and the commit SHA.
 - [x] **Step 4: Verify the images build and run locally before tagging.** The Phase 3 Docker defect, where the default Ollama config could not run because the OpenAI SDK had moved to an extra, was found only because someone ran the image. Run it.
 - [x] **Step 5: Confirm all CI is green on `main`.** Verified 2026-09-21: latest CI, CLA and Dependabot runs on `main` all completed successfully.
-- [ ] **Step 6: Tag `v0.1.0`, push it, and confirm the workflow published the images.** Report the real digests.
-- [ ] **Step 7: Create the GitHub release** from the changelog.
-- [ ] **Step 8: Commit and close** `chore: release v0.1.0`
+- [x] **Step 6: Tag `v0.1.0`, push it, and confirm the workflow published the images.** Done 2026-09-22. api and worker share digest `sha256:1cef62d4ddc24d2e55e7a91f4be9c97f7959b23e26e5bcf1749c08f86a47ec35` (one image, two names); ui is `sha256:b602c0bc42b7499110e7f250a71088e75b87b252b50eef84f7c686ffd3b0eb8f`. Both multi-arch amd64 and arm64.
+- [x] **Step 7: Create the GitHub release** from the changelog. https://github.com/ranjan-del/ragfabric/releases/tag/v0.1.0
+- [x] **Step 8: Commit and close** `chore: release v0.1.0`. PR #36 squash merged as 0340f84, issue #5 closed, milestone v0.1.0 closed.
 
 ---
 
