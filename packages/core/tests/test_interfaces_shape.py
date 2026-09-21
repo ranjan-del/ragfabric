@@ -44,6 +44,8 @@ class MemGraph:
 
 
 class MemCache:
+    name = "memory"
+
     def __init__(self):
         self.d = {}
 
@@ -102,6 +104,21 @@ def test_a_store_missing_a_method_is_rejected():
         def upsert(self, *a): ...
 
     assert not isinstance(Broken(), VectorStore)
+
+
+def test_a_cache_missing_name_is_rejected():
+    """Task 16 C6: Cache is runtime_checkable, so a cache implementation that
+    never set a ``name`` attribute now fails isinstance, matching every other
+    store interface (VectorStore/LexicalStore/GraphStore all require it).
+    """
+
+    class NamelessCache:
+        def get(self, key): ...
+        def set(self, key, value, ttl_seconds=None): ...
+        def incr(self, key, ttl_seconds=None):
+            return 1
+
+    assert not isinstance(NamelessCache(), Cache)
 
 
 def test_protocol_methods_run_with_access_filter():
