@@ -902,10 +902,10 @@ ADR 0008 records: fusion combines ranks not scores, and why normalising BM25 aga
 
 **The engineer has authorised tagging and publishing automatically once CI is green.** That authorisation is recorded here so the executing agent does not re-ask. It covers this release only.
 
-- [ ] **Step 1: Write `CHANGELOG.md`** covering Phases 1 to 4, in Keep a Changelog form. Every entry traceable to a merged commit. No entry for anything not merged.
-- [ ] **Step 2: Set the version to `0.1.0`** across `packages/core`, `packages/server`, `packages/cli`, `packages/sdk-python`, and confirm the lock agrees.
-- [ ] **Step 3: Add the GHCR workflow.** Build and push the API and worker images on a `v*` tag. Multi-arch `linux/amd64,linux/arm64`. Images tagged with both the version and the commit SHA.
-- [ ] **Step 4: Verify the images build and run locally before tagging.** The Phase 3 Docker defect, where the default Ollama config could not run because the OpenAI SDK had moved to an extra, was found only because someone ran the image. Run it.
+- [x] **Step 1: Write `CHANGELOG.md`** covering Phases 1 to 4, in Keep a Changelog form. Every entry traceable to a merged commit. No entry for anything not merged.
+- [x] **Step 2: Set the version to `0.1.0`** across `packages/core`, `packages/server`, `packages/cli`, `packages/sdk-python`, and confirm the lock agrees.
+- [x] **Step 3: Add the GHCR workflow.** Build and push the API and worker images on a `v*` tag. Multi-arch `linux/amd64,linux/arm64`. Images tagged with both the version and the commit SHA.
+- [x] **Step 4: Verify the images build and run locally before tagging.** The Phase 3 Docker defect, where the default Ollama config could not run because the OpenAI SDK had moved to an extra, was found only because someone ran the image. Run it.
 - [ ] **Step 5: Confirm all CI is green on `main`.**
 - [ ] **Step 6: Tag `v0.1.0`, push it, and confirm the workflow published the images.** Report the real digests.
 - [ ] **Step 7: Create the GitHub release** from the changelog.
