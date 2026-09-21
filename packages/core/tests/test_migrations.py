@@ -13,16 +13,20 @@ the migrations and asked whether the models still agree with it. An empty diff
 is the assertion; anything else names the exact column that was forgotten.
 """
 
+from datetime import UTC, datetime
+
 import sqlalchemy as sa
 from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import create_engine, inspect
+from sqlalchemy.orm import sessionmaker
 
 from ragfabric_core import models  # noqa: F401  (registers every table)
 from ragfabric_core.db import migrate
 from ragfabric_core.db.migrate import alembic_config as _alembic_config
 from ragfabric_core.models.base import Base
+from ragfabric_core.models.user import User
 
 EXPECTED_TABLES = {
     "users",
@@ -121,3 +125,35 @@ def test_0004_downgrade_returns_to_0003(tmp_path):
     names = {ix["name"] for ix in sa.inspect(engine).get_indexes("chunk_embeddings")}
     assert "ix_chunk_embeddings_model" not in names
     assert "chunk_embeddings" in sa.inspect(engine).get_table_names()
+
+
+def test_0006_declares_timezone_aware_columns_but_sqlite_still_returns_naive_values(tmp_path):
+    """Documents the exact dialect gap ``models/base.py`` describes in prose.
+
+    Migration 0006 declares every timestamp column ``DateTime(timezone=True)``,
+    but SQLite has no native timezone-aware datetime type: the column accepts
+    the declaration, and still silently drops the UTC offset on write and
+    returns a naive ``datetime`` on read. This is not a bug in the migration;
+    it is a limitation of the dialect, asserted here so nobody re-reads the
+    docstring's claim as an untested guess, and so a future SQLAlchemy or
+    pysqlite change that actually starts preserving the offset would be
+    caught (this assertion would start failing, which is the point).
+    """
+    url = f"sqlite:///{tmp_path / 'm.db'}"
+    migrate.upgrade(url, "head")
+    engine = sa.create_engine(url)
+    db = sessionmaker(bind=engine)()
+    written = datetime.now(UTC)
+    user = User(email="a@x", hashed_password="h", created_at=written)
+    db.add(user)
+    db.commit()
+    db.expire_all()  # force a fresh SELECT rather than reusing the in-memory attribute
+
+    reread = db.get(User, user.id).created_at
+    assert written.tzinfo is not None, "the value this test wrote was genuinely offset-aware"
+    assert reread.tzinfo is None, (
+        "SQLite dropped the offset on round-trip, exactly as models/base.py documents; "
+        "if this starts failing, SQLite/pysqlite/SQLAlchemy now preserves it and the "
+        "docstring should be updated"
+    )
+    assert reread.replace(tzinfo=UTC) == written
