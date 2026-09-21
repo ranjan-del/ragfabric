@@ -47,16 +47,17 @@ Legend: `[x]` merged to main, `[~]` in progress, `[ ]` not started.
 - [x] OpenTelemetry spans on every ingestion and retrieval step
 
 ### Phase 3: Traditional RAG
-- [ ] Query the pgvector index populated since Phase 2 and retire the in memory index
-- [ ] Embeddings to pgvector or Chroma, top-k, similarity threshold, metadata filter, optional reranking, context budget
-- [ ] Numbered citations with a tested citation contract
-- [ ] `POST /api/ask` manual mode, SSE streaming
-- [ ] `ragfabric ask` and Python SDK
+- [x] Query the pgvector index populated since Phase 2 and retire the in memory index
+- [x] Embeddings to pgvector or Chroma, top-k, similarity threshold, metadata filter, optional reranking, context budget
+- [x] Numbered citations with a tested citation contract
+- [x] `POST /api/ask` manual mode, SSE streaming
+- [x] `ragfabric ask` and Python SDK
 
 ### Phase 4: Vectorless RAG
 - [ ] BM25 and PostgreSQL full-text search with fusion, exact phrase and identifier boosting
 - [ ] `docs/concepts/lexical-vs-vector.md`
 - [ ] Console v1: users, groups, collections, grants, API keys, provider configuration
+- [ ] Multi collection metadata filters (single collection only since Phase 3)
 - [ ] **Release v0.1.0**
 
 ## v0.2.0 Agentic retrieval
@@ -89,6 +90,7 @@ Legend: `[x]` merged to main, `[~]` in progress, `[ ]` not started.
 - [ ] Retrieval metrics: precision, recall, hit rate, MRR
 - [ ] Generation metrics: correctness, faithfulness, context relevance, citation correctness
 - [ ] System metrics: latency split, calls, tokens, cost. Complexity score documented as an engineering assessment
+- [ ] Cross encoder reranking measured against llm and none
 - [ ] `make eval` persists runs and regenerates `docs/benchmarks/latest.md`
 - [ ] Console dashboards: latency percentiles, cost per day, fallback rate, quality trend
 - [ ] **Release v0.5.0**
