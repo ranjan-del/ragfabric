@@ -72,6 +72,18 @@ def _now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
+# How often verify_api_key is willing to write last_used_at for the same key.
+# Every authenticated read used to write this column on every single call,
+# putting a write (and a commit) in the path of every request purely to
+# refresh a "last used" display value nothing else depends on. Coalescing to
+# once a minute keeps the column meaningfully fresh (an operator looking at
+# "last used" never sees it stale by more than this) while cutting the write
+# rate under sustained traffic to at most one per key per minute, with no new
+# config surface: unlike a flag that could be turned off and silently stop
+# updating the column at all, this always stays on and merely batches it.
+LAST_USED_AT_COALESCE_SECONDS = 60
+
+
 def verify_api_key(db: Session, plaintext: str) -> ApiKey | None:
     if not plaintext.startswith(KEY_PREFIX):
         return None
@@ -80,10 +92,16 @@ def verify_api_key(db: Session, plaintext: str) -> ApiKey | None:
     ).scalar_one_or_none()
     if key is None or not key.is_active:
         return None
-    if key.expires_at is not None and key.expires_at <= _now():
+    now = _now()
+    if key.expires_at is not None and key.expires_at <= now:
         return None
-    key.last_used_at = _now()
-    db.commit()
+    stale = (
+        key.last_used_at is None
+        or (now - key.last_used_at).total_seconds() >= LAST_USED_AT_COALESCE_SECONDS
+    )
+    if stale:
+        key.last_used_at = now
+        db.commit()
     return key
 
 
