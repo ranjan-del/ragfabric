@@ -91,8 +91,9 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
   `superseded` when a streamed answer fails the citation contract and is regenerated).
 - `POST /api/documents/{id}/move`: move a document to another collection (owner or admin), updating
   `chunks.collection_id`, `chunk_embeddings.collection_id` and `chunk_search.collection_id` in the same
-  transaction so the access filter and the index never disagree about which collection a document
-  belongs to.
+  transaction so the SQL-side access filter and the SQL-side index never disagree about which
+  collection a document belongs to. This does not touch a Chroma vector store's own metadata copy of
+  `collection_id`, so on a `vector_store.kind: chroma` deployment the move is refused (409) instead.
 - `ragfabric reconcile`: retries documents stuck in `indexing` past a grace period after a crashed
   fan out. Known limitation, documented in its own help text: a merely slow document, not a crashed
   one, can be re-run while a worker is still processing it; the safe procedure is to stop the worker(s)
@@ -158,8 +159,10 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
   a collection delete), rather than surviving as orphans; SQLite in particular never enforced the
   declared foreign key cascade.
 - Denormalised `collection_id` on `chunks`, `chunk_embeddings` and `chunk_search` is updated inside the
-  same transaction as a document move, so the access filter and the index never disagree about which
-  collection a document belongs to.
+  same transaction as a document move, so the SQL-side access filter and the SQL-side index never
+  disagree about which collection a document belongs to. A Chroma vector store's own metadata copy of
+  `collection_id` is not part of that transaction and is not updated by a move; on a
+  `vector_store.kind: chroma` deployment the move endpoint refuses the operation (409) instead.
 - The index fan out (vector store write plus lexical store write) is now atomic across both stores
   instead of two independent commits that could disagree after a crash between them.
 - The collection grant upsert is now atomic.
