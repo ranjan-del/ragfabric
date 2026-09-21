@@ -1,9 +1,8 @@
 # Configuration
 
-> Status: the file, its validation and `ragfabric config validate` shipped in Phase 1. As of Phase 2
-> the runtime reads `embeddings`, `vector_store`, `lexical_store`, `cache`, `ingestion` and `telemetry`
-> through `ragfabric_core.runtime.get_config`. `llm` is still not read by the runtime; Phase 3 wires it
-> in along with the Traditional strategy.
+> Status: the file, its validation and `ragfabric config validate` shipped in Phase 1. As of Phase 3
+> every top level key, including `llm`, `reranker`, `strategies` and `limits`, is read through
+> `ragfabric_core.runtime.get_config` and takes effect.
 
 ## Principles
 
@@ -24,20 +23,23 @@
 # NEO4J_PASSWORD come from the environment (.env.example lists them).
 
 llm:
-  provider: openai            # openai | anthropic | ollama | offline
-  model: gpt-5.4-mini         # anthropic default: claude-sonnet-5, ollama default: llama3.2
-  base_url: null              # ollama or any OpenAI compatible endpoint, e.g. http://localhost:11434/v1
+  provider: ollama            # openai | anthropic | ollama | offline
+  model: llama3.2:3b          # openai default: gpt-5.4-mini, anthropic default: claude-sonnet-5
+  base_url: http://localhost:11434/v1   # ollama or any OpenAI compatible endpoint
 
 embeddings:
-  provider: openai            # openai | ollama | offline
-  model: text-embedding-3-small
-  dim: null                   # inferred for known models
+  provider: ollama            # openai | ollama | offline
+  model: nomic-embed-text     # 768 dimensions, pinned by migration 0004
+  dim: 768                    # must match embeddings.dim in the active migration; see "Changing the
+                               # embedding model" below before changing this
+  base_url: http://localhost:11434/v1
 
 reranker:
-  kind: none                  # none | llm | cross_encoder
+  kind: none                  # none | llm | cross_encoder; cross_encoder needs the ragfabric[rerank] extra
+                               # (pulls in sentence-transformers and torch)
 
 vector_store:
-  kind: pgvector              # pgvector (lite profile) | chroma (full profile) | memory (tests)
+  kind: pgvector               # pgvector (lite profile) | chroma (full profile, needs CHROMA_URL) | memory (tests)
 lexical_store:
   kind: postgres_fts          # postgres_fts | bm25
 graph_store:
@@ -64,8 +66,8 @@ router:
   min_confidence: 0.6
   classifier_model: null      # defaults to llm.model
 
-limits:
-  max_upload_mb: 50
+limits:                       # enforced, not just read: upload rejects an over-size or wrong-type file,
+  max_upload_mb: 50            # the rate limiter uses rate_limit_per_minute as its window
   allowed_types: [pdf, docx, pptx, txt, csv, md]
   rate_limit_per_minute: 60
 
@@ -82,11 +84,39 @@ telemetry:
 | `RAGFABRIC_CONFIG` | Path to `ragfabric.yaml`; the api container mounts it at `/app/ragfabric.yaml` |
 | `RAGFABRIC_TEST_DATABASE_URL` | PostgreSQL connection string used only by the `PgVectorStore` and `PostgresLexicalStore` integration tests; unset, those tests skip |
 | `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD` | Graph store, full profile only |
-| `CHROMA_URL` | Vector store when `kind: chroma` |
+| `CHROMA_URL` | Vector store when `kind: chroma`. Note: `docker-compose.yml` publishes Chroma on host port 8001 (`127.0.0.1:8001:8000`), matching `.env.example`, not 8000 |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | Provider keys, only the ones you use |
 | `JWT_SECRET` | At least 32 characters; production refuses placeholders |
 | `FIRST_ADMIN_EMAIL`, `FIRST_ADMIN_PASSWORD` | Bootstrap admin; production refuses the shipped defaults |
 | `ENVIRONMENT` | `development` or `production` |
+
+## Optional dependencies (extras)
+
+Installed with `uv sync --extra <name>` or `pip install 'ragfabric[<name>]'`.
+
+| Extra | Needed for | Notes |
+|---|---|---|
+| `openai` | `llm.provider: openai` or `ollama`, `embeddings.provider: openai` or `ollama` | **Ollama is served through the same OpenAI compatible client** (`providers/openai_compat.py`), because Ollama exposes an OpenAI compatible chat and embeddings API at `/v1`. An Ollama-only deployment, including the shipped default configuration, still needs this extra installed; only a deployment using none of OpenAI, Azure, vLLM, LM Studio or Ollama can skip it. Forgetting it fails at process start with `ProviderError: ollama: openai is not installed` |
+| `anthropic` | `llm.provider: anthropic` | The `anthropic` SDK |
+| `chroma` | `vector_store.kind: chroma` | The `chromadb` client |
+| `rerank` | `reranker.kind: cross_encoder` | `sentence-transformers`, which pulls in `torch`; the model itself is downloaded lazily, on the first rerank call, not at process start |
+
+## Changing the embedding model
+
+Changing `embeddings.model` (or `embeddings.provider`) does not re-embed anything by itself; the stored
+vectors were written by the old model and a query embedded with the new model would be compared
+against them meaninglessly.
+
+1. Edit `embeddings.provider` / `embeddings.model` in `ragfabric.yaml`.
+2. Run `ragfabric reindex`, which re-embeds every chunk under the newly active model. Every vector query
+   already filters on the active model name, so nothing is served from the old model's vectors while
+   the reindex runs; they are simply ignored until `reindex` overwrites or supersedes them.
+3. If the new model's dimension differs from `embeddings.dim` (768, pinned by migration 0004 for the
+   default `nomic-embed-text`), step 2 alone is not enough: the `chunk_embeddings.embedding` column and
+   its HNSW index are fixed at a dimension by the migration, and pgvector cannot store a vector of a
+   different length in that column. A new migration that changes the column's declared dimension (and
+   rebuilds the HNSW index) is required first. See ADR 0006 for why one deployment pins one model and
+   one dimension rather than serving two at once.
 
 ## Pricing
 
