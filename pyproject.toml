@@ -22,9 +22,11 @@ ragfabric-sdk = { workspace = true }
 # them in via the extras rather than restating their version constraints here,
 # so the floors stay defined in exactly one place (packages/core/pyproject.toml).
 # `rerank` is deliberately absent: it pulls sentence-transformers and torch for
-# no CI gain, since the cross-encoder tests stub the model.
+# no CI gain, since the cross-encoder tests stub the model. `bm25` IS present:
+# it is small, and without it test_bm25_memory.py would importorskip itself in
+# CI, which reads as green while testing nothing.
 dev = [
-  "ragfabric-core[openai,anthropic,chroma]",
+  "ragfabric-core[openai,anthropic,chroma,bm25]",
   "ragfabric-server",
   "ragfabric",
   "ragfabric-sdk",

@@ -557,7 +557,7 @@ This exists for small corpora and for cross-checking the SQL implementation agai
 | Docstring states the memory model plainly | Each worker holds its own copy; copies drift as documents change |
 | `rank_bm25` is an optional extra | Not a hard dependency, mirroring `chroma` and `rerank` |
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_exceeding_the_cap_raises_rather_than_degrading(store_with_cap_of_2):
@@ -575,10 +575,10 @@ def test_it_agrees_with_the_sql_implementation_on_a_small_corpus(mem_store, sql_
 
 The second test is the valuable one: it is a differential test that catches a formula error in either implementation. If the two disagree, one of them is wrong, and the pure `bm25_score` tests from Task 3 say which.
 
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.** Skip cleanly with `pytest.importorskip("rank_bm25")` so the suite still runs without the extra.
-- [ ] **Step 4: Run tests, confirm they pass.**
-- [ ] **Step 5: Commit** `feat: add capped in-process BM25 store for small corpora`
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.** Skip cleanly with `pytest.importorskip("rank_bm25")` so the suite still runs without the extra.
+- [x] **Step 4: Run tests, confirm they pass.**
+- [x] **Step 5: Commit** `feat: add capped in-process BM25 store for small corpora`
 
 ---
 

@@ -16,6 +16,7 @@ dependencies = [
 openai = ["ragfabric-core[openai]"]
 anthropic = ["ragfabric-core[anthropic]"]
 chroma = ["ragfabric-core[chroma]"]
+bm25 = ["ragfabric-core[bm25]"]
 rerank = ["ragfabric-core[rerank]"]
 
 [project.scripts]
