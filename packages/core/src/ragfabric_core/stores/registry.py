@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from ragfabric_core.config_file import CacheConfig, LexicalStoreConfig, VectorStoreConfig
 from ragfabric_core.providers.base import ProviderError
 from ragfabric_core.stores.base import Cache, LexicalStore, VectorStore
+from ragfabric_core.stores.bm25_sql import Bm25Store
 from ragfabric_core.stores.chroma_store import ChromaVectorStore
 from ragfabric_core.stores.memory_cache import MemoryCache
 from ragfabric_core.stores.pgvector_store import PgVectorStore
@@ -57,7 +58,14 @@ def build_lexical_store(
 ) -> LexicalStore:
     if cfg.kind == "postgres_fts":
         return PostgresLexicalStore(session_factory)
-    raise NotImplementedError(f"lexical store {cfg.kind!r} arrives in Phase 4")
+    if cfg.kind == "bm25":
+        # k1 and b are BM25 ranking parameters and belong to the strategy that
+        # ranks, not to the fan out that indexes. A store built here is built
+        # for indexing, where they have no effect, so it takes the defaults;
+        # default_registry constructs the ranking instance with the configured
+        # values.
+        return Bm25Store(session_factory)
+    raise NotImplementedError(f"unknown lexical store kind {cfg.kind!r}")
 
 
 def build_cache(cfg: CacheConfig, url: str | None = None) -> Cache:

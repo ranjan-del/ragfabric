@@ -504,7 +504,7 @@ Read that against `strategies/traditional.py` before writing anything. The shape
 
 **On `llm_calls` and cost.** Vectorless makes no embedding call at all. Report that honestly: the embedding count is zero, not omitted and not defaulted to one. Per ADR 0004, `estimated_cost_usd` stays `None` when unknown. Phase 3 shipped eight fabricated metrics before they were caught; do not add a ninth here.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_vectorless_makes_no_embedding_call(strategy, spy_embeddings):
@@ -528,11 +528,11 @@ def test_an_answer_carries_citations_that_pass_the_phase_3_contract(strategy):
     assert_citation_contract(answer.text, answer.chunks)  # real API, do not reimplement
 ```
 
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement**, registering `vectorless` in `registry_defaults.py`.
-- [ ] **Step 4: Run tests, confirm they pass.**
-- [ ] **Step 5: Mutation check.** Move the `top_k` cut to before fusion and confirm `test_top_k_is_applied_after_fusion_not_per_store` fails. Revert.
-- [ ] **Step 6: Commit** `feat: add VectorlessRAGStrategy over fused BM25 and ts_rank`
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement**, registering `vectorless` in `registry_defaults.py`.
+- [x] **Step 4: Run tests, confirm they pass.**
+- [x] **Step 5: Mutation check.** Move the `top_k` cut to before fusion and confirm `test_top_k_is_applied_after_fusion_not_per_store` fails. Revert.
+- [x] **Step 6: Commit** `feat: add VectorlessRAGStrategy over fused BM25 and ts_rank`
 
 ---
 

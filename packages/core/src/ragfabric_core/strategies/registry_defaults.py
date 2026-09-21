@@ -13,14 +13,24 @@ from sqlalchemy.orm import Session
 from ragfabric_core.config_file import RagFabricConfig
 from ragfabric_core.providers.registry import build_embedding_provider, build_llm_provider
 from ragfabric_core.rerank.registry import build_reranker
+from ragfabric_core.stores.bm25_sql import DEFAULT_B, DEFAULT_K1, Bm25Store
+from ragfabric_core.stores.postgres_fts import PostgresLexicalStore
 from ragfabric_core.stores.registry import build_vector_store
 from ragfabric_core.strategies.base import StrategyRegistry
 from ragfabric_core.strategies.traditional import TraditionalRAGStrategy
+from ragfabric_core.strategies.vectorless import VectorlessRAGStrategy
 
 
 def _int(value, default: int) -> int:
     try:
         return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _float(value, default: float) -> float:
+    try:
+        return float(value)
     except (TypeError, ValueError):
         return default
 
@@ -42,4 +52,32 @@ def default_registry(
             generation_model=cfg.llm.model,
         )
     )
+    registry.register(_build_vectorless(cfg, session_factory))
     return registry
+
+
+def _build_vectorless(
+    cfg: RagFabricConfig, session_factory: Callable[[], Session]
+) -> VectorlessRAGStrategy:
+    """Two lexical stores over the same chunk_search table, ranked differently.
+
+    Both are constructed here rather than through build_lexical_store, because
+    this strategy needs one specific pair (BM25 and ts_rank_cd) regardless of
+    which single lexical store the ingestion fan out is configured to write
+    through. Asking the registry for "the" lexical store would give one of the
+    two and leave the fusion with nothing to fuse.
+    """
+    settings = cfg.strategies.vectorless
+    return VectorlessRAGStrategy(
+        bm25_store=Bm25Store(
+            session_factory,
+            k1=_float(settings.get("k1"), DEFAULT_K1),
+            b=_float(settings.get("b"), DEFAULT_B),
+        ),
+        ts_rank_store=PostgresLexicalStore(session_factory),
+        phrase_boost=_float(settings.get("phrase_boost"), 2.0),
+        identifier_boost=_float(settings.get("identifier_boost"), 3.0),
+        fusion_k=_int(settings.get("fusion_k"), 60),
+        max_context_tokens=_int(settings.get("max_context_tokens"), 6000),
+        generation_model=cfg.llm.model,
+    )
