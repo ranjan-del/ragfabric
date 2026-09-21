@@ -384,7 +384,7 @@ and the ADRs in [docs/adr](docs/adr).
 The current `main` is a complete single strategy assistant that runs offline with no API key:
 
 - Ingestion for PDF, DOCX, PPTX, TXT, CSV and Markdown with page numbers and character spans that survive into citations
-- Chunking with overlap, a deterministic hashing embedder, an in memory cosine index rebuilt from the database on startup
+- Chunking with overlap, a deterministic hashing embedder
 - Semantic and hybrid retrieval, an extractive answer generator whose every clause is a verbatim quote from a numbered source, with relevance floors on citations
 - JWT auth, two role RBAC, bootstrap admin, production safety rails, Alembic migrations with a drift test
 - Angular app with login, dashboard, upload, ask, collections, analytics and admin pages
@@ -404,10 +404,37 @@ Phase 2 added a shared ingestion and access control foundation underneath the v1
 - Tracing spans across ingestion and retrieval with optional OTLP export
 - CLI commands `init`, `ingest`, `users`, `groups`, `grants`, `keys`, `worker`
 
-Queries still run through the v1 in memory index until Phase 3; the new pgvector and full text
-indexes are populated by ingestion but not yet queried by the API. The Python test suite is now 221
-passed, 3 skipped (a live OpenAI check and two PostgreSQL integration tests that run in CI); the
-20 frontend tests are unchanged.
+Phase 3 shipped Traditional RAG and pointed the query path at the indexes Phase 2 had been writing but
+not yet reading:
+
+- Real embeddings through Ollama (`nomic-embed-text`, the no key default) or OpenAI, L2 normalised at
+  write time so cosine distance and dot product agree across PostgreSQL and SQLite
+- A pgvector index with a fixed 768 dimension and an HNSW cosine index (migration 0004), queried by the
+  API for the first time; Chroma as an alternative store, selected with `vector_store.kind: chroma`
+- Per request `similarity_threshold`, metadata filters, an optional reranker (`none`, `llm`, or
+  `cross_encoder` with the `ragfabric[rerank]` extra), and a context budget that drops whole low ranked
+  chunks rather than splitting one, because a split chunk's character span no longer matches what was
+  stored and citations would point at the wrong text
+- LLM written answers with numbered citations verified against a mechanical citation contract: every
+  `[n]` marker must point at a retrieved chunk, every long or digit bearing quoted span must appear in
+  that chunk, and an answer with evidence available must carry a citation. The contract does not, and
+  cannot, verify that a paraphrase is faithful to its source; that is a semantic judgement and Phase 8
+  measures it
+- `POST /api/ask`, manual mode, with SSE streaming (`retrieval`, `token`, `citations`, `done`, and
+  `superseded` when a streamed answer fails the citation contract and is transparently replaced)
+- The Python SDK (`ragfabric_sdk`), talking HTTP only
+- CLI commands `ragfabric ask`, `ragfabric reindex` and `ragfabric reconcile`
+
+Queries now run against `chunk_embeddings` (pgvector or Chroma) and `chunk_search`; the v1 in memory
+index queries used before this phase are gone. The Python test suite is 385 passed, 12 skipped (live
+provider and PostgreSQL/Chroma integration tests that run in CI, plus a `tiktoken` check).
+
+**Answer quality is not measured yet.** The engine produces a grounded, cited answer, and a real run
+against a local `llama3.2:3b` model confirms the mechanism works end to end, including the case where
+the model's first attempt omitted the citation marker entirely and the contract forced a repair. What
+this phase does not do is score whether answers are correct, complete or faithful across more than a
+single, deliberately simple test document; that measurement, with a real question set and a scoring
+harness, is Phase 8's job. Nothing here should be read as a quality claim.
 
 ```bash
 uv sync                       # Python 3.13 workspace: core, server, cli
@@ -417,7 +444,9 @@ cd apps/assistant && npm ci && npm start   # UI on :4200
 ```
 
 The hashing embedder and extractive generator are kept in RagFabric as the no key test double, which is
-why the test suite stays green without secrets.
+why the test suite stays green without secrets. An Ollama only deployment still needs the `openai`
+extra installed, because Ollama is served through the OpenAI compatible client; see
+[docs/configuration.md](docs/configuration.md).
 
 ## Limitations
 
