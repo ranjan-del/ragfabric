@@ -62,7 +62,9 @@ from ragfabric_server.schemas.search import (
 router = APIRouter()
 
 
-def _context(payload: SearchRequest, principal: Principal, access: AccessFilter) -> RetrievalContext:
+def _context(
+    payload: SearchRequest, principal: Principal, access: AccessFilter
+) -> RetrievalContext:
     """Build the strategy's per-request context.
 
     ``similarity_threshold`` (Task 12) is threaded straight through to
@@ -388,9 +390,7 @@ def hybrid_search(
     )
     vector_result = strategy.retrieve(payload.query, _context(payload, principal, access))
     filters = _lexical_filters(payload)
-    lexical_hits = lexical.search(
-        payload.query, payload.top_k * 3, access, filters=filters or None
-    )
+    lexical_hits = lexical.search(payload.query, payload.top_k * 3, access, filters=filters or None)
     fused = _fuse(vector_result.chunks, lexical_hits, payload.top_k)
     results = [
         _to_result_item(chunk, lexical_score=lex_score, hybrid_score=vec_score + lex_score)

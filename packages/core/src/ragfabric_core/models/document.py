@@ -30,7 +30,9 @@ class Collection(Base):
     name: Mapped[str] = mapped_column(String, index=True, nullable=False)
     description: Mapped[str] = mapped_column(String, default="", nullable=False)
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
 
     documents: Mapped[list["Document"]] = relationship(
         back_populates="collection", cascade="all, delete-orphan"
@@ -60,7 +62,9 @@ class Document(Base):
     status: Mapped[str] = mapped_column(String, default="processing", nullable=False)
     num_chunks: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     error: Mapped[str] = mapped_column(String, default="", nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
 
     collection: Mapped["Collection | None"] = relationship(back_populates="documents")
     chunks: Mapped[list["Chunk"]] = relationship(
@@ -101,7 +105,9 @@ class QueryLog(Base):
     # this, "most referenced documents" on the analytics page can only be
     # approximated by chunk count, which measures document SIZE, not usage.
     cited_document_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
 
 
 class IngestionRun(Base):

@@ -58,7 +58,9 @@ def test_hybrid_still_returns_results_after_the_rewire(client, admin_token, inge
     assert res.json()["results"]
 
 
-def test_run_row_records_measured_llm_and_token_counts(client, admin_token, ingested_doc, db_session):
+def test_run_row_records_measured_llm_and_token_counts(
+    client, admin_token, ingested_doc, db_session
+):
     """RULING A: llm_calls/input_tokens/output_tokens must be measured, not fabricated.
 
     The offline test double answers on its first attempt (see

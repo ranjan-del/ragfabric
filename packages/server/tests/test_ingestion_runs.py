@@ -73,17 +73,13 @@ def test_get_ingestion_run_is_gated_like_the_document_it_belongs_to(
         data={"collection_id": str(hr["id"])},
         headers=admin_headers,
     ).json()
-    group = client.post(
-        "/api/admin/groups", json={"name": "hr-only"}, headers=admin_headers
-    ).json()
+    group = client.post("/api/admin/groups", json={"name": "hr-only"}, headers=admin_headers).json()
     client.post(
         "/api/admin/grants",
         json={"group_id": group["id"], "collection_id": hr["id"], "permission": "read"},
         headers=admin_headers,
     )
-    run = (
-        db_session.query(IngestionRun).filter(IngestionRun.document_id == doc["id"]).first()
-    )
+    run = db_session.query(IngestionRun).filter(IngestionRun.document_id == doc["id"]).first()
     assert run is not None
 
     denied = client.get(f"/api/runs/ingestion/{run.id}", headers=auth_headers)
