@@ -59,8 +59,19 @@ from ragfabric_core.strategies.base import RetrievedChunk
 DEFAULT_K1 = 1.2
 DEFAULT_B = 0.75
 
-# The filter keys this store honours. Anything else is a caller mistake, and
-# Task 6 makes it an error rather than a silently unfiltered result set.
+# The filter keys this store honours. Anything else raises: a typo'd key that
+# is silently dropped returns an unfiltered result set that looks perfectly
+# plausible, and nothing in the response says the filter did not happen. That
+# is the same reasoning config_file.py gives for forbidding unknown keys.
+#
+# postgres_fts.search still ignores unknown keys, and is deliberately left
+# that way here. metadata_filters is an open user-supplied dict on
+# StrategyParams, and the vector path (pgvector_store) accepts unknown keys
+# too, so tightening exactly one of the three stores would mean the same API
+# request succeeded or failed depending on which strategy served it. This
+# store is new, so it can be strict from the start without breaking anyone;
+# making the other two strict is a cross-cutting behaviour change that should
+# be made deliberately and all at once, not smuggled in here.
 SUPPORTED_FILTERS = ("document_id", "collection_id", "format")
 
 
@@ -115,6 +126,10 @@ class Bm25Store:
     def search(
         self, query: str, top_k: int, access: AccessFilter, filters: dict | None = None
     ) -> list[RetrievedChunk]:
+        # Validated before anything else, including the empty-corpus shortcut
+        # below: a caller mistake must not be reported only when the corpus
+        # happens to be non-empty and the query happens to have terms.
+        self._check_filters(filters)
         with self._sf() as db:
             n, avgdl = corpus_stats(db)
             if n == 0:
@@ -141,6 +156,15 @@ class Bm25Store:
             )
             return [row[0] for row in rows]
         return sorted(set(token_list(query)))
+
+    @staticmethod
+    def _check_filters(filters: dict | None) -> None:
+        unknown = sorted(set(filters or {}) - set(SUPPORTED_FILTERS))
+        if unknown:
+            raise ValueError(
+                f"unknown filter {unknown} for the bm25 store; "
+                f"supported keys are {list(SUPPORTED_FILTERS)}"
+            )
 
     def _apply(self, stmt, access: AccessFilter, filters: dict | None):
         clause = access_clause(access, ChunkSearch.document_id, ChunkSearch.collection_id)

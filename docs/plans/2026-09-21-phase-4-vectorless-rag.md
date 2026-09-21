@@ -447,7 +447,7 @@ def test_boosting_never_invents_a_hit_that_was_not_retrieved():
 
 The BM25 store must honour the same filter keys as `postgres_fts`, applied **inside** the SQL query alongside `access_clause`, per ADR 0003.
 
-- [ ] **Step 1: Write the failing tests**, including the one that matters most:
+- [x] **Step 1: Write the failing tests**, including the one that matters most:
 
 ```python
 def test_filters_are_applied_before_top_k_not_after(store, corpus):
@@ -464,10 +464,10 @@ def test_an_unknown_filter_key_is_rejected_not_ignored(store):
 
 The second test is deliberate. `postgres_fts.search` currently ignores unknown filter keys silently, which means a typo returns unfiltered results that look plausible. The BM25 store must reject them. Whether to also tighten `postgres_fts` is a judgement call for the implementer: tighten it and note the behaviour change, or leave it and record why.
 
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run tests, confirm they pass.**
-- [ ] **Step 5: Commit** `feat: apply metadata filters inside the BM25 query`
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run tests, confirm they pass.**
+- [x] **Step 5: Commit** `feat: apply metadata filters inside the BM25 query`
 
 ---
 ## Task 7: VectorlessRAGStrategy
