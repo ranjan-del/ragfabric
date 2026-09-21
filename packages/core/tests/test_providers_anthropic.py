@@ -96,3 +96,19 @@ def test_text_blocks_are_joined_and_errors_wrapped():
 def test_missing_key_rejected():
     with pytest.raises(ProviderError, match="api_key"):
         AnthropicProvider(api_key="")
+
+
+def test_anthropic_provider_without_the_extra_names_the_install_command(monkeypatch):
+    """Task 16 C7: anthropic is now an optional extra, imported lazily and
+    only when no fake client is supplied, so a deployment missing it gets a
+    ProviderError naming the extra instead of a raw ImportError.
+    """
+    from ragfabric_core.providers import anthropic_provider
+
+    def boom():
+        raise ImportError("no module named anthropic")
+
+    monkeypatch.setattr(anthropic_provider, "_import_anthropic", boom)
+    with pytest.raises(ProviderError) as exc:
+        AnthropicProvider(api_key="k")
+    assert "ragfabric[anthropic]" in str(exc.value)

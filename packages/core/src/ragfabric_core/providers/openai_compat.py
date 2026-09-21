@@ -22,10 +22,27 @@ from ragfabric_core.providers.base import Completion, EmbeddingResult, Message, 
 REASONING_MODEL_PREFIXES = ("gpt-5", "o1", "o3", "o4")
 
 
-def _build_client(api_key: str, base_url: str | None) -> Any:
-    from openai import OpenAI  # imported lazily so the module loads without the SDK
+def _import_openai():
+    """Indirection so a test can simulate the ``openai`` extra being missing
+    (monkeypatching this) without actually uninstalling the package.
 
-    return OpenAI(api_key=api_key, base_url=base_url)
+    Both ``OpenAIProvider`` and ``OllamaProvider`` go through this: Ollama
+    serves the OpenAI chat and embeddings API at ``/v1``, so the same SDK
+    client talks to either, and both need the ``openai`` extra installed.
+    """
+    from openai import OpenAI
+
+    return OpenAI
+
+
+def _build_client(name: str, api_key: str, base_url: str | None) -> Any:
+    try:
+        openai_cls = _import_openai()
+    except ImportError as exc:
+        raise ProviderError(
+            name, "openai is not installed. Install it with: uv pip install 'ragfabric[openai]'"
+        ) from exc
+    return openai_cls(api_key=api_key, base_url=base_url)
 
 
 class OpenAICompatibleLLM:
@@ -43,7 +60,7 @@ class OpenAICompatibleLLM:
             )
         self.name = name
         self.default_model = default_model
-        self._client = client or _build_client(api_key, base_url)
+        self._client = client or _build_client(name, api_key, base_url)
 
     def complete(
         self,
@@ -163,7 +180,7 @@ class OpenAICompatibleEmbeddings:
         self.name = name
         self.model = model
         self.dim = dim
-        self._client = client or _build_client(api_key, base_url)
+        self._client = client or _build_client(name, api_key, base_url)
 
     def embed(self, texts: list[str]) -> EmbeddingResult:
         if not texts:

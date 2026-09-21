@@ -139,6 +139,36 @@ def test_missing_api_key_is_rejected_at_construction():
         OpenAIProvider(api_key="")
 
 
+def test_openai_provider_without_the_extra_names_the_install_command(monkeypatch):
+    """Task 16 C7: openai is now an optional extra, imported lazily and only
+    when no fake client is supplied, so a deployment missing it gets a
+    ProviderError naming the extra instead of a raw ImportError.
+    """
+    from ragfabric_core.providers import openai_compat
+
+    def boom():
+        raise ImportError("no module named openai")
+
+    monkeypatch.setattr(openai_compat, "_import_openai", boom)
+    with pytest.raises(ProviderError) as exc:
+        OpenAIProvider(api_key="k")
+    assert "ragfabric[openai]" in str(exc.value)
+
+
+def test_ollama_provider_without_the_extra_also_names_the_openai_install_command(monkeypatch):
+    """Ollama is served through the OpenAI-compatible client too, so it hits
+    the same extra, not a made-up "ollama" one."""
+    from ragfabric_core.providers import openai_compat
+
+    def boom():
+        raise ImportError("no module named openai")
+
+    monkeypatch.setattr(openai_compat, "_import_openai", boom)
+    with pytest.raises(ProviderError) as exc:
+        OllamaProvider()
+    assert "ragfabric[openai]" in str(exc.value)
+
+
 @pytest.mark.integration
 @pytest.mark.skipif(not os.environ.get("OPENAI_API_KEY"), reason="needs OPENAI_API_KEY")
 def test_openai_live_roundtrip():

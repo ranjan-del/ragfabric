@@ -1857,11 +1857,9 @@ version = "0.1.0a0"
 source = { editable = "packages/core" }
 dependencies = [
     { name = "alembic" },
-    { name = "anthropic" },
     { name = "bcrypt" },
     { name = "email-validator" },
     { name = "numpy" },
-    { name = "openai" },
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-sdk" },
     { name = "pgvector" },
@@ -1879,8 +1877,14 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+anthropic = [
+    { name = "anthropic" },
+]
 chroma = [
     { name = "chromadb" },
+]
+openai = [
+    { name = "openai" },
 ]
 rerank = [
     { name = "sentence-transformers" },
@@ -1889,12 +1893,12 @@ rerank = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.20" },
-    { name = "anthropic", specifier = ">=1.5" },
+    { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=1.5" },
     { name = "bcrypt", specifier = ">=5.0" },
     { name = "chromadb", marker = "extra == 'chroma'", specifier = ">=1.5" },
     { name = "email-validator", specifier = ">=2.3" },
     { name = "numpy", specifier = ">=2.3" },
-    { name = "openai", specifier = ">=3.13" },
+    { name = "openai", marker = "extra == 'openai'", specifier = ">=3.13" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.44" },
     { name = "opentelemetry-sdk", specifier = ">=1.44" },
     { name = "pgvector", specifier = ">=0.5" },
@@ -1911,7 +1915,7 @@ requires-dist = [
     { name = "sqlalchemy", specifier = ">=2.0.52" },
     { name = "tiktoken", specifier = ">=0.12" },
 ]
-provides-extras = ["chroma", "rerank"]
+provides-extras = ["chroma", "rerank", "openai", "anthropic"]
 
 [[package]]
 name = "ragfabric-sdk"

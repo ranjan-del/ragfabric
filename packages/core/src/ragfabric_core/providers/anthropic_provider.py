@@ -20,6 +20,14 @@ from typing import Any
 from ragfabric_core.providers.base import Completion, Message, ProviderError
 
 
+def _import_anthropic():
+    """Indirection so a test can simulate the ``anthropic`` extra being
+    missing (monkeypatching this) without actually uninstalling the package."""
+    from anthropic import Anthropic
+
+    return Anthropic
+
+
 class AnthropicProvider:
     name = "anthropic"
 
@@ -30,9 +38,15 @@ class AnthropicProvider:
             raise ProviderError(self.name, "api_key is required (set ANTHROPIC_API_KEY)")
         self.default_model = default_model
         if client is None:
-            from anthropic import Anthropic
-
-            client = Anthropic(api_key=api_key)
+            try:
+                anthropic_cls = _import_anthropic()
+            except ImportError as exc:
+                raise ProviderError(
+                    self.name,
+                    "anthropic is not installed. Install it with: "
+                    "uv pip install 'ragfabric[anthropic]'",
+                ) from exc
+            client = anthropic_cls(api_key=api_key)
         self._client = client
 
     def complete(
