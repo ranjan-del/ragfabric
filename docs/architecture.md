@@ -54,22 +54,30 @@ sequenceDiagram
     S->>R: route(question) if mode=auto
     R-->>S: RouterDecision
     S->>St: retrieve(question, RetrievalContext{principal, filter, params, budget})
-    St->>Store: query with access filter
-    Store-->>St: permitted chunks
+    St->>Store: embed, then query with the access filter inside the query
+    Store-->>St: permitted candidates
+    St->>St: similarity threshold, then rerank, then cut to top_k, then context budget
     St-->>S: RetrievalResult
     S->>L: generate(prompt with numbered passages)
     L-->>S: answer with [n] markers
-    S->>S: citation check, metrics, trace
+    S->>S: verify the citation contract
     S->>S: write RetrievalRun, Source, AuditLog
     S-->>U: answer, sources, metrics, router decision, trace id (SSE streamed)
 ```
 
-Phase 2 already implements the access filter and audit half of this flow on the endpoints that exist
-today: `/api/search/query`, `/api/search/semantic` and `/api/search/hybrid` each compute an
-`AccessFilter` for the caller, filter inside the v1 store before ranking, and write an `AuditLog`
-entry with the counts of sources returned and filtered. `/api/search/query` additionally records a
-`RetrievalRun` with its `Source` rows and trace, readable at `GET /api/runs/{id}`. `POST /api/ask` and
-the router above it are Phase 3.
+For Traditional RAG, shipped in Phase 3, the flow is concretely: authenticate and resolve the
+principal, compute the `AccessFilter`, embed the question, query the configured vector store with the
+access filter passed inside the query itself (not applied afterward), drop candidates below
+`similarity_threshold`, optionally rerank, cut to `top_k`, fit the survivors to the context token
+budget, generate the answer, verify it against the citation contract (regenerating once, transparently,
+if it fails), and write the `RetrievalRun`, its `Source` rows and an `AuditLog` entry.
+
+Phase 2 already implemented the access filter and audit half of this flow on `/api/search/query`,
+`/api/search/semantic` and `/api/search/hybrid`, though at the time those routes ran against the v1 in
+memory index rather than a real vector store. Phase 3 replaced that index with the pgvector or Chroma
+query above, kept `/api/search/query`'s response shape unchanged, and added `POST /api/ask` with the
+router hook (the router itself, and AUTO mode, still arrive in Phase 7; `/api/ask` runs MANUAL mode
+today) and SSE streaming.
 
 ## Core types
 
@@ -108,7 +116,7 @@ four strategies comparable.
 | collections, collection_grants, document_overrides | Access control |
 | api_keys | Hashed keys with scopes and rate limits |
 | documents, chunks | Content with page, section, span, document_type, storage_path |
-| chunk_embeddings, chunk_search | pgvector column and `tsvector` column per chunk, fed by ingestion since Phase 2, queried from Phase 3 |
+| chunk_embeddings, chunk_search | pgvector column and `tsvector` column per chunk, fed by ingestion since Phase 2, queried by Traditional RAG since Phase 3 |
 | entities, relationships | Mirror of the graph for the console; Neo4j is the query engine |
 | conversations, messages | Chat history |
 | retrieval_runs, sources | One row per query with metrics; sources returned and sources filtered |
@@ -129,9 +137,12 @@ file -> parser -> cleaning -> metadata -> chunker -> document_chunks
 
 Shipped in Phase 2: `ingest/clean.py` (hyphenation repair, whitespace, repeated header and footer
 removal, heading detection), the retained original under `uploads_dir`, and
-`ingest/indexing.schedule_indexing`, which writes to both the vector and lexical index in one job so
-the v1 in memory index and the new tables stay in sync while Phase 3 still queries only the former.
-Workers are stateless and horizontally scalable; the API never blocks on indexing in `queue` mode.
+`ingest/indexing.schedule_indexing`, which writes to both the vector and lexical index in one job, now
+atomically across both stores (Phase 3). Workers are stateless and horizontally scalable; the API never
+blocks on indexing in `queue` mode. `ragfabric reconcile` (Phase 3) retries a document stuck in
+`indexing` past a grace period after a crashed fan out; its documented limitation is that a merely slow
+document, not a crashed one, can be re-run while a worker is still processing it, so the safe procedure
+is to stop the worker(s) first.
 
 ## Observability
 
@@ -153,26 +164,43 @@ ragfabric_core/
                    api_keys.py (rf_ keys, hashing, expiry), ratelimit.py (check_rate_limit)
   connectors/      base.py (SourceDocument, Connector)
   db/              migrate.py, session.py
-  generate/        answer.py, llm.py
+  embeddings/      normalise.py (L2 normalisation, applied once at write time)
+  generate/        answer.py, llm.py, cited.py (generate_cited_answer, build_prompt), contract.py
+                   (assert_citation_contract, the mechanical citation check)
   ingest/          chunk.py, clean.py (cleaning, heading detection, document_type_for), embed.py,
-                   indexing.py (schedule_indexing), parser.py, pipeline.py, storage.py (retained originals)
+                   indexing.py (schedule_indexing), parser.py, pipeline.py, reindex.py (batched
+                   re-embedding under the active model), storage.py (retained originals)
   migrations/      alembic.ini, env.py, script.py.mako, versions/0001_initial_schema.py,
-                   versions/0002_platform_tables.py, versions/0003_ingestion_and_indexes.py
+                   versions/0002_platform_tables.py, versions/0003_ingestion_and_indexes.py,
+                   versions/0004_pin_vector_dim_and_hnsw.py, versions/0005_ingestion_runs.py,
+                   versions/0006_timezone_aware_timestamps.py
   models/          base.py, user.py, document.py, access.py, runs.py, evaluation.py, graph.py, index.py
   providers/       base.py, offline.py, openai_compat.py, anthropic_provider.py, registry.py
   queue/           base.py (Job, JobQueue), memory_queue.py, redis_queue.py, registry.py (build_queue)
+  rerank/          base.py (Reranker, all_finite, rescore_and_sort), noop.py, llm_reranker.py
+                   (LlmReranker, candidate cap against silent prompt truncation), cross_encoder.py
+                   (ragfabric[rerank] extra, lazy model load), registry.py
   runtime.py       get_config, reset_config, get_session_factory
   stores/          base.py (VectorStore, LexicalStore, GraphStore, Cache), pgvector_store.py,
-                   postgres_fts.py, memory_cache.py, redis_cache.py, access_sql.py (access_clause), registry.py
+                   postgres_fts.py, chroma_store.py (Chroma, access predicate inside the query),
+                   memory_cache.py, redis_cache.py, access_sql.py (access_clause), registry.py
   strategies/      base.py (StrategyName, RetrievedChunk, TraceSpan, StrategyParams, Budget,
                    RetrievalContext, RetrievalResult, RetrieverStrategy, StrategyRegistry),
-                   contract.py
+                   contract.py, traditional.py (TraditionalRAGStrategy), registry_defaults.py
   telemetry/       tracing.py (start_trace, trace, configure_otel, otel_enabled)
   testing/         fixtures.py
-  workers/         handlers.py (index_document, extract_graph), runner.py (Worker, default_handlers)
+  tokens.py        exact (tiktoken) or estimated token counts, fit_to_budget (drops whole chunks)
+  workers/         handlers.py (index_document, extract_graph, reconcile_stuck_indexing),
+                   runner.py (Worker, default_handlers)
   config.py        environment Settings
   config_file.py   ragfabric.yaml loader, strict validation
   pricing.py       pricing.yaml    dated, sourced cost data
   security.py
   __init__.py
 ```
+
+`store/` (the v1 in memory index) and `retrieve/` (the v1 retrievers) existed through Phase 2 and are
+deleted in Phase 3, along with `strategies/legacy.py` (`LegacyHybridStrategy`); none of the three exist
+in the tree above. `packages/sdk-python` (`ragfabric_sdk`), the Python client, is created in Phase 3: it
+talks HTTP only and never imports `ragfabric_core`, so an adopter can install it without pulling in the
+server's dependency tree.
