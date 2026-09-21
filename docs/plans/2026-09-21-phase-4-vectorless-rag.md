@@ -395,7 +395,7 @@ This is the other half of the phase's done-criteria. BM25's IDF already favours 
 
 **Identifier detection.** A token is an identifier if it matches any of: contains a digit **and** a letter; contains `_` between word characters; is `CamelCase` with an internal capital; matches a dotted or hyphenated version pattern. Pure English words never qualify. The rule must be a documented regex set, not a heuristic that "feels right", and each branch needs its own test including a negative case.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 @pytest.mark.parametrize(
@@ -429,10 +429,10 @@ def test_boosting_never_invents_a_hit_that_was_not_retrieved():
     assert apply_boosts([], "ERR_QUOTA_4419", 2.0, 3.0) == []
 ```
 
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.** Boosts multiply an existing hit's score. They never add a chunk to the result set: retrieval decides membership, boosting only reorders. A boost that could introduce a chunk would bypass the access filter, which ADR 0003 forbids.
-- [ ] **Step 4: Run tests, confirm they pass.**
-- [ ] **Step 5: Commit** `feat: boost exact phrases and identifiers in lexical ranking`
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.** Boosts multiply an existing hit's score. They never add a chunk to the result set: retrieval decides membership, boosting only reorders. A boost that could introduce a chunk would bypass the access filter, which ADR 0003 forbids.
+- [x] **Step 4: Run tests, confirm they pass.**
+- [x] **Step 5: Commit** `feat: boost exact phrases and identifiers in lexical ranking`
 
 ---
 
