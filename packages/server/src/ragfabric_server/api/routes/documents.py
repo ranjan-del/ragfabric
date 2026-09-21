@@ -335,15 +335,14 @@ def delete_document(
     db.delete(document)  # cascades to chunks
     db.commit()
     # The ORM cascade above deletes `chunks` rows. `chunk_embeddings` and
-    # `chunk_search` have an ON DELETE CASCADE foreign key to `chunks.id`, but
-    # that is a database-level constraint, and SQLite does not enforce foreign
-    # keys unless PRAGMA foreign_keys=ON is set (it is not, here), so on
-    # SQLite those rows survive as orphans. On PostgreSQL the FK happens to
-    # cascade them away, which is why this went unnoticed until now. On a real
-    # Chroma collection nothing will ever cascade it: Chroma is an external
-    # service with no foreign key at all. Delete from the configured vector
-    # and lexical stores explicitly so no orphaned rows accumulate and
-    # silently crowd out live results.
+    # `chunk_search` have an ON DELETE CASCADE foreign key to `chunks.id`, a
+    # database-level constraint. SQLite now enforces foreign keys too
+    # (PRAGMA foreign_keys=ON, set globally in db/session.py), so on both
+    # SQLite and PostgreSQL those rows are cascaded away by the database
+    # itself. On a real Chroma collection nothing will ever cascade it:
+    # Chroma is an external service with no foreign key at all. Delete from
+    # the configured vector and lexical stores explicitly so no orphaned rows
+    # accumulate and silently crowd out live results.
     cfg = get_config()
     sf = get_session_factory()
     build_vector_store(cfg.vector_store, sf).delete_document(document_id)
