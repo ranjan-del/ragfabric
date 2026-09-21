@@ -190,7 +190,7 @@ This is the task where correctness is easiest to lose, because statistics drift 
 | Updates use atomic SQL (`df = df + :delta`), never read-modify-write in Python | Two concurrent ingests would otherwise lose an update |
 | `avgdl` returns `1.0` when `n_chunks` is zero | Division by zero in the BM25 denominator |
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_df_counts_chunks_not_occurrences(session):
@@ -215,15 +215,15 @@ def test_avgdl_is_one_on_an_empty_corpus(session):
     assert corpus_stats(session) == (0, 1.0)
 ```
 
-- [ ] **Step 2: Run them, confirm each fails.**
+- [x] **Step 2: Run them, confirm each fails.**
 
-- [ ] **Step 3: Implement.** Use `insert(...).on_conflict_do_update()` on PostgreSQL and a portable upsert elsewhere; the `delta` must be applied in SQL.
+- [x] **Step 3: Implement.** Use `insert(...).on_conflict_do_update()` on PostgreSQL and a portable upsert elsewhere; the `delta` must be applied in SQL.
 
-- [ ] **Step 4: Run tests, confirm they pass.**
+- [x] **Step 4: Run tests, confirm they pass.**
 
-- [ ] **Step 5: Mutation check.** Change `df = df + delta` to `df = delta` and confirm `test_reindexing_a_chunk_does_not_inflate_df` fails. Revert.
+- [x] **Step 5: Mutation check.** Change `df = df + delta` to `df = delta` and confirm `test_reindexing_a_chunk_does_not_inflate_df` fails. Revert.
 
-- [ ] **Step 6: Commit** `feat: maintain BM25 term and corpus statistics`
+- [x] **Step 6: Commit** `feat: maintain BM25 term and corpus statistics`
 
 ---
 ## Task 3: BM25 scoring
