@@ -5,50 +5,89 @@
 
 <div class="card create-box">
   <h3>New collection</h3>
-  <form (ngSubmit)="create()" class="create-form">
-    <div class="field">
-      <label for="name">Name</label>
-      <input id="name" name="name" [(ngModel)]="name" placeholder="e.g. HR Policies" />
-    </div>
-    <div class="field">
-      <label for="description">Description</label>
-      <input
-        id="description"
-        name="description"
-        [(ngModel)]="description"
-        placeholder="Optional description"
-      />
-    </div>
-    <button class="btn btn-primary" type="submit" [disabled]="creating()">
-      @if (creating()) {<span class="spinner" aria-hidden="true"></span>} Create
-    </button>
-  </form>
+  <div class="create-form">
+    <ui-input [label]="'Name'" [placeholder]="'e.g. HR Policies'" [(value)]="name" />
+    <ui-input
+      [label]="'Description'"
+      [placeholder]="'Optional description'"
+      [(value)]="description"
+    />
+    <ui-button [variant]="'primary'" [loading]="creating()" (clicked)="create()">Create</ui-button>
+  </div>
   @if (error()) {
-  <div class="alert alert-error" role="alert">{{ error() }}</div>
+    <div class="alert alert-error" role="alert">{{ error() }}</div>
   }
 </div>
 
-@if (loading()) {
-<div class="empty-state"><span class="spinner spinner-brand"></span></div>
-} @else if (!collections().length) {
-<div class="card empty-state">
-  <span class="emoji">◫</span>
-  <p>No collections yet. Create one above to organize your documents.</p>
-</div>
-} @else {
-<div class="grid">
-  @for (c of collections(); track c.id) {
-  <div class="card collection-card">
-    <div class="cc-head">
-      <span class="cc-icon" aria-hidden="true">◫</span>
-      <button class="btn btn-ghost btn-sm" (click)="remove(c)">Delete</button>
-    </div>
-    <h3>{{ c.name }}</h3>
-    <p class="muted desc">{{ c.description || 'No description' }}</p>
-    <div class="cc-foot">
-      <span class="badge badge-brand">{{ c.document_count }} documents</span>
-    </div>
+@if (loadError()) {
+  <div class="card table-state table-error" role="alert">
+    <p class="table-error-message">{{ loadError() }}</p>
+    <p class="table-retry">
+      <button type="button" class="btn btn-secondary btn-sm" (click)="refresh()">Try again</button>
+    </p>
   </div>
-  }
-</div>
+} @else if (loading()) {
+  <div class="table-skeleton" aria-busy="true" aria-live="polite">
+    <span class="sr-only">Loading collections</span>
+    <div class="skeleton-row"></div>
+    <div class="skeleton-row"></div>
+    <div class="skeleton-row"></div>
+  </div>
+} @else if (!collections().length) {
+  <div class="card">
+    <ui-empty-state
+      [title]="'No collections yet'"
+      [message]="'Create one above to organise your documents.'"
+    />
+  </div>
+} @else {
+  <div class="grid">
+    @for (c of collections(); track c.id) {
+      <div class="card collection-card">
+        <div class="cc-head">
+          <span class="cc-icon" aria-hidden="true">&#9707;</span>
+          <span class="row">
+            <button type="button" class="btn btn-ghost btn-sm collection-rename" (click)="openEdit(c)">
+              Rename
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm collection-delete" (click)="askDelete(c)">
+              Delete
+            </button>
+          </span>
+        </div>
+        <h3>{{ c.name }}</h3>
+        <p class="muted desc">{{ c.description || 'No description' }}</p>
+        <div class="cc-foot">
+          <span class="badge badge-brand">{{ c.document_count }} documents</span>
+        </div>
+      </div>
+    }
+  </div>
 }
+
+<ui-modal [open]="editing() !== null" [title]="'Rename collection'" (closed)="editing.set(null)">
+  <div class="collection-edit stack gap">
+    <ui-input [label]="'Name'" [required]="true" [(value)]="editName" />
+    <ui-input [label]="'Description'" [(value)]="editDescription" />
+    @if (editError()) {
+      <p class="field-error" role="alert">{{ editError() }}</p>
+    }
+  </div>
+  <div modal-actions class="row">
+    <button type="button" class="btn btn-secondary" (click)="editing.set(null)">Cancel</button>
+    <button type="button" class="btn btn-primary collection-edit-submit" (click)="saveEdit()">
+      Save
+    </button>
+  </div>
+</ui-modal>
+
+<ui-confirm-dialog
+  [open]="pendingDelete() !== null"
+  [title]="'Delete collection'"
+  [message]="'Deleting a collection cannot be undone.'"
+  [consequences]="deleteConsequences()"
+  [confirmWord]="pendingDelete()?.name ?? ''"
+  [confirmLabel]="'Delete collection'"
+  (cancelled)="pendingDelete.set(null)"
+  (confirmed)="confirmDelete()"
+/>

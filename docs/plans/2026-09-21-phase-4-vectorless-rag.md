@@ -702,7 +702,7 @@ The console cannot "manage access without DB edits" until these exist. Current s
 - Secrets continue to live in the environment, per `config.py`. This endpoint reports and selects; it does not become a secret store.
 - Writing provider config requires admin, and every write goes to the audit log that Phase 2 built.
 
-- [ ] **Step 1: Write the failing tests**, including these:
+- [x] **Step 1: Write the failing tests**, including these:
 
 ```python
 def test_deleting_a_user_revokes_their_api_keys(client, admin):
@@ -724,10 +724,10 @@ def test_deleting_a_group_removes_its_grants_not_its_users(client, admin):
     ...
 ```
 
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.** Deleting a user or group must not orphan rows: decide cascade versus restrict per relationship and state the choice in the report.
-- [ ] **Step 4: Run tests, confirm they pass.**
-- [ ] **Step 5: Commit** `feat: complete the admin API for console v1`
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.** Deleting a user or group must not orphan rows: decide cascade versus restrict per relationship and state the choice in the report.
+- [x] **Step 4: Run tests, confirm they pass.**
+- [x] **Step 5: Commit** `feat: complete the admin API for console v1`
 
 ---
 
@@ -754,12 +754,12 @@ The stack is **Tailwind 4 with no component library**. That is a deliberate adva
 
 **Do not** introduce Angular Material or PrimeNG. Mixing a component library into an established Tailwind build means fighting two styling systems, and the visual result is usually worse than either alone.
 
-- [ ] **Step 1: Write failing specs for the primitives** (render, disabled state, keyboard interaction, focus trap on Modal).
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement tokens and primitives.**
-- [ ] **Step 4: Run `npm test`, confirm all pass and the existing 20 tests still pass.**
-- [ ] **Step 5: Run `npm run build` and confirm the bundle budget is not exceeded.** If it is, raise the budget deliberately and say why, or split. Do not silently disable the budget.
-- [ ] **Step 6: Commit** `feat: add console design tokens and UI primitives`
+- [x] **Step 1: Write failing specs for the primitives** (render, disabled state, keyboard interaction, focus trap on Modal).
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement tokens and primitives.**
+- [x] **Step 4: Run `npm test`, confirm all pass and the existing 20 tests still pass.**
+- [x] **Step 5: Run `npm run build` and confirm the bundle budget is not exceeded.** If it is, raise the budget deliberately and say why, or split. Do not silently disable the budget.
+- [x] **Step 6: Commit** `feat: add console design tokens and UI primitives`
 
 ---
 
@@ -778,11 +778,11 @@ Full CRUD on both, built on Task 12's primitives, against Task 11's API.
 
 Destructive actions require a typed confirmation, not a bare "are you sure". Deleting a user is not undoable and the dialog must say what else it removes.
 
-- [ ] **Step 1: Write failing specs** including `test_delete_requires_confirmation` and `test_a_failed_request_shows_an_error_not_a_blank_table`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run `npm test` and `npm run build`.**
-- [ ] **Step 5: Commit** `feat: add console users and groups screens`
+- [x] **Step 1: Write failing specs** including `test_delete_requires_confirmation` and `test_a_failed_request_shows_an_error_not_a_blank_table`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run `npm test` and `npm run build`.**
+- [x] **Step 5: Commit** `feat: add console users and groups screens`
 
 ---
 
@@ -799,11 +799,11 @@ Grants are the screen that decides who can read what. It must make the effective
 - Show the effective access for a chosen user, resolved through group membership, because that is the question an operator actually has.
 - Creating a grant that already exists is reported clearly, not duplicated silently.
 
-- [ ] **Step 1: Write failing specs** including `test_effective_access_resolves_through_group_membership`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run `npm test` and `npm run build`.**
-- [ ] **Step 5: Commit** `feat: add console collections and grants screens`
+- [x] **Step 1: Write failing specs** including `test_effective_access_resolves_through_group_membership`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run `npm test` and `npm run build`.**
+- [x] **Step 5: Commit** `feat: add console collections and grants screens`
 
 ---
 
@@ -823,11 +823,11 @@ Security-sensitive, so it gets its own task and its own review.
 | Revocation is immediate and confirmed | |
 | The secret is never written to `localStorage`, a URL, or a log | |
 
-- [ ] **Step 1: Write failing specs** including `test_the_secret_is_not_present_in_the_dom_after_the_panel_closes` and `test_the_secret_is_never_written_to_local_storage`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run `npm test` and `npm run build`.**
-- [ ] **Step 5: Commit** `feat: add console API keys screen`
+- [x] **Step 1: Write failing specs** including `test_the_secret_is_not_present_in_the_dom_after_the_panel_closes` and `test_the_secret_is_never_written_to_local_storage`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run `npm test` and `npm run build`.**
+- [x] **Step 5: Commit** `feat: add console API keys screen`
 
 ---
 
@@ -843,11 +843,11 @@ Selects LLM and embedding providers, models and base URLs, against Task 11's end
 - Changing the embedding provider or model must warn, loudly, that the embedding dimension is pinned (ADR 0006) and that changing it requires a migration and a re-index. This is the single most destructive action in the console and the UI must treat it that way.
 - A "test connection" action reports the real result. It never reports success without a successful call.
 
-- [ ] **Step 1: Write failing specs** including `test_changing_the_embedding_model_warns_about_reindexing`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run `npm test` and `npm run build`.**
-- [ ] **Step 5: Commit** `feat: add console provider configuration screen`
+- [x] **Step 1: Write failing specs** including `test_changing_the_embedding_model_warns_about_reindexing`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run `npm test` and `npm run build`.**
+- [x] **Step 5: Commit** `feat: add console provider configuration screen`
 
 ---
 

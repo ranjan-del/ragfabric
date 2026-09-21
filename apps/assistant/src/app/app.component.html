@@ -50,6 +50,15 @@
         ☰
       </button>
       <span class="topbar-title">RagFabric</span>
+      <button
+        class="theme-toggle btn btn-ghost btn-sm"
+        type="button"
+        (click)="theme.toggle()"
+        [attr.aria-pressed]="theme.theme() === 'dark'"
+      >
+        <span aria-hidden="true">{{ theme.theme() === 'dark' ? '☀' : '☾' }}</span>
+        <span class="sr-only">Switch to {{ theme.theme() === 'dark' ? 'light' : 'dark' }} theme</span>
+      </button>
     </header>
     <main class="content">
       <router-outlet></router-outlet>
@@ -59,3 +68,4 @@
 } @else {
 <router-outlet></router-outlet>
 }
+<ui-toasts />

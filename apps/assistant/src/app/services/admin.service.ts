@@ -13,6 +13,19 @@ export class AdminService {
     return this.http.get<User[]>(`${this.api.baseUrl}/admin/users`);
   }
 
+  createUser(payload: {
+    email: string;
+    password: string;
+    role: string;
+    is_active: boolean;
+  }): Observable<User> {
+    return this.http.post<User>(`${this.api.baseUrl}/admin/users`, payload);
+  }
+
+  deleteUser(userId: number): Observable<unknown> {
+    return this.http.delete(`${this.api.baseUrl}/admin/users/${userId}`);
+  }
+
   setPermissions(
     userId: number,
     changes: { role?: string; is_active?: boolean }

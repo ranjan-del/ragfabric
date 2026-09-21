@@ -24,6 +24,13 @@ export class CollectionService {
     return this.http.get<CollectionDetail>(`${this.api.baseUrl}/collections/${id}`);
   }
 
+  update(
+    id: number,
+    changes: { name?: string; description?: string },
+  ): Observable<Collection> {
+    return this.http.put<Collection>(`${this.api.baseUrl}/collections/${id}`, changes);
+  }
+
   delete(id: number): Observable<unknown> {
     return this.http.delete(`${this.api.baseUrl}/collections/${id}`);
   }
