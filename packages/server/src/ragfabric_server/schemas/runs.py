@@ -15,6 +15,20 @@ class SourceOut(BaseModel):
     page: int | None
 
 
+class IngestionRunOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    document_id: int | None
+    phase: str
+    status: str
+    chunk_count: int | None
+    embedding_model: str | None
+    latency_ms: int
+    error: str | None
+    trace: list
+    created_at: datetime
+
+
 class RunOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

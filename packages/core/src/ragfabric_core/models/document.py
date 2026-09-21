@@ -102,3 +102,49 @@ class QueryLog(Base):
     # approximated by chunk count, which measures document SIZE, not usage.
     cited_document_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class IngestionRun(Base):
+    """One row per ingestion phase whose spans were actually collected.
+
+    Ingestion has two phases that can run at different times: "ingest" is the
+    pipeline's own parse/clean/chunk/persist work (plus a summary span around
+    however indexing was scheduled), and "index" is the embed/vector upsert/
+    lexical index fan out, which the worker runs separately when indexing is
+    queued rather than inline. A document indexed inline gets one row of
+    each, written back to back; a document indexed through the queue gets its
+    "ingest" row immediately and its "index" row only once a worker picks the
+    job up, so the two are separate rows rather than one row updated twice.
+
+    Every number here is measured at the moment the row is written (ADR
+    0004): chunk_count and latency_ms come from the same call that did the
+    work, and embedding_model is the provider's own reported model id. A
+    value that is not genuinely available when the row is written, such as
+    embedding_model during the "ingest" phase (which persists chunks through
+    the pipeline's local hashing embedder, not a named provider), is left
+    null rather than guessed.
+
+    ``document_id`` is ``ON DELETE SET NULL``, the same choice ``Source``
+    makes for its own ``document_id``: deleting a document should not be
+    blocked by (or silently take with it) the measurement history of how it
+    was ingested, so the row survives with its document reference cleared.
+    """
+
+    __tablename__ = "ingestion_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    document_id: Mapped[int | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # "ingest" (parse/chunk/persist) | "index" (embed/vector/lexical fan out)
+    phase: Mapped[str] = mapped_column(String, nullable=False)
+    # "ready" | "failed", mirroring the document's own status at this point
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    chunk_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(String, nullable=True)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    trace: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False, index=True
+    )
