@@ -80,6 +80,13 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./pages/console/keys/keys.component').then((m) => m.KeysComponent),
       },
+      {
+        path: 'providers',
+        loadComponent: () =>
+          import('./pages/console/providers/providers.component').then(
+            (m) => m.ProvidersComponent,
+          ),
+      },
     ],
   },
   { path: '**', redirectTo: 'dashboard' },

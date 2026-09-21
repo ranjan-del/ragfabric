@@ -843,11 +843,11 @@ Selects LLM and embedding providers, models and base URLs, against Task 11's end
 - Changing the embedding provider or model must warn, loudly, that the embedding dimension is pinned (ADR 0006) and that changing it requires a migration and a re-index. This is the single most destructive action in the console and the UI must treat it that way.
 - A "test connection" action reports the real result. It never reports success without a successful call.
 
-- [ ] **Step 1: Write failing specs** including `test_changing_the_embedding_model_warns_about_reindexing`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run `npm test` and `npm run build`.**
-- [ ] **Step 5: Commit** `feat: add console provider configuration screen`
+- [x] **Step 1: Write failing specs** including `test_changing_the_embedding_model_warns_about_reindexing`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run `npm test` and `npm run build`.**
+- [x] **Step 5: Commit** `feat: add console provider configuration screen`
 
 ---
 

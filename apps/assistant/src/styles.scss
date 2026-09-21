@@ -784,3 +784,31 @@ code {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   font-size: 0.88em;
 }
+
+/* ---- Provider configuration ---- */
+.key-status {
+  margin: 0 0 var(--space-4);
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+.key-status[data-state='missing'] {
+  color: var(--danger);
+  font-weight: 600;
+}
+.key-status[data-state='present'] {
+  color: var(--success);
+}
+.reindex-warning {
+  margin-top: var(--space-4);
+}
+.reindex-warning p {
+  margin: var(--space-2) 0 0;
+}
+.test-result[data-ok='true'] {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.test-result[data-ok='false'] {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
