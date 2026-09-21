@@ -10,9 +10,13 @@ COPY pyproject.toml uv.lock ./
 COPY packages/core/pyproject.toml packages/core/README.md packages/core/
 COPY packages/server/pyproject.toml packages/server/README.md packages/server/
 COPY packages/cli/pyproject.toml packages/cli/README.md packages/cli/
+# The default config selects Ollama, and OllamaProvider routes through the
+# OpenAI-compatible client (Ollama serves an OpenAI-compatible API), so the
+# openai extra is required even for an Ollama-only deployment.
 RUN uv sync --frozen --no-dev --no-install-workspace
 COPY packages/ packages/
 RUN uv sync --frozen --no-dev --all-packages
+RUN uv sync --frozen --no-dev --inexact --package ragfabric-core --extra openai
 
 # python:3.13-slim as of 2026-09-21
 FROM python@sha256:8d9d0b8bcf6506481eae4907c18f5e3e7902e629f5f6d684f9e7c32e85e3ddf0
