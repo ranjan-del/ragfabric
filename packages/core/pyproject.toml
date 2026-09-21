@@ -19,8 +19,6 @@ dependencies = [
   "bcrypt>=5.0",
   "email-validator>=2.3",
   "pyyaml>=6.0",
-  "openai>=3.13",
-  "anthropic>=1.5",
   "pgvector>=0.5",
   "redis>=8.1",
   "opentelemetry-sdk>=1.44",
@@ -31,6 +29,13 @@ dependencies = [
 [project.optional-dependencies]
 chroma = ["chromadb>=1.5"]
 rerank = ["sentence-transformers>=5.1"]
+# Ollama also goes through OpenAICompatibleLLM/OpenAICompatibleEmbeddings
+# (providers/openai_compat.py), since Ollama serves the OpenAI chat and
+# embeddings API at /v1, so an Ollama-only deployment still needs this
+# extra installed; only a deployment that uses neither OpenAI, Azure, vLLM,
+# LM Studio nor Ollama can skip it.
+openai = ["openai>=3.13"]
+anthropic = ["anthropic>=1.5"]
 
 [build-system]
 requires = ["hatchling>=1.27"]
