@@ -19,8 +19,8 @@ class EvaluationRun(Base):
     embedding_model: Mapped[str] = mapped_column(String, default="", nullable=False)
     judge_model: Mapped[str | None] = mapped_column(String, nullable=True)
     question_set: Mapped[str] = mapped_column(String, nullable=False)
-    started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     summary: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
 

@@ -21,7 +21,7 @@ class Entity(Base):
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     aliases: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     source_chunk_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
 class Relationship(Base):
@@ -38,4 +38,4 @@ class Relationship(Base):
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     weight: Mapped[float] = mapped_column(Float, default=1.0, nullable=False)
     source_chunk_ids: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
