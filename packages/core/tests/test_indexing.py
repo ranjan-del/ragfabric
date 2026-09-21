@@ -1,3 +1,6 @@
+import os
+import signal
+import threading
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -14,7 +17,7 @@ from ragfabric_core.queue.memory_queue import MemoryJobQueue
 from ragfabric_core.stores.pgvector_store import PgVectorStore
 from ragfabric_core.stores.postgres_fts import PostgresLexicalStore
 from ragfabric_core.workers.handlers import index_document, reconcile_stuck_indexing
-from ragfabric_core.workers.runner import Worker, default_handlers
+from ragfabric_core.workers.runner import Worker, default_handlers, install_sigterm_handler
 
 
 @pytest.fixture()
@@ -110,6 +113,53 @@ def test_worker_runs_jobs_and_survives_a_failing_handler(db_and_doc, monkeypatch
     with factory() as db:
         assert db.get(Document, doc_id).status == "ready"
     assert w.failed == 1 and w.processed == 2
+
+
+def test_install_sigterm_handler_sets_the_stop_event():
+    stop = threading.Event()
+    original = signal.getsignal(signal.SIGTERM)
+    install_sigterm_handler(stop)
+    try:
+        assert not stop.is_set()
+        os.kill(os.getpid(), signal.SIGTERM)
+        assert stop.is_set(), "SIGTERM should set the stop event rather than kill the process"
+    finally:
+        signal.signal(signal.SIGTERM, original)
+
+
+def test_run_forever_finishes_the_in_flight_job_before_a_sigterm_stops_it(db_and_doc):
+    """A SIGTERM mid job must not abandon it: the job already dequeued keeps
+    running to completion, and only the *next* dequeue is skipped.
+    """
+    factory, doc_id = db_and_doc
+    q = MemoryJobQueue()
+    q.enqueue(Job(id="j1", kind="index_document", payload={"document_id": doc_id}))
+    q.enqueue(Job(id="j2", kind="never_runs", payload={}))
+    stop = threading.Event()
+
+    handlers = default_handlers(
+        embedding_provider=HashingEmbeddingProvider(dim=16),
+        vector_store=PgVectorStore(factory),
+        lexical_store=PostgresLexicalStore(factory),
+    )
+    real_index = handlers["index_document"]
+
+    def index_then_signal(db, job):
+        # Simulate SIGTERM arriving while this job is still running: the
+        # handler only sets the event, so this call is left to finish.
+        stop.set()
+        real_index(db, job)
+
+    handlers["index_document"] = index_then_signal
+    handlers["never_runs"] = lambda db, job: pytest.fail("must not run after stop was set")
+
+    w = Worker(q, factory, handlers)
+    w.run_forever(stop, timeout_seconds=0)
+
+    assert w.processed == 1 and w.failed == 0
+    with factory() as db:
+        assert db.get(Document, doc_id).status == "ready"
+    assert len(list(q._items)) == 1  # j2 was never dequeued
 
 
 def test_queued_job_failure_marks_the_document_failed(db_and_doc):
