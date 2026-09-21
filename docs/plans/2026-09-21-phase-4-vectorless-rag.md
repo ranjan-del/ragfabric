@@ -778,11 +778,11 @@ Full CRUD on both, built on Task 12's primitives, against Task 11's API.
 
 Destructive actions require a typed confirmation, not a bare "are you sure". Deleting a user is not undoable and the dialog must say what else it removes.
 
-- [ ] **Step 1: Write failing specs** including `test_delete_requires_confirmation` and `test_a_failed_request_shows_an_error_not_a_blank_table`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run `npm test` and `npm run build`.**
-- [ ] **Step 5: Commit** `feat: add console users and groups screens`
+- [x] **Step 1: Write failing specs** including `test_delete_requires_confirmation` and `test_a_failed_request_shows_an_error_not_a_blank_table`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run `npm test` and `npm run build`.**
+- [x] **Step 5: Commit** `feat: add console users and groups screens`
 
 ---
 

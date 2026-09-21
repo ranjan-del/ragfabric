@@ -53,5 +53,24 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./pages/admin/admin.component').then((m) => m.AdminComponent),
   },
+  {
+    path: 'console',
+    canActivate: [authGuard, adminGuard],
+    loadComponent: () =>
+      import('./pages/console/console.component').then((m) => m.ConsoleComponent),
+    children: [
+      { path: '', redirectTo: 'users', pathMatch: 'full' },
+      {
+        path: 'users',
+        loadComponent: () =>
+          import('./pages/console/users/users.component').then((m) => m.UsersComponent),
+      },
+      {
+        path: 'groups',
+        loadComponent: () =>
+          import('./pages/console/groups/groups.component').then((m) => m.GroupsComponent),
+      },
+    ],
+  },
   { path: '**', redirectTo: 'dashboard' },
 ];

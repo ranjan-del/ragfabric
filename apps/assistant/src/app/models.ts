@@ -133,3 +133,67 @@ export interface UsageStats {
     citations: number;
   }[];
 }
+
+// --- Console v1 (Phase 4) -------------------------------------------------
+
+export interface Group {
+  id: number;
+  name: string;
+  description: string;
+  created_at: string;
+}
+
+export interface Grant {
+  id: number;
+  group_id: number;
+  collection_id: number;
+  permission: 'read' | 'write';
+}
+
+export interface ApiKeyItem {
+  id: number;
+  name: string;
+  key_prefix: string;
+  principal_user_id: number | null;
+  collection_ids: number[];
+  strategies: string[];
+  rate_limit_per_minute: number;
+  is_active: boolean;
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+}
+
+/** Only ever returned once, by the create call. Never stored anywhere. */
+export interface ApiKeyCreated extends ApiKeyItem {
+  key: string;
+}
+
+export interface ProviderStatus {
+  provider: string;
+  model: string | null;
+  base_url: string | null;
+  dim: number | null;
+  key_env_var: string | null;
+  requires_key: boolean;
+  /** Whether the key is present in the server's environment. Never the key. */
+  has_key: boolean;
+}
+
+export interface ProviderConfig {
+  llm: ProviderStatus;
+  embeddings: ProviderStatus;
+}
+
+export interface ProviderConfigWritten extends ProviderConfig {
+  requires_reindex: boolean;
+  restart_required: boolean;
+  changed: string[];
+}
+
+export interface ProviderTestResult {
+  target: string;
+  ok: boolean;
+  detail: string;
+  model: string | null;
+}

@@ -28,6 +28,7 @@ export class AppComponent implements OnInit {
     { label: 'Collections', path: '/collections', icon: '◫' },
     { label: 'Analytics', path: '/analytics', icon: '◔' },
     { label: 'Admin', path: '/admin', icon: '⚙', adminOnly: true },
+    { label: 'Console', path: '/console', icon: '⛭', adminOnly: true },
   ];
 
   readonly menuOpen = signal(false);
