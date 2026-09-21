@@ -6,10 +6,12 @@ ingestion status and chunk count. Deleting a document removes its rows and its
 rows from the configured vector and lexical stores. Moving a document between
 collections updates every denormalised copy of collection_id (chunks,
 chunk_embeddings, chunk_search) in the same transaction as the move, so the
-access filter and the index never disagree about which collection a document
-belongs to. This covers the relational tables; a Chroma vector store keeps its
-own copy of collection_id in its external metadata store, outside this
-transaction, and is not touched by a move.
+SQL-side access filter and the SQL-side index never disagree about which
+collection a document belongs to. This covers the relational tables only: a
+Chroma vector store keeps its own copy of collection_id in its external
+metadata store, outside this transaction, and this move does NOT update it.
+On a ``vector_store.kind: chroma`` deployment the move endpoint therefore
+refuses the operation (409) rather than leaving that copy stale.
 """
 
 from __future__ import annotations
@@ -252,8 +254,18 @@ def move_document(
     move, a principal granted only the OLD collection could still retrieve
     the moved document out of the index: an access-control bug, not a
     cosmetic one. All three are updated here, inside the same transaction as
-    the move itself, so no reader ever observes a document whose own row
-    names one collection while its index rows still name another.
+    the move itself, so the relational tables never disagree about which
+    collection a document belongs to.
+
+    That covers the relational tables only. A ``ChromaVectorStore`` keeps its
+    own copy of ``collection_id`` in Chroma's external metadata, and
+    ``chroma_where`` builds the access predicate from that copy, not from
+    these tables. This endpoint has no way to update Chroma's metadata inside
+    the same transaction, so on a ``vector_store.kind: chroma`` deployment a
+    reader COULD observe a chunk ranked and returned by Chroma under a
+    collection grant that no longer matches ``documents.collection_id``. To
+    avoid shipping that gap, a chroma-backed deployment refuses the move
+    outright (409) instead of performing one it cannot make safe.
     """
     document = db.get(Document, document_id)
     if document is None:
@@ -262,6 +274,17 @@ def move_document(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You may only move your own documents.",
+        )
+    if get_config().vector_store.kind == "chroma":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Cannot move a document while vector_store.kind is 'chroma': "
+                "Chroma keeps its own copy of collection_id in external "
+                "metadata that this endpoint cannot update in the same "
+                "transaction, so the move is refused rather than leaving "
+                "that copy out of sync with the access filter."
+            ),
         )
     if payload.collection_id is not None:
         if db.get(Collection, payload.collection_id) is None:
