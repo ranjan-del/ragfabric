@@ -8,6 +8,8 @@
 | [concepts/access-control.md](concepts/access-control.md) | Principals, groups, grants, overrides, API keys, audit | Phase 2 |
 | [concepts/embeddings.md](concepts/embeddings.md) | Text to vector to store, cosine versus dot product, one model per deployment, reindex cost | Phase 3 |
 | [concepts/reranking.md](concepts/reranking.md) | Cheap ranking plus expensive rerank, cross encoder versus bi encoder, when it does not pay | Phase 3 |
+| [concepts/lexical-vs-vector.md](concepts/lexical-vs-vector.md) | BM25 term by term, ts_rank_cd versus BM25, reciprocal rank fusion, where lexical beats vectors and where it loses | Phase 4 |
+| [learning/lexical-vs-semantic.md](learning/lexical-vs-semantic.md) | The same ground with no code or schema: the mental model and why the two approaches fail in differently shaped ways | Phase 4 |
 | [traditional-rag.md](traditional-rag.md) | Embeddings, vector search, thresholds, reranking, citation contract | Shipped in v0.1.0 (Phase 3) |
 | [vectorless-rag.md](vectorless-rag.md) | BM25, PostgreSQL full text, fusion | Concept complete; implementation v0.1.0 |
 | [agentic-rag.md](agentic-rag.md) | LangGraph state machine, budgets, verification | Concept complete; implementation v0.2.0 |

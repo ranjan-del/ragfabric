@@ -887,10 +887,10 @@ ADR 0008 records: fusion combines ranks not scores, and why normalising BM25 aga
 
 **A Phase 3 process failure to avoid.** Two implementer agents were once dispatched in parallel into the same worktree; the result was documentation that described an already-fixed bug as unfixed. **One implementer at a time.** Documentation is written after the code it describes is final, and every claim in it is checked against the tree as it then stands.
 
-- [ ] **Step 1: Write both ADRs.**
-- [ ] **Step 2: Update `ROADMAP.md`, ticking Phase 4 only for what actually merged.**
-- [ ] **Step 3: Re-read every changed doc against the code.**
-- [ ] **Step 4: Commit** `docs: record the BM25 and fusion decisions`
+- [x] **Step 1: Write both ADRs.**
+- [x] **Step 2: Update `ROADMAP.md`, ticking Phase 4 only for what actually merged.**
+- [x] **Step 3: Re-read every changed doc against the code.**
+- [x] **Step 4: Commit** `docs: record the BM25 and fusion decisions`
 
 ---
 

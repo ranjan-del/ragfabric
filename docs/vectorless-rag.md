@@ -1,6 +1,22 @@
 # Vectorless RAG
 
-> Status: concept complete. Implementation ships in **v0.1.0**.
+> Status: **shipped in v0.1.0** (Phase 4). `VectorlessRAGStrategy`
+> (`packages/core/src/ragfabric_core/strategies/vectorless.py`) ranks with BM25 computed in SQL
+> (`stores/bm25_sql.py`, ADR 0007) fused with `ts_rank_cd` by reciprocal rank fusion
+> (`stores/fusion.py`, ADR 0008). Select it with `strategy: "vectorless"` on `POST /api/ask`,
+> `POST /api/search/query` and `POST /api/search/semantic`, or with
+> `ragfabric ask --strategy vectorless`. `POST /api/search/hybrid` accepts only `traditional`,
+> because hybrid is defined as one vector ranking fused with one lexical ranking and a
+> lexical-only strategy cannot stand in for the vector leg. No embedding model is called on the
+> vectorless path. Retrieval
+> quality (whether an answer is correct, complete or faithful to its sources) is **not measured**;
+> Phase 8 measures it.
+>
+> Corpora indexed before Phase 4 have `chunk_search.doc_len = 0` and are excluded from BM25 results
+> rather than scored. Bring them forward with `ragfabric reindex --lexical-only`.
+
+See [concepts/lexical-vs-vector.md](concepts/lexical-vs-vector.md) for the formula term by term,
+where lexical retrieval beats vectors and where it loses.
 
 ## What it does
 

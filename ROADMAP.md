@@ -54,10 +54,12 @@ Legend: `[x]` merged to main, `[~]` in progress, `[ ]` not started.
 - [x] `ragfabric ask` and Python SDK
 
 ### Phase 4: Vectorless RAG
-- [ ] BM25 and PostgreSQL full-text search with fusion, exact phrase and identifier boosting
-- [ ] `docs/concepts/lexical-vs-vector.md`
-- [ ] Console v1: users, groups, collections, grants, API keys, provider configuration
-- [ ] Multi collection metadata filters (single collection only since Phase 3)
+- [x] BM25 and PostgreSQL full-text search with fusion, exact phrase and identifier boosting
+- [x] `docs/concepts/lexical-vs-vector.md`
+- [x] Console v1: users, groups, collections, grants, API keys, provider configuration
+- [ ] Multi collection metadata filters (single collection only since Phase 3). Not shipped in
+      Phase 4: `AccessFilter.collection_ids` takes a list in core, but `SearchRequest` and
+      `AskRequest` still expose a single `collection_id`, so the API surface is unchanged.
 - [ ] **Release v0.1.0**
 
 ## v0.2.0 Agentic retrieval
