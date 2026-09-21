@@ -23,7 +23,7 @@ Rules, applied in order:
 
 from __future__ import annotations
 
-from sqlalchemy import or_, select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session
 
 from ragfabric_core.auth.principal import AccessFilter, Principal
@@ -59,30 +59,41 @@ def compute_access_filter(db: Session, principal: Principal) -> AccessFilter:
         )
 
     groups = list(principal.group_ids)
-    granted_ids = set(db.execute(select(CollectionGrant.collection_id).distinct()).scalars())
-    allowed_collections: set[int] = set()
-    if groups:
-        allowed_collections |= set(
-            db.execute(
-                select(CollectionGrant.collection_id).where(CollectionGrant.group_id.in_(groups))
-            ).scalars()
-        )
-    if principal.user_id is not None:
-        allowed_collections |= set(
-            db.execute(
-                select(Collection.id).where(Collection.owner_id == principal.user_id)
-            ).scalars()
-        )
-    all_collections = set(db.execute(select(Collection.id)).scalars())
-    allowed_collections |= all_collections - granted_ids
 
-    allowed_documents: set[int] = set(
-        db.execute(select(Document.id).where(Document.collection_id.is_(None))).scalars()
+    # Collections axis, one query: a collection is allowed when a group grant
+    # names one of the principal's groups, the principal owns it, or it has
+    # no grants at all (open by default). The "no grants at all" check used
+    # to be two unscoped reads (every grant's collection_id, then every
+    # collection id, with the difference taken in Python); it is now a
+    # correlated NOT EXISTS, so the database does the scoping and only the
+    # already-allowed collection ids ever cross into Python.
+    no_grants_at_all = ~exists(
+        select(1).where(CollectionGrant.collection_id == Collection.id)
     )
-    if principal.user_id is not None:
-        allowed_documents |= set(
-            db.execute(select(Document.id).where(Document.owner_id == principal.user_id)).scalars()
+    collection_conditions = [no_grants_at_all]
+    if groups:
+        collection_conditions.append(
+            Collection.id.in_(
+                select(CollectionGrant.collection_id).where(CollectionGrant.group_id.in_(groups))
+            )
         )
+    if principal.user_id is not None:
+        collection_conditions.append(Collection.owner_id == principal.user_id)
+    allowed_collections: set[int] = set(
+        db.execute(select(Collection.id).where(or_(*collection_conditions))).scalars()
+    )
+
+    # Documents axis, one query: a document is allowed when it belongs to no
+    # collection (open by default) or the principal owns it. This used to be
+    # two reads, one of them (every uncollected document id) unscoped by the
+    # principal; folding both conditions into a single OR keeps it to one
+    # round trip regardless of how many documents exist.
+    document_conditions = [Document.collection_id.is_(None)]
+    if principal.user_id is not None:
+        document_conditions.append(Document.owner_id == principal.user_id)
+    allowed_documents: set[int] = set(
+        db.execute(select(Document.id).where(or_(*document_conditions))).scalars()
+    )
 
     override_filter = []
     if principal.user_id is not None:
