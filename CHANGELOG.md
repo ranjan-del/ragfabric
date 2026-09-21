@@ -15,7 +15,7 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 | v0.5.0 | Evaluation framework | Corpus, question set, metrics, `make eval`, dashboards, generated benchmarks |
 | v1.0.0 | Production release | Reference UI with Compare and Trace, TypeScript SDK, connectors, hardening, docs site, deployment guides |
 
-## [Unreleased]
+## [0.1.0] - 2026-09-22
 
 ### Added
 - Monorepo: `packages/core` (engine), `packages/server` (API), `packages/cli` (the `ragfabric` command, published as `ragfabric`), `apps/assistant` (UI). uv workspace on Python 3.13.
@@ -106,8 +106,48 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
   corrected answer.
 - `stores/chroma_store.py`: Chroma as a second `VectorStore`, with the access predicate inside the
   query, selected with `vector_store.kind: chroma` and `CHROMA_URL`.
+- **Vectorless retrieval (Phase 4).** `VectorlessRAGStrategy` answers without calling an embedding
+  model at any point. Select it with `strategy: "vectorless"` on `POST /api/ask`,
+  `POST /api/search/query` and `POST /api/search/semantic`, or `ragfabric ask --strategy vectorless`.
+  `POST /api/search/hybrid` accepts only `traditional`, because a lexical-only strategy cannot stand
+  in for the vector leg of a hybrid.
+- Migration 0007 adds `term_stats` (document frequency per term), `corpus_stats` (one row holding
+  `n_chunks` and `sum_len` as running totals, not a precomputed average, because a mean cannot be
+  updated incrementally without drifting) and `chunk_search.doc_len`.
+- BM25 computed in SQL (`stores/bm25_sql.py`), using the Lucene IDF variant so a term present in more
+  than half the corpus contributes zero rather than a negative score. Term frequency is read from the
+  `tsvector` `chunk_search` already stored since Phase 2, so no row-per-term-per-chunk table exists.
+  Statistics are maintained incrementally on every index and delete by `stores/term_stats.py`.
+  Recorded as ADR 0007.
+- Reciprocal rank fusion (`stores/fusion.py`) combines the BM25 and `ts_rank_cd` rankings on rank
+  position rather than score, because the two scores share no scale and any normaliser would have to
+  be refitted per query. Ties break on `chunk_id`, so identical inputs give an identical order.
+  `top_k` is applied after fusion, not per store. Recorded as ADR 0008.
+- Exact phrase and identifier boosting. A boost multiplies the score of a chunk a store already
+  returned and can never introduce a new one, because introducing one would bypass the access filter
+  that ADR 0003 requires to run inside the store query.
+- Optional in-process BM25 (`stores/bm25_memory.py`) for small corpora, behind an enforced cap and the
+  `rank_bm25` extra. It skips cleanly when the extra is absent.
+- Console v1 at `/console`, admin guarded: users, groups, collections, grants, API keys and provider
+  configuration, so access is managed without anyone editing the database by hand. Built on a new
+  token scale and nine standalone UI primitives with light and dark themes.
+- Admin API completing the gaps the console needed: `POST /api/admin/users`,
+  `DELETE /api/admin/users/{id}`, `PUT`/`DELETE /api/admin/groups/{id}`,
+  `GET /api/admin/groups/{id}/members`, `PUT /api/admin/collections/{id}`, and
+  `GET`/`PUT /api/admin/providers` with `POST /api/admin/providers/test`. No endpoint or schema on
+  this surface can carry a secret; provider key presence is reported as a boolean, never a masked
+  value.
+- `docs/concepts/lexical-vs-vector.md` and `docs/learning/lexical-vs-semantic.md`: where lexical
+  retrieval beats vectors, and equally where it loses.
 
 ### Changed
+- **Lexical search requires a re-index after upgrading to Phase 4.** `chunk_search` now stores a
+  per-chunk `doc_len` and, off PostgreSQL, a term list that preserves repetition, because BM25 needs
+  term frequency and the previous representation was a set that destroyed it. Rows written before
+  this change carry `doc_len = 0` and are **excluded from BM25 ranking rather than scored**, so
+  results from an un-reindexed corpus will be incomplete rather than merely stale. Run
+  `ragfabric reindex --lexical-only` to bring an existing corpus forward: it rebuilds the lexical
+  index and the term statistics with no embedding calls and no vector writes.
 - Frontend upgraded from Angular 17 to Angular 22 with TypeScript 6 and Tailwind 4.
 - PostgreSQL driver psycopg2 to psycopg 3; connection URLs use `postgresql+psycopg://`.
 - The v1 hybrid pipeline is available as `LegacyHybridStrategy` behind the strategy interface until Phase 3 replaces it.
@@ -195,8 +235,20 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
   a real characteristic of the small model path, not hidden.
 - A single deployment serves one embedding model and one vector dimension at a time (ADR 0006).
   Comparing embedding models is an evaluation concern and belongs to Phase 8.
-- Retrieval is limited to a single collection per request (`collection_ids[0]`); multi collection
-  metadata filters are tracked for Phase 4.
+- Retrieval is limited to a single collection per request (`collection_ids[0]`). Multi collection
+  metadata filters did **not** ship in Phase 4: `AccessFilter.collection_ids` takes a list in core,
+  but `SearchRequest` and `AskRequest` still expose a single `collection_id`, so the API surface is
+  unchanged. Carried forward.
+- Deleting a user does not delete what they produced. Group memberships and per-user document
+  overrides cascade away; their API keys are deactivated and detached rather than deleted, so the
+  keys authenticate nobody while their audit trail survives; audit log, retrieval run, conversation
+  and query log rows are preserved and anonymised; collections and documents they owned are preserved
+  and disowned for an admin to reassign. An admin cannot delete their own account, so the last
+  administrator cannot lock everyone out. Deleting a group removes its memberships and grants and
+  never touches the users themselves.
+- Saving provider configuration from the console rewrites `ragfabric.yaml` as data, which does not
+  preserve comments in that file. Providers are built once at application startup, so a save reports
+  `restart_required` rather than implying running workers picked the change up.
 - A collection with no grants is open to every signed in user; the first grant restricts it to its
   grantees.
 

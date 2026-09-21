@@ -55,3 +55,10 @@ class CollectionOut(BaseModel):
 
 class CollectionDetail(CollectionOut):
     documents: list[DocumentOut] = []
+
+
+class CollectionUpdate(BaseModel):
+    """Rename a collection or change its description (owner or admin)."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = None

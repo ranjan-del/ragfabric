@@ -13,9 +13,12 @@ from sqlalchemy.orm import Session
 from ragfabric_core.config_file import RagFabricConfig
 from ragfabric_core.providers.registry import build_embedding_provider, build_llm_provider
 from ragfabric_core.rerank.registry import build_reranker
+from ragfabric_core.stores.bm25_sql import Bm25Store
+from ragfabric_core.stores.postgres_fts import PostgresLexicalStore
 from ragfabric_core.stores.registry import build_vector_store
 from ragfabric_core.strategies.base import StrategyRegistry
 from ragfabric_core.strategies.traditional import TraditionalRAGStrategy
+from ragfabric_core.strategies.vectorless import VectorlessRAGStrategy
 
 
 def _int(value, default: int) -> int:
@@ -42,4 +45,29 @@ def default_registry(
             generation_model=cfg.llm.model,
         )
     )
+    registry.register(_build_vectorless(cfg, session_factory))
     return registry
+
+
+def _build_vectorless(
+    cfg: RagFabricConfig, session_factory: Callable[[], Session]
+) -> VectorlessRAGStrategy:
+    """Two lexical stores over the same chunk_search table, ranked differently.
+
+    Both are constructed here rather than through build_lexical_store, because
+    this strategy needs one specific pair (BM25 and ts_rank_cd) regardless of
+    which single lexical store the ingestion fan out is configured to write
+    through. Asking the registry for "the" lexical store would give one of the
+    two and leave the fusion with nothing to fuse.
+    """
+    settings = cfg.strategies.vectorless
+    return VectorlessRAGStrategy(
+        bm25_store=Bm25Store(session_factory, k1=settings.k1, b=settings.b),
+        ts_rank_store=PostgresLexicalStore(session_factory),
+        phrase_boost=settings.phrase_boost,
+        identifier_boost=settings.identifier_boost,
+        fusion_k=settings.fusion_k,
+        fusion_weights=settings.fusion_weights,
+        max_context_tokens=settings.max_context_tokens,
+        generation_model=cfg.llm.model,
+    )

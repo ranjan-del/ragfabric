@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from ragfabric_core.auth.principal import AccessFilter, Principal
@@ -57,6 +57,7 @@ from ragfabric_server.schemas.search import (
     SearchRequest,
     SearchResultItem,
     SearchResults,
+    Usage,
 )
 
 router = APIRouter()
@@ -100,7 +101,10 @@ def _configured_max_context_tokens(cfg) -> int:
 
 
 def _strategy_for(
-    rerank: str | None, registry: StrategyRegistry, llm: LLMProvider | None
+    rerank: str | None,
+    registry: StrategyRegistry,
+    llm: LLMProvider | None,
+    name: str = StrategyName.TRADITIONAL,
 ) -> RetrieverStrategy:
     """Return the strategy this request should retrieve through.
 
@@ -127,7 +131,7 @@ def _strategy_for(
     single request; the cache makes repeated cross-encoder requests as cheap
     as the ``none``/``llm`` cases always were.
     """
-    base = registry.get(StrategyName.TRADITIONAL)
+    base = registry.get(StrategyName(name))
     if rerank is None:
         return base
     if not isinstance(base, TraditionalRAGStrategy):
@@ -142,6 +146,35 @@ def _strategy_for(
         reranker=reranker,
         max_context_tokens=_configured_max_context_tokens(cfg),
         generation_model=cfg.llm.model,
+    )
+
+
+def _access_stats(
+    strategy: RetrieverStrategy, filters: dict, access: AccessFilter
+) -> tuple[int, int]:
+    """Candidate counts before and after the access filter, for the audit row.
+
+    Read off whichever store the strategy actually searched: the vector store
+    for the traditional strategy, the BM25 store for the vectorless one. Both
+    expose access_stats, so the number stays a measurement on either path
+    rather than a zero standing in for "not looked at" (ADR 0004).
+    """
+    store = getattr(strategy, "store", None)
+    if store is None:
+        store = getattr(strategy, "bm25_store", None)
+    if store is None or not hasattr(store, "access_stats"):
+        raise RuntimeError(f"{type(strategy).__name__} exposes no store to count candidates on")
+    return store.access_stats(filters, access)
+
+
+def _usage(result, cited: CitedAnswer | None = None) -> Usage:
+    """Assemble the response's usage block out of counts, never estimates."""
+    return Usage(
+        embedding_calls=result.embedding_calls,
+        llm_calls=result.llm_calls + (_cited_llm_calls(cited) if cited is not None else 0),
+        retrieval_calls=result.retrieval_calls,
+        input_tokens=result.input_tokens + (cited.input_tokens if cited is not None else 0),
+        output_tokens=result.output_tokens + (cited.output_tokens if cited is not None else 0),
     )
 
 
@@ -231,7 +264,7 @@ def query(
 ) -> AnswerResponse:
     """Ask a question and get a cited, grounded answer."""
     started = time.perf_counter()
-    strategy = _strategy_for(payload.rerank, registry, llm)
+    strategy = _strategy_for(payload.rerank, registry, llm, payload.strategy)
     with start_trace() as tracing:
         result = strategy.retrieve(payload.query, _context(payload, principal, access))
         retrieval_ms = int((time.perf_counter() - started) * 1000)
@@ -256,7 +289,8 @@ def query(
     # access_stats lives on the vector store itself (Task 13), called on the
     # exact store instance that just answered this request, so the count is
     # measured against the same candidates the strategy actually searched.
-    before, after = strategy.store.access_stats(
+    before, after = _access_stats(
+        strategy,
         {
             "collection_id": payload.collection_id,
             "document_id": payload.document_id,
@@ -269,8 +303,8 @@ def query(
         api_key_id=principal.api_key_id,
         question=payload.query,
         mode="manual",
-        requested_strategy="traditional",
-        selected_strategy="traditional",
+        requested_strategy=payload.strategy,
+        selected_strategy=payload.strategy,
         answer=result_payload["answer"],
         latency_ms=total_ms,
         retrieval_latency_ms=retrieval_ms,
@@ -303,7 +337,7 @@ def query(
             api_key_id=principal.api_key_id,
             action="query",
             question=payload.query,
-            strategy="traditional",
+            strategy=payload.strategy,
             retrieval_run_id=run.id,
             sources_returned=len(retrieved),
             sources_filtered=max(before - after, 0),
@@ -320,7 +354,7 @@ def query(
         )
     )
     db.commit()
-    return AnswerResponse(**result_payload)
+    return AnswerResponse(**result_payload, usage=_usage(result, cited))
 
 
 @router.post("/semantic", response_model=SearchResults)
@@ -334,8 +368,9 @@ def semantic_search(
 ) -> SearchResults:
     """Return the most semantically similar chunks for a query."""
     payload.mode = "semantic"
-    strategy = _strategy_for(payload.rerank, registry, llm)
-    before, after = strategy.store.access_stats(
+    strategy = _strategy_for(payload.rerank, registry, llm, payload.strategy)
+    before, after = _access_stats(
+        strategy,
         {
             "collection_id": payload.collection_id,
             "document_id": payload.document_id,
@@ -358,7 +393,9 @@ def semantic_search(
         )
     )
     db.commit()
-    return SearchResults(query=payload.query, mode="semantic", results=results)
+    return SearchResults(
+        query=payload.query, mode="semantic", strategy=payload.strategy, results=results
+    )
 
 
 @router.post("/hybrid", response_model=SearchResults)
@@ -379,8 +416,24 @@ def hybrid_search(
     here would pull Phase 4's whole subject forward into this task.
     """
     payload.mode = "hybrid"
-    strategy = _strategy_for(payload.rerank, registry, llm)
-    before, after = strategy.store.access_stats(
+    if payload.strategy != StrategyName.TRADITIONAL:
+        # Hybrid is defined as one vector ranking fused with one lexical
+        # ranking. Substituting a lexical-only strategy for the vector leg
+        # would fuse the lexical ranking with itself and report a
+        # hybrid_score that means nothing. Refusing is honest; serving it and
+        # calling the result hybrid is not. Use /api/search/semantic or
+        # /api/search/query with strategy: vectorless instead.
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"hybrid search fuses a vector ranking with a lexical one, so it cannot run "
+                f"the {payload.strategy!r} strategy, which is lexical on both legs; "
+                f"use /api/search/semantic or /api/search/query instead"
+            ),
+        )
+    strategy = _strategy_for(payload.rerank, registry, llm, payload.strategy)
+    before, after = _access_stats(
+        strategy,
         {
             "collection_id": payload.collection_id,
             "document_id": payload.document_id,
@@ -409,7 +462,9 @@ def hybrid_search(
         )
     )
     db.commit()
-    return SearchResults(query=payload.query, mode="hybrid", results=results)
+    return SearchResults(
+        query=payload.query, mode="hybrid", strategy=payload.strategy, results=results
+    )
 
 
 def _fuse(

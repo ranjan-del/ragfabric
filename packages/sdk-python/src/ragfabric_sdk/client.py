@@ -67,13 +67,24 @@ class Client:
     def close(self) -> None:
         self._http.close()
 
-    def ask(self, query: str, **params) -> Answer:
-        """POST /api/ask with stream=False and return the finished, cited answer."""
-        res = self._http.post("/api/ask", json={"query": query, "stream": False, **params})
+    def ask(self, query: str, strategy: str = "traditional", **params) -> Answer:
+        """POST /api/ask with stream=False and return the finished, cited answer.
+
+        ``strategy`` names the retrieval strategy: ``"traditional"`` (embed the
+        question, search the vector index) or ``"vectorless"`` (BM25 fused with
+        ts_rank_cd, no embedding call at all). It is spelled out as a named
+        parameter rather than left to ``**params`` because it changes what the
+        server does, and a caller should be able to find it in the signature.
+        The server rejects any other name with a 422.
+        """
+        res = self._http.post(
+            "/api/ask",
+            json={"query": query, "stream": False, "strategy": strategy, **params},
+        )
         raise_for_status(res)
         return Answer.model_validate(res.json())
 
-    def ask_stream(self, query: str, **params) -> Iterator[AskEvent]:
+    def ask_stream(self, query: str, strategy: str = "traditional", **params) -> Iterator[AskEvent]:
         """POST /api/ask with stream=True and yield each server-sent event.
 
         Events arrive in this order: ``retrieval``, one or more ``token``,
@@ -97,7 +108,9 @@ class Client:
         ``data:`` line is still yielded rather than silently dropped.
         """
         with self._http.stream(
-            "POST", "/api/ask", json={"query": query, "stream": True, **params}
+            "POST",
+            "/api/ask",
+            json={"query": query, "stream": True, "strategy": strategy, **params},
         ) as res:
             if res.status_code >= 400:
                 res.read()
@@ -113,10 +126,24 @@ class Client:
                     )
                     name = None
 
-    def search(self, query: str, mode: str = "semantic", **params) -> list[SearchResult]:
-        """POST /api/search/semantic or /api/search/hybrid and return the ranked chunks."""
+    def search(
+        self,
+        query: str,
+        mode: str = "semantic",
+        strategy: str = "traditional",
+        **params,
+    ) -> list[SearchResult]:
+        """POST /api/search/semantic or /api/search/hybrid and return the ranked chunks.
+
+        ``strategy`` selects the retrieval strategy, as on ``ask``. Note that
+        ``mode="hybrid"`` fuses a vector ranking with a lexical one, so the
+        server refuses a lexical-only strategy there with a 422; use the
+        default ``mode="semantic"`` to search with ``strategy="vectorless"``.
+        """
         path = "/api/search/hybrid" if mode == "hybrid" else "/api/search/semantic"
-        res = self._http.post(path, json={"query": query, "mode": mode, **params})
+        res = self._http.post(
+            path, json={"query": query, "mode": mode, "strategy": strategy, **params}
+        )
         raise_for_status(res)
         return [SearchResult.model_validate(r) for r in res.json()["results"]]
 

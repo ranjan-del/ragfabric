@@ -35,18 +35,34 @@ from ragfabric_core.stores.base import LexicalStore, VectorStore
 def reindex_all(
     db: Session,
     *,
-    embedding_provider: EmbeddingProvider,
-    vector_store: VectorStore,
+    embedding_provider: EmbeddingProvider | None = None,
+    vector_store: VectorStore | None = None,
     lexical_store: LexicalStore | None = None,
+    lexical_only: bool = False,
     batch_size: int = 64,
     document_id: int | None = None,
     on_progress: Callable[[int, int], None] | None = None,
 ) -> int:
-    """Re-embed every chunk (or one document's chunks) and return how many."""
+    """Re-embed every chunk (or one document's chunks) and return how many.
+
+    ``lexical_only`` rewrites the lexical index and nothing else: no embedding
+    call, no vector write. Phase 4 needs it because chunk_search rows written
+    before BM25 carry doc_len = 0 and a term-frequency-free tsv, and those rows
+    are excluded from BM25 rather than scored. Re-embedding a whole corpus to
+    fix a lexical column would cost real provider money for no benefit, so the
+    two are separable.
+    """
+    if lexical_only:
+        if lexical_store is None:
+            raise ValueError("lexical_only needs a lexical_store")
+    elif embedding_provider is None or vector_store is None:
+        raise ValueError("reindex needs an embedding_provider and a vector_store")
+
     counter = select(func.count()).select_from(Chunk)
     if document_id is not None:
         counter = counter.where(Chunk.document_id == document_id)
-        vector_store.delete_document(document_id)
+        if not lexical_only:
+            vector_store.delete_document(document_id)
     total = int(db.execute(counter).scalar() or 0)
 
     if total == 0:
@@ -65,7 +81,7 @@ def reindex_all(
         if not batch:
             break
         last_id = batch[-1].id
-        done += _flush(batch, embedding_provider, vector_store, lexical_store)
+        done += _flush(batch, embedding_provider, vector_store, lexical_store, lexical_only)
         # Drop this page from the Session's identity map before fetching the
         # next one, so ORM memory is bounded by batch_size, not by corpus size.
         db.expunge_all()
@@ -76,23 +92,25 @@ def reindex_all(
 
 def _flush(
     batch: list[Chunk],
-    provider: EmbeddingProvider,
-    vector_store: VectorStore,
+    provider: EmbeddingProvider | None,
+    vector_store: VectorStore | None,
     lexical_store: LexicalStore | None,
+    lexical_only: bool = False,
 ) -> int:
     texts = [c.text for c in batch]
-    result = provider.embed(texts)
     ids = [c.id for c in batch]
     payloads = [
         {
             "document_id": c.document_id,
             "collection_id": c.collection_id,
-            "model": provider.model,
-            "dim": provider.dim,
+            "model": provider.model if provider is not None else None,
+            "dim": provider.dim if provider is not None else None,
         }
         for c in batch
     ]
-    vector_store.upsert(ids, result.vectors, payloads)
+    if not lexical_only:
+        result = provider.embed(texts)
+        vector_store.upsert(ids, result.vectors, payloads)
     if lexical_store is not None:
         lexical_store.index(ids, texts, payloads)
     return len(batch)

@@ -1,6 +1,6 @@
 [project]
 name = "ragfabric-core"
-version = "0.1.0a0"
+version = "0.1.0"
 description = "RagFabric engine: retrieval strategies, providers, stores, ingestion, evaluation, access policy."
 readme = "README.md"
 license = "Apache-2.0"
@@ -28,6 +28,10 @@ dependencies = [
 
 [project.optional-dependencies]
 chroma = ["chromadb>=1.5"]
+# In-process BM25 (stores/bm25_memory.py). Optional because it is not the
+# production path: the SQL store needs no extra at all, and a deployment
+# that never uses the in-process store should not carry the dependency.
+bm25 = ["rank_bm25>=0.2.2"]
 rerank = ["sentence-transformers>=5.1"]
 # Ollama also goes through OpenAICompatibleLLM/OpenAICompatibleEmbeddings
 # (providers/openai_compat.py), since Ollama serves the OpenAI chat and

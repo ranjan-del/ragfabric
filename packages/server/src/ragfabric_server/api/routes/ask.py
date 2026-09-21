@@ -54,7 +54,6 @@ from ragfabric_core.models.access import AuditLog
 from ragfabric_core.models.document import QueryLog
 from ragfabric_core.models.runs import RetrievalRun, Source
 from ragfabric_core.providers.base import LLMProvider, Message
-from ragfabric_core.stores.base import VectorStore
 from ragfabric_core.strategies.base import (
     RetrievalContext,
     RetrievedChunk,
@@ -63,7 +62,13 @@ from ragfabric_core.strategies.base import (
     TraceSpan,
 )
 from ragfabric_core.telemetry.tracing import start_trace, trace
-from ragfabric_server.api.routes.search import _chunk_to_row, _cited_llm_calls, _strategy_for
+from ragfabric_server.api.routes.search import (
+    _access_stats,
+    _chunk_to_row,
+    _cited_llm_calls,
+    _strategy_for,
+    _usage,
+)
 from ragfabric_server.deps import (
     get_access_filter,
     get_embedding_model,
@@ -118,7 +123,7 @@ def _record(
     payload: AskRequest,
     principal: Principal,
     access: AccessFilter,
-    store: VectorStore,
+    strategy,
     result,
     answer: dict,
     spans: list[dict],
@@ -136,13 +141,14 @@ def _record(
     touches the database at all.
 
     ``access_stats`` (candidate counts before/after the access filter, for the
-    audit row's ``sources_filtered``) is read from ``store``, the exact vector
-    store the strategy just retrieved through (``strategy.store``, passed in
-    by the caller), so the count is measured against the same candidates this
-    request actually searched, the same as ``search.py``'s three endpoints.
+    audit row's ``sources_filtered``) is read through ``_access_stats`` off
+    the exact strategy that just retrieved, so the count is measured against
+    the same candidates this request actually searched, the same as
+    ``search.py``'s three endpoints, whichever store that strategy uses.
     """
     used = {c["chunk_id"] for c in answer["citations"] if c["used"]}
-    before, after = store.access_stats(
+    before, after = _access_stats(
+        strategy,
         {
             "collection_id": payload.collection_id,
             "document_id": payload.document_id,
@@ -225,12 +231,13 @@ def ask(
     llm: LLMProvider = Depends(get_llm_provider),
     embedding_model: str = Depends(get_embedding_model),
 ) -> StreamingResponse | AnswerResponse:
-    # AskRequest.strategy is pinned to "traditional" (pattern-validated), so
-    # this resolves to the same shared instance StrategyName(payload.strategy)
-    # would; _strategy_for additionally honours payload.rerank, building a
+    # AskRequest.strategy is pattern-validated to a name the registry holds,
+    # so an unknown one is a 422 from validation and never a KeyError here.
+    # _strategy_for additionally honours payload.rerank, building a
     # per-request strategy around the shared store/embedder rather than
-    # mutating the shared one when a reranker override is present.
-    strategy = _strategy_for(payload.rerank, registry, llm)
+    # mutating the shared one when a reranker override is present (the
+    # rerank override applies to the traditional strategy only).
+    strategy = _strategy_for(payload.rerank, registry, llm, payload.strategy)
 
     if not payload.stream:
         started = time.perf_counter()
@@ -247,7 +254,7 @@ def ask(
             payload=payload,
             principal=principal,
             access=access,
-            store=strategy.store,
+            strategy=strategy,
             result=result,
             answer=answer,
             spans=[s.model_dump() for s in result.trace] + [s.model_dump() for s in tracing.spans],
@@ -258,7 +265,7 @@ def ask(
             total_ms=total_ms,
             retrieval_ms=retrieval_ms,
         )
-        return AnswerResponse(**answer)
+        return AnswerResponse(**answer, usage=_usage(result, cited))
 
     def events() -> Iterator[str]:
         # Deliberately NOT wrapped in ``start_trace()``/``trace()``: those use
@@ -348,7 +355,7 @@ def ask(
             payload=payload,
             principal=principal,
             access=access,
-            store=strategy.store,
+            strategy=strategy,
             result=result,
             answer=answer,
             spans=spans,
@@ -359,7 +366,25 @@ def ask(
             total_ms=total_ms,
             retrieval_ms=retrieval_ms,
         )
-        yield _event("done", {"run_id": run_id, "latency_ms": total_ms})
+        yield _event(
+            "done",
+            {
+                "run_id": run_id,
+                "latency_ms": total_ms,
+                # Assembled by hand rather than through _usage: on the
+                # streaming path llm_calls and the token counts were tracked
+                # above across the accepted/superseded branches, and _usage
+                # would recompute them from a CitedAnswer this branch may not
+                # have. Every number here is still one that was counted.
+                "usage": {
+                    "embedding_calls": result.embedding_calls,
+                    "llm_calls": llm_calls,
+                    "retrieval_calls": result.retrieval_calls,
+                    "input_tokens": result.input_tokens + in_tokens,
+                    "output_tokens": result.output_tokens + out_tokens,
+                },
+            },
+        )
 
     return StreamingResponse(
         events(),

@@ -1,0 +1,71 @@
+# Publishes container images to GHCR when a v* tag is pushed.
+#
+# The API and the worker are the SAME image. deploy/docker/api.Dockerfile is
+# built once, and the worker differs only by its command (`ragfabric worker`),
+# exactly as docker-compose.yml overrides it. Both names are published so either
+# can be pulled by name, but they resolve to one digest: building twice would
+# produce two images that are byte identical and free to drift apart later.
+#
+# Nothing here runs on a branch push. The only trigger is a tag matching v*, so
+# the release is an explicit act.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Derive the version from the tag
+        id: version
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Built once, pushed under both names. Each name carries the version tag
+      # and the commit SHA, so an image in a running cluster can always be
+      # traced back to the exact source it was built from.
+      - name: Build and push the API and worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/api.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/api:${{ steps.version.outputs.value }}
+            ghcr.io/${{ github.repository }}/api:${{ github.sha }}
+            ghcr.io/${{ github.repository }}/worker:${{ steps.version.outputs.value }}
+            ghcr.io/${{ github.repository }}/worker:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push the UI image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/ui.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/ui:${{ steps.version.outputs.value }}
+            ghcr.io/${{ github.repository }}/ui:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

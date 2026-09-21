@@ -81,6 +81,13 @@ class RetrievalResult(BaseModel):
     chunks: list[RetrievedChunk]
     retrieval_calls: int = Field(ge=0)
     llm_calls: int = Field(ge=0)
+    # Embedding provider calls actually issued. Reported separately from
+    # llm_calls because the two are priced differently and, for the vectorless
+    # strategy, the whole point is that this is zero. Defaults to 0 so a
+    # strategy that embeds nothing does not have to remember to say so, and
+    # every strategy that does embed sets it explicitly (ADR 0004: a count
+    # reports what happened, it is never defaulted to a plausible number).
+    embedding_calls: int = Field(default=0, ge=0)
     input_tokens: int = Field(ge=0)
     output_tokens: int = Field(ge=0)
     latency_ms: int = Field(ge=0)

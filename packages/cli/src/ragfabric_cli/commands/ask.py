@@ -9,6 +9,7 @@ running server to talk to; the help text says so.
 from __future__ import annotations
 
 import os
+from enum import StrEnum
 
 import typer
 
@@ -16,6 +17,21 @@ from ragfabric_sdk import Client
 from ragfabric_sdk.errors import RagFabricError
 
 DEFAULT_URL = "http://localhost:8000"
+
+
+class Strategy(StrEnum):
+    """Retrieval strategies this command can ask the server for.
+
+    An Enum rather than a free string so Typer refuses an unknown name while
+    parsing, before the command body runs. A typo then costs nothing: no
+    request leaves the machine, no embedding call is spent, and the error
+    names the valid choices instead of arriving as a 422 from the server.
+    The members mirror the server's own Literal in schemas/search.py; the
+    server stays the authority and still validates what it is sent.
+    """
+
+    traditional = "traditional"
+    vectorless = "vectorless"
 
 
 def ask(
@@ -30,6 +46,15 @@ def ask(
         0.0, "--threshold", min=0.0, max=1.0, help="Similarity threshold."
     ),
     collection: int = typer.Option(None, "--collection", help="Collection id to search."),
+    strategy: Strategy = typer.Option(
+        Strategy.traditional,
+        "--strategy",
+        help=(
+            "Retrieval strategy. traditional embeds the question and searches the "
+            "vector index; vectorless ranks with BM25 fused with ts_rank_cd and "
+            "never calls an embedding model."
+        ),
+    ),
     no_stream: bool = typer.Option(
         False, "--no-stream", help="Wait for the whole answer instead of streaming tokens."
     ),
@@ -56,7 +81,11 @@ def ask(
         )
         raise typer.Exit(2)
 
-    params: dict[str, object] = {"top_k": top_k, "similarity_threshold": threshold}
+    params: dict[str, object] = {
+        "top_k": top_k,
+        "similarity_threshold": threshold,
+        "strategy": strategy.value,
+    }
     if collection is not None:
         params["collection_id"] = collection
 

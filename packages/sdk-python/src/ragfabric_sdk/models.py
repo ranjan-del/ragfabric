@@ -55,6 +55,20 @@ class SourceDocument(BaseModel):
     collection_id: int | None = None
 
 
+class Usage(BaseModel):
+    """Mirrors ``schemas.search.Usage``: what the request actually cost.
+
+    ``embedding_calls`` is zero for the vectorless strategy, which makes none,
+    and one for the traditional strategy, which embeds the query exactly once.
+    """
+
+    embedding_calls: int = 0
+    llm_calls: int = 0
+    retrieval_calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
 class Answer(BaseModel):
     """Mirrors ``schemas.search.AnswerResponse``, returned by both
     ``POST /api/ask`` (non streaming) and ``POST /api/search/query``."""
@@ -65,6 +79,9 @@ class Answer(BaseModel):
     citations: list[Citation]
     highlights: list[Highlight]
     source_document: SourceDocument | None = None
+    # Optional so this client still parses a response from a server older
+    # than Phase 4, which has no usage block to report.
+    usage: Usage | None = None
 
 
 class SearchResult(BaseModel):

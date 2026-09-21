@@ -7,15 +7,17 @@ fixtures that do not exist.
 """
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from ragfabric_core.auth.principal import AccessFilter
 from ragfabric_core.ingest.reindex import reindex_all
 from ragfabric_core.models import Base
 from ragfabric_core.models.document import Chunk, Document
+from ragfabric_core.models.index import ChunkSearch
 from ragfabric_core.providers.offline import HashingEmbeddingProvider
 from ragfabric_core.stores.pgvector_store import PgVectorStore
+from ragfabric_core.stores.postgres_fts import PostgresLexicalStore
 
 
 @pytest.fixture()
@@ -225,3 +227,41 @@ def test_reindex_expunges_each_batch_so_the_identity_map_does_not_accumulate(sf)
     # finished batch were staying resident instead of being released, the
     # identity map would grow across calls instead of staying at zero.
     assert sizes == [0, 0, 0], "processed batches must not accumulate in the session"
+
+
+def test_lexical_only_reindex_makes_no_embedding_call(sf):
+    """The mode that brings a pre-BM25 corpus forward.
+
+    chunk_search rows written before Phase 4 carry doc_len = 0 and a tsv with
+    no term frequency, and BM25 excludes them. Fixing that must not cost a
+    round trip to the embedding provider for every chunk in the corpus.
+    """
+    factory, _ = sf
+    lexical = PostgresLexicalStore(factory)
+
+    class RefusingProvider:
+        model, dim = "must-not-be-called", 8
+
+        def embed(self, texts):
+            raise AssertionError("lexical_only must not embed")
+
+    with factory() as db:
+        count = reindex_all(
+            db,
+            embedding_provider=RefusingProvider(),
+            vector_store=None,
+            lexical_store=lexical,
+            lexical_only=True,
+            batch_size=2,
+        )
+    assert count == 5
+    with factory() as db:
+        rows = db.execute(select(ChunkSearch)).scalars().all()
+    assert len(rows) == 5
+    assert all(row.doc_len > 0 for row in rows)
+
+
+def test_lexical_only_without_a_lexical_store_is_an_error(sf):
+    factory, _ = sf
+    with factory() as db, pytest.raises(ValueError):
+        reindex_all(db, lexical_store=None, lexical_only=True)
