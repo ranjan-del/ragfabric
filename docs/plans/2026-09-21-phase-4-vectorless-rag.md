@@ -869,9 +869,9 @@ The issue asks for the BM25 formula with `tf`, `idf`, `k1`, `b`, and an honest a
 
 Write it for someone who has not read the code. No unexplained jargon.
 
-- [ ] **Step 1: Write both documents.**
-- [ ] **Step 2: Verify every claim against the implementation.** Any number quoted must come from a real run. Per ADR 0004, do not invent a benchmark.
-- [ ] **Step 3: Commit** `docs: explain BM25 and when lexical retrieval beats vectors`
+- [x] **Step 1: Write both documents.**
+- [x] **Step 2: Verify every claim against the implementation.** Any number quoted must come from a real run. Per ADR 0004, do not invent a benchmark.
+- [x] **Step 3: Commit** `docs: explain BM25 and when lexical retrieval beats vectors`
 
 ---
 
