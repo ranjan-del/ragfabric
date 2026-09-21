@@ -1,7 +1,9 @@
 # deploy/docker/api.Dockerfile
 # RagFabric API image. Multi stage: resolve the uv workspace, then copy only the venv.
-FROM python:3.13-slim AS builder
-COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /uvx /bin/
+# python:3.13-slim as of 2026-09-21
+FROM python@sha256:8d9d0b8bcf6506481eae4907c18f5e3e7902e629f5f6d684f9e7c32e85e3ddf0 AS builder
+# ghcr.io/astral-sh/uv:0.12.13 as of 2026-09-21
+COPY --from=ghcr.io/astral-sh/uv@sha256:b485bd65cc2cf1c9a93b3554012c9c3778cf7b1b5fd3d3096ce9e1226c97e1e6 /uv /uvx /bin/
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 COPY pyproject.toml uv.lock ./
@@ -12,7 +14,8 @@ RUN uv sync --frozen --no-dev --no-install-workspace
 COPY packages/ packages/
 RUN uv sync --frozen --no-dev --all-packages
 
-FROM python:3.13-slim
+# python:3.13-slim as of 2026-09-21
+FROM python@sha256:8d9d0b8bcf6506481eae4907c18f5e3e7902e629f5f6d684f9e7c32e85e3ddf0
 RUN useradd --create-home --uid 10001 ragfabric
 WORKDIR /app
 COPY --from=builder --chown=ragfabric:ragfabric /app /app

@@ -18,7 +18,8 @@ name: ragfabric
 
 services:
   postgres:
-    image: pgvector/pgvector:0.8.6-pg18
+    # pgvector/pgvector:0.8.6-pg18 as of 2026-09-21
+    image: pgvector/pgvector@sha256:2ba9ca5f2e7daa0f0e7723cba1ee9167bab54efd3640516a44ac1a928dd67e7a
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-ragfabric}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragfabric}
@@ -34,7 +35,8 @@ services:
       retries: 12
 
   redis:
-    image: redis:8.8-alpine
+    # redis:8.8-alpine as of 2026-09-21
+    image: redis@sha256:e2c307e77bcaf306fa9e468bda845165a46c4c015ffd238fb3c92ae5d71d486f
     command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
     ports:
       - "127.0.0.1:6379:6379"
@@ -115,7 +117,8 @@ services:
         condition: service_healthy
 
   chroma:
-    image: chromadb/chroma:1.5.9
+    # chromadb/chroma:1.5.9 as of 2026-09-21
+    image: chromadb/chroma@sha256:1e0b73a187a28757c572acba508c46f48c9e8b0acaf5c20e6d95cdedce1acdf6
     profiles: ["full"]
     environment:
       ANONYMIZED_TELEMETRY: "false"
@@ -130,7 +133,8 @@ services:
       retries: 12
 
   neo4j:
-    image: neo4j:2026.08.1-community
+    # neo4j:2026.08.1-community as of 2026-09-21
+    image: neo4j@sha256:d8f4c156caa3af76499134947deb11d13042e471d9733060449f2a01eb7a248e
     profiles: ["full"]
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-please-change-me-12}

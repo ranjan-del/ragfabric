@@ -45,7 +45,8 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: pgvector/pgvector:0.8.6-pg18
+        # pgvector/pgvector:0.8.6-pg18 as of 2026-09-21
+        image: pgvector/pgvector@sha256:2ba9ca5f2e7daa0f0e7723cba1ee9167bab54efd3640516a44ac1a928dd67e7a
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -58,7 +59,8 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       chroma:
-        image: chromadb/chroma:1.5.9
+        # chromadb/chroma:1.5.9 as of 2026-09-21
+        image: chromadb/chroma@sha256:1e0b73a187a28757c572acba508c46f48c9e8b0acaf5c20e6d95cdedce1acdf6
         ports:
           - 8000:8000
         options: >-
