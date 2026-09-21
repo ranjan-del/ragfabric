@@ -9,7 +9,7 @@ from ragfabric_core.providers.registry import build_embedding_provider
 from ragfabric_core.queue.registry import build_queue
 from ragfabric_core.runtime import get_config, get_session_factory
 from ragfabric_core.stores.registry import build_lexical_store, build_vector_store
-from ragfabric_core.workers.runner import Worker, default_handlers
+from ragfabric_core.workers.runner import Worker, default_handlers, install_sigterm_handler
 
 
 def _stores():
@@ -45,5 +45,8 @@ def worker(
     if once:
         typer.echo("processed 1 job" if w.run_once(timeout_seconds=1.0) else "queue empty")
         return
+    stop = threading.Event()
+    install_sigterm_handler(stop)
     typer.echo("worker started; waiting for jobs")
-    w.run_forever(threading.Event())
+    w.run_forever(stop)
+    typer.echo("worker stopped")

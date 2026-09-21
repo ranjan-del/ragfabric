@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import signal
 import threading
 from collections.abc import Callable
 
@@ -17,6 +18,30 @@ from ragfabric_core.workers import handlers
 log = logging.getLogger(__name__)
 
 Handler = Callable[[Session, Job], None]
+
+
+def install_sigterm_handler(stop: threading.Event) -> None:
+    """Make SIGTERM request a graceful stop instead of killing the process mid job.
+
+    A container stop sends SIGTERM (then SIGKILL after a grace period).
+    Python's default SIGTERM disposition raises ``SystemExit``, which can land
+    in the middle of ``run_once`` and abandon a job partway through any of its
+    several commits. Installing this handler instead only sets ``stop``:
+    ``run_forever``'s loop checks it between jobs, so the job already in
+    flight always finishes (success or failure, exactly as it would without a
+    signal) before the loop exits and the process returns normally, i.e. exit
+    code 0, not whatever exit code a raised ``SystemExit`` mid-job would leave
+    behind.
+
+    Signal handlers are only deliverable on the main thread, which is where
+    the CLI's worker command runs this from.
+    """
+
+    def _handle(signum: int, frame: object) -> None:
+        log.info("SIGTERM received; finishing the current job, then stopping")
+        stop.set()
+
+    signal.signal(signal.SIGTERM, _handle)
 
 
 def default_handlers(
