@@ -300,7 +300,7 @@ def test_a_long_chunk_is_penalised_when_b_is_on():
 
 In `postgres_fts.py`, the non-PostgreSQL branch currently writes `" ".join(sorted(_tokens(text)))`, where `_tokens` returns a `set`. Replace with a representation that keeps repetition, so `tf` survives. Populate `ChunkSearch.doc_len` on both branches. Call `record_indexed` / `record_removed` so statistics stay consistent with what is indexed.
 
-Existing rows written before this change carry `doc_len = 0` and a set-based `tsv`. Provide `ragfabric reindex --lexical` (wire into the existing CLI) and say plainly in the release notes that lexical search requires a re-index after upgrading. Do not silently treat `doc_len = 0` as valid: it would make the length-normalisation denominator collapse.
+Existing rows written before this change carry `doc_len = 0` and a set-based `tsv`. Extend the existing `reindex_all` (it already takes a `lexical_store`) and the existing `ragfabric reindex` command with a lexical-only mode, and say plainly in the release notes that lexical search requires a re-index after upgrading. Do not silently treat `doc_len = 0` as valid: it would make the length-normalisation denominator collapse.
 
 - [ ] **Step 5: Write the store integration tests**, including the phase's done-criteria:
 
@@ -525,7 +525,7 @@ def test_top_k_is_applied_after_fusion_not_per_store(strategy):
 def test_an_answer_carries_citations_that_pass_the_phase_3_contract(strategy):
     answer = strategy.ask("what is the retry limit for ERR_QUOTA_4419", access=ALL)
     assert answer.citations
-    verify_contract(answer)  # reuse, do not reimplement
+    assert_citation_contract(answer.text, answer.chunks)  # real API, do not reimplement
 ```
 
 - [ ] **Step 2: Run them, confirm they fail.**
@@ -563,7 +563,7 @@ This exists for small corpora and for cross-checking the SQL implementation agai
 def test_exceeding_the_cap_raises_rather_than_degrading(store_with_cap_of_2):
     with pytest.raises(StoreCapacityError) as exc:
         store_with_cap_of_2.index([1, 2, 3], ["a", "b", "c"], payloads)
-    assert "50" in str(exc.value) or "limit" in str(exc.value).lower()
+    assert "2" in str(exc.value) and "limit" in str(exc.value).lower()
 
 
 def test_it_agrees_with_the_sql_implementation_on_a_small_corpus(mem_store, sql_store, corpus):
