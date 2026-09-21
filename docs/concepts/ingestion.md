@@ -77,9 +77,14 @@ A document's `status` moves through `processing` (parsing and chunking) to `inde
 index writes, in `queue` mode) to `ready`. In `inline` mode a document goes straight from `processing`
 to `ready` inside the one request, and `failed` if any step raises. In `queue` mode, a job whose
 handler raises also marks the document `failed`, with the exception recorded on `Document.error`; a
-worker process killed mid job, in contrast, leaves the document at `indexing` until the job is
-re-enqueued, since nothing observed the crash to update its status. Retries with a processing list
-(so a stuck job can be detected and requeued) arrive in Phase 3.
+worker process killed mid job, in contrast, leaves the document at `indexing` until something retries
+it, since nothing observed the crash to update its status. `ragfabric reconcile` (Phase 3) is the
+operator-triggered retry for that stuck state: it re-runs indexing for any document stuck in
+`indexing` past a grace period. Its documented limitation is judging "stuck" purely by age, with no
+lock or worker heartbeat behind it, so a merely slow document (not crashed) can be re-run by it while a
+live worker is still processing it; the result still converges, since the underlying writes are
+idempotent, but the embedding provider is called a second time. The safe procedure is to stop the
+worker(s) before running it.
 
 ## Why both indexes are written in one job
 
@@ -90,7 +95,6 @@ after the vector write has already committed can leave vector rows in place with
 row, until the document is re-indexed. It also means Phase 2 can build and populate both indexes now,
 ahead of retrieval switching over to them in Phase 3, without a second migration to "catch up" the
 data later.
-The trade-off is that today's queries still run against the older, v1 in memory index, so ingestion
-does strictly more work per document than the query path currently uses; Phase 3 removes that
-duplication by pointing retrieval at `chunk_embeddings` and `chunk_search` and retiring the in memory
-index.
+Before Phase 3, queries still ran against the older, v1 in memory index, so ingestion did strictly more
+work per document than the query path used at the time. Phase 3 removed that duplication: retrieval now
+reads `chunk_embeddings` and `chunk_search` directly, and the v1 in memory index no longer exists.
