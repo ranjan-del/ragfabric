@@ -65,7 +65,8 @@ def test_ask_prints_sources_and_reports_a_superseded_correction(monkeypatch):
             yield AskEvent(event="token", data={"text": "twenty "})
             yield AskEvent(event="token", data={"text": "days"})
             yield AskEvent(
-                event="superseded", data={"text": "twenty four days [1]", "reason": "citation contract"}
+                event="superseded",
+                data={"text": "twenty four days [1]", "reason": "citation contract"},
             )
             yield AskEvent(
                 event="citations",

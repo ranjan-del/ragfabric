@@ -77,9 +77,7 @@ def test_build_answer_produces_citations_confidence_and_highlights():
         "The security policy requires multi factor authentication for all admins.",
         "Coffee is available on every floor of the building.",
     ]
-    retrieved = _retrieve(
-        docs, "What authentication is required for admins?", embedder, top_k=2
-    )
+    retrieved = _retrieve(docs, "What authentication is required for admins?", embedder, top_k=2)
     result = build_answer("What authentication is required for admins?", retrieved)
 
     assert result["answer"]

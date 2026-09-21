@@ -139,4 +139,3 @@ def test_result_counts_cannot_be_negative():
             latency_ms=0,
             trace=[],
         )
-

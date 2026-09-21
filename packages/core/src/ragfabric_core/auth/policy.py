@@ -67,9 +67,7 @@ def compute_access_filter(db: Session, principal: Principal) -> AccessFilter:
     # collection id, with the difference taken in Python); it is now a
     # correlated NOT EXISTS, so the database does the scoping and only the
     # already-allowed collection ids ever cross into Python.
-    no_grants_at_all = ~exists(
-        select(1).where(CollectionGrant.collection_id == Collection.id)
-    )
+    no_grants_at_all = ~exists(select(1).where(CollectionGrant.collection_id == Collection.id))
     collection_conditions = [no_grants_at_all]
     if groups:
         collection_conditions.append(

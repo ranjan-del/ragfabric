@@ -135,9 +135,7 @@ def test_it_thresholds_using_the_retrieval_score_not_the_reranked_score():
             ][:top_k]
 
     store = StubStore([chunk(1, 0.9), chunk(2, 0.6), chunk(3, 0.2)])
-    result = strategy(store, reranker=RescoringReverse()).retrieve(
-        "q", ctx(top_k=3, threshold=0.5)
-    )
+    result = strategy(store, reranker=RescoringReverse()).retrieve("q", ctx(top_k=3, threshold=0.5))
     result_ids = [c.chunk_id for c in result.chunks]
     assert 3 not in result_ids, "chunk 3 is below the retrieval threshold and must be dropped"
     assert result_ids == [2, 1], "surviving chunks must be in the reranker's order"

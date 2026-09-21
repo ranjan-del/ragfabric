@@ -10,9 +10,7 @@ TIKTOKEN_AVAILABLE = os.environ.get("RAGFABRIC_TEST_TIKTOKEN", "")
 
 
 def chunk(cid: int, text: str, score: float) -> RetrievedChunk:
-    return RetrievedChunk(
-        chunk_id=cid, document_id=1, collection_id=None, text=text, score=score
-    )
+    return RetrievedChunk(chunk_id=cid, document_id=1, collection_id=None, text=text, score=score)
 
 
 # Hermetic unit tests (no network calls)

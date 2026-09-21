@@ -10,9 +10,7 @@ from ragfabric_core.strategies.base import RetrievedChunk
 
 
 def chunk(cid: int, text: str, score: float) -> RetrievedChunk:
-    return RetrievedChunk(
-        chunk_id=cid, document_id=1, collection_id=None, text=text, score=score
-    )
+    return RetrievedChunk(chunk_id=cid, document_id=1, collection_id=None, text=text, score=score)
 
 
 class StubLLM:
@@ -194,7 +192,9 @@ def test_cross_encoder_reranker_loads_the_model_lazily_and_caches_it(monkeypatch
     monkeypatch.setattr(ce, "_import_cross_encoder", lambda: SentinelModel)
 
     reranker = ce.CrossEncoderReranker()
-    assert SentinelModel.instances == 0, "construction must validate the extra without loading weights"
+    assert SentinelModel.instances == 0, (
+        "construction must validate the extra without loading weights"
+    )
 
     chunks = [chunk(1, "a", 0.9), chunk(2, "b", 0.8)]
     reranker.rerank("q", chunks, top_k=2)

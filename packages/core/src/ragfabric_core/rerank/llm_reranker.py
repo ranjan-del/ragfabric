@@ -28,7 +28,7 @@ from ragfabric_core.strategies.base import RetrievedChunk
 
 _SYSTEM = (
     "You score how well each numbered passage answers the question. "
-    "Reply with JSON only, in the form {\"scores\": [0.0, 1.0, ...]}, "
+    'Reply with JSON only, in the form {"scores": [0.0, 1.0, ...]}, '
     "one score between 0 and 1 per passage, in the same order as the passages. "
     "Do not add commentary."
 )

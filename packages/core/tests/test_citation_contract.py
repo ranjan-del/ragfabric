@@ -21,7 +21,7 @@ def test_cited_markers_reads_every_marker_in_order_without_duplicates():
 
 def test_a_valid_answer_passes():
     assert_citation_contract(
-        'Staff get 24 days of annual leave [1], and it accrues monthly [2].',
+        "Staff get 24 days of annual leave [1], and it accrues monthly [2].",
         chunks("Employees receive 24 days of annual leave.", "Leave accrues monthly."),
     )
 

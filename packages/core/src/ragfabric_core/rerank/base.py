@@ -57,6 +57,5 @@ def rescore_and_sort(
     paired = list(zip(chunks, scores, strict=True))
     paired.sort(key=lambda pair: (-pair[1], pair[0].chunk_id))
     return [
-        chunk.model_copy(update={"score": max(0.0, min(1.0, score))})
-        for chunk, score in paired
+        chunk.model_copy(update={"score": max(0.0, min(1.0, score))}) for chunk, score in paired
     ][:top_k]
