@@ -161,6 +161,26 @@ def test_the_done_event_carries_a_run_id_that_resolves(client, admin_token, inge
     assert res.json()["sources"]
 
 
+def test_ask_records_no_cost_estimate_on_the_run(client, admin_token, ingested_doc):
+    """``estimated_cost_usd`` must stay ``None``, not a fabricated ``0.0``.
+
+    Mirrors the same fix in ``/api/search/query``: no price table is wired
+    in yet, so the honest value is "not computed", not "free".
+    """
+    with client.stream(
+        "POST",
+        "/api/ask",
+        json={"query": "leave", "stream": True},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    ) as res:
+        events = _events("".join(res.iter_text()))
+    run_id = dict(events)["done"]["run_id"]
+
+    run_res = client.get(f"/api/runs/{run_id}", headers={"Authorization": f"Bearer {admin_token}"})
+    assert run_res.status_code == 200
+    assert run_res.json()["estimated_cost_usd"] is None
+
+
 def test_ask_without_streaming_returns_the_same_shape_as_query(client, admin_token, ingested_doc):
     res = client.post(
         "/api/ask",

@@ -279,7 +279,7 @@ def query(
         retrieval_calls=result.retrieval_calls,
         input_tokens=result.input_tokens + cited.input_tokens,
         output_tokens=result.output_tokens + cited.output_tokens,
-        estimated_cost_usd=0.0,
+        estimated_cost_usd=None,
         embedding_model=embedding_model,
         trace=[s.model_dump() for s in result.trace] + [s.model_dump() for s in tracing.spans],
     )
