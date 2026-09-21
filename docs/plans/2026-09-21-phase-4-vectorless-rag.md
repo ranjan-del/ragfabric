@@ -255,7 +255,7 @@ Defaults: `k1 = 1.2`, `b = 0.75`. Both configurable in Task 9.
 | `k1` | term frequency saturation | more reward for repetition |
 | `b` | length normalisation strength | penalises long chunks harder. `b = 0` disables it |
 
-- [ ] **Step 1: Write the failing pure function tests**
+- [x] **Step 1: Write the failing pure function tests**
 
 ```python
 def test_idf_is_never_negative_for_a_very_common_term():
@@ -292,17 +292,17 @@ def test_a_long_chunk_is_penalised_when_b_is_on():
     assert short > long
 ```
 
-- [ ] **Step 2: Run them, confirm they fail.**
+- [x] **Step 2: Run them, confirm they fail.**
 
-- [ ] **Step 3: Implement `bm25_score` as a pure function.** No database access. It is the piece most worth testing in isolation and the piece a reviewer must be able to check against the formula above by eye.
+- [x] **Step 3: Implement `bm25_score` as a pure function.** No database access. It is the piece most worth testing in isolation and the piece a reviewer must be able to check against the formula above by eye.
 
-- [ ] **Step 4: Preserve term frequency off PostgreSQL.**
+- [x] **Step 4: Preserve term frequency off PostgreSQL.**
 
 In `postgres_fts.py`, the non-PostgreSQL branch currently writes `" ".join(sorted(_tokens(text)))`, where `_tokens` returns a `set`. Replace with a representation that keeps repetition, so `tf` survives. Populate `ChunkSearch.doc_len` on both branches. Call `record_indexed` / `record_removed` so statistics stay consistent with what is indexed.
 
 Existing rows written before this change carry `doc_len = 0` and a set-based `tsv`. Extend the existing `reindex_all` (it already takes a `lexical_store`) and the existing `ragfabric reindex` command with a lexical-only mode, and say plainly in the release notes that lexical search requires a re-index after upgrading. Do not silently treat `doc_len = 0` as valid: it would make the length-normalisation denominator collapse.
 
-- [ ] **Step 5: Write the store integration tests**, including the phase's done-criteria:
+- [x] **Step 5: Write the store integration tests**, including the phase's done-criteria:
 
 ```python
 def test_an_identifier_outranks_a_common_word(store, corpus):
@@ -315,9 +315,9 @@ def test_doc_len_zero_rows_are_excluded_not_scored(store, legacy_row):
     assert legacy_row.chunk_id not in {h.chunk_id for h in store.search("anything", 10, ALL)}
 ```
 
-- [ ] **Step 6: Run against real PostgreSQL** with `RAGFABRIC_TEST_DATABASE_URL` set, and confirm the SQLite path passes too.
+- [x] **Step 6: Run against real PostgreSQL** with `RAGFABRIC_TEST_DATABASE_URL` set, and confirm the SQLite path passes too.
 
-- [ ] **Step 7: Commit** `feat: compute BM25 in SQL over term and corpus statistics`
+- [x] **Step 7: Commit** `feat: compute BM25 in SQL over term and corpus statistics`
 
 ---
 

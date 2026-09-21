@@ -108,6 +108,13 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
   query, selected with `vector_store.kind: chroma` and `CHROMA_URL`.
 
 ### Changed
+- **Lexical search requires a re-index after upgrading to Phase 4.** `chunk_search` now stores a
+  per-chunk `doc_len` and, off PostgreSQL, a term list that preserves repetition, because BM25 needs
+  term frequency and the previous representation was a set that destroyed it. Rows written before
+  this change carry `doc_len = 0` and are **excluded from BM25 ranking rather than scored**, so
+  results from an un-reindexed corpus will be incomplete rather than merely stale. Run
+  `ragfabric reindex --lexical-only` to bring an existing corpus forward: it rebuilds the lexical
+  index and the term statistics with no embedding calls and no vector writes.
 - Frontend upgraded from Angular 17 to Angular 22 with TypeScript 6 and Tailwind 4.
 - PostgreSQL driver psycopg2 to psycopg 3; connection URLs use `postgresql+psycopg://`.
 - The v1 hybrid pipeline is available as `LegacyHybridStrategy` behind the strategy interface until Phase 3 replaces it.

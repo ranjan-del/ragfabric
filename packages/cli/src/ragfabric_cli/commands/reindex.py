@@ -14,18 +14,39 @@ from ragfabric_core.stores.registry import build_lexical_store, build_vector_sto
 def reindex(
     batch_size: int = typer.Option(64, "--batch-size", min=1, help="Chunks per embedding call."),
     document_id: int | None = typer.Option(None, "--document-id", help="Limit to one document."),
+    lexical_only: bool = typer.Option(
+        False,
+        "--lexical-only",
+        help="Rebuild only the lexical index. No embedding calls, no vector writes.",
+    ),
     yes: bool = typer.Option(False, "--yes", help="Do not ask for confirmation."),
 ) -> None:
-    """Re-embed every chunk with the configured embedding model."""
+    """Re-embed every chunk with the configured embedding model.
+
+    With --lexical-only, rebuild the lexical index instead. That is what a
+    corpus indexed before BM25 needs: those chunk_search rows carry doc_len = 0
+    and a tsv with no term frequency, so BM25 excludes them, and re-embedding
+    the whole corpus to fix a lexical column would cost provider money for
+    nothing.
+    """
     cfg = get_config()
-    provider = build_embedding_provider(cfg.embeddings)
-    typer.echo(f"This replaces every stored vector using {provider.model} ({provider.dim} dims).")
+    sf = get_session_factory()
+    provider = None if lexical_only else build_embedding_provider(cfg.embeddings)
+    if lexical_only:
+        typer.echo("This rebuilds the lexical index only. No vectors are touched.")
+    else:
+        typer.echo(
+            f"This replaces every stored vector using {provider.model} ({provider.dim} dims)."
+        )
     if not yes and not typer.confirm("Continue?"):
         typer.echo("aborted")
         raise typer.Exit(1)
 
-    sf = get_session_factory()
-    vector_store = build_vector_store(cfg.vector_store, sf, embedding_model=provider.model)
+    vector_store = (
+        None
+        if lexical_only
+        else build_vector_store(cfg.vector_store, sf, embedding_model=provider.model)
+    )
     lexical_store = build_lexical_store(cfg.lexical_store, sf)
 
     def progress(done: int, total: int) -> None:
@@ -37,8 +58,12 @@ def reindex(
             embedding_provider=provider,
             vector_store=vector_store,
             lexical_store=lexical_store,
+            lexical_only=lexical_only,
             batch_size=batch_size,
             document_id=document_id,
             on_progress=progress,
         )
-    typer.echo(f"re-embedded {count} chunks with {provider.model}")
+    if lexical_only:
+        typer.echo(f"rebuilt the lexical index for {count} chunks")
+    else:
+        typer.echo(f"re-embedded {count} chunks with {provider.model}")
