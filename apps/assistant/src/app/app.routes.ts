@@ -75,6 +75,11 @@ export const routes: Routes = [
         loadComponent: () =>
           import('./pages/console/grants/grants.component').then((m) => m.GrantsComponent),
       },
+      {
+        path: 'keys',
+        loadComponent: () =>
+          import('./pages/console/keys/keys.component').then((m) => m.KeysComponent),
+      },
     ],
   },
   { path: '**', redirectTo: 'dashboard' },

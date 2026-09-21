@@ -759,3 +759,28 @@ table.data td {
 .view-toggle {
   margin-bottom: var(--space-4);
 }
+
+/* ---- One time secret panel ---- */
+.secret-value {
+  margin: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px dashed var(--border-strong);
+  word-break: break-all;
+  font-size: 0.9rem;
+}
+.secret-ack {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+  color: var(--text);
+}
+.secret-ack input {
+  width: auto;
+}
+code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 0.88em;
+}

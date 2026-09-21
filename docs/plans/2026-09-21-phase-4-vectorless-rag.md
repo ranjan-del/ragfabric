@@ -823,11 +823,11 @@ Security-sensitive, so it gets its own task and its own review.
 | Revocation is immediate and confirmed | |
 | The secret is never written to `localStorage`, a URL, or a log | |
 
-- [ ] **Step 1: Write failing specs** including `test_the_secret_is_not_present_in_the_dom_after_the_panel_closes` and `test_the_secret_is_never_written_to_local_storage`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run `npm test` and `npm run build`.**
-- [ ] **Step 5: Commit** `feat: add console API keys screen`
+- [x] **Step 1: Write failing specs** including `test_the_secret_is_not_present_in_the_dom_after_the_panel_closes` and `test_the_secret_is_never_written_to_local_storage`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run `npm test` and `npm run build`.**
+- [x] **Step 5: Commit** `feat: add console API keys screen`
 
 ---
 
