@@ -34,14 +34,15 @@ document that is merely slow, not crashed.
 from __future__ import annotations
 
 import logging
+import time
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from ragfabric_core.models.document import Chunk, Document
+from ragfabric_core.models.document import Chunk, Document, IngestionRun
 from ragfabric_core.providers.base import EmbeddingProvider
 from ragfabric_core.stores.base import LexicalStore, VectorStore
-from ragfabric_core.telemetry.tracing import trace
+from ragfabric_core.telemetry.tracing import start_trace, trace
 
 log = logging.getLogger(__name__)
 
@@ -69,25 +70,38 @@ def index_document(
         document.status = "ready"
         db.commit()
         return 0
-    with trace("embed", count=len(chunks)):
-        result = embedding_provider.embed([c.text for c in chunks])
-    ids = [c.id for c in chunks]
-    payloads = [
-        {
-            "document_id": c.document_id,
-            "collection_id": c.collection_id,
-            "model": result.model,
-            "dim": embedding_provider.dim,
-        }
-        for c in chunks
-    ]
-    with trace("vector_upsert"):
-        vector_store.upsert(ids, result.vectors, payloads)
-    with trace("lexical_index"):
-        lexical_store.index(ids, [c.text for c in chunks], payloads)
+    started = time.perf_counter()
+    with start_trace() as tracing:
+        with trace("embed", count=len(chunks)):
+            result = embedding_provider.embed([c.text for c in chunks])
+        ids = [c.id for c in chunks]
+        payloads = [
+            {
+                "document_id": c.document_id,
+                "collection_id": c.collection_id,
+                "model": result.model,
+                "dim": embedding_provider.dim,
+            }
+            for c in chunks
+        ]
+        with trace("vector_upsert"):
+            vector_store.upsert(ids, result.vectors, payloads)
+        with trace("lexical_index"):
+            lexical_store.index(ids, [c.text for c in chunks], payloads)
     document = db.get(Document, document_id)
     document.status = "ready"
     document.error = ""
+    db.add(
+        IngestionRun(
+            document_id=document_id,
+            phase="index",
+            status="ready",
+            chunk_count=len(chunks),
+            embedding_model=result.model,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            trace=[s.model_dump() for s in tracing.spans],
+        )
+    )
     db.commit()
     return len(chunks)
 

@@ -15,6 +15,8 @@ the last reader, the v1 in-memory index's startup rebuild), but the column is
 
 from __future__ import annotations
 
+import time
+
 from sqlalchemy.orm import Session
 
 from ragfabric_core.ingest import parser
@@ -23,10 +25,10 @@ from ragfabric_core.ingest.clean import clean_text, document_type_for
 from ragfabric_core.ingest.embed import get_embedder
 from ragfabric_core.ingest.indexing import schedule_indexing
 from ragfabric_core.ingest.storage import get_storage
-from ragfabric_core.models.document import Chunk, Document
+from ragfabric_core.models.document import Chunk, Document, IngestionRun
 from ragfabric_core.queue.registry import build_queue
 from ragfabric_core.runtime import get_config
-from ragfabric_core.telemetry.tracing import trace
+from ragfabric_core.telemetry.tracing import TraceContext, start_trace, trace
 
 EMPTY_TEXT_NOTE = (
     "Parsed successfully but no extractable text was found "
@@ -36,6 +38,34 @@ EMPTY_TEXT_NOTE = (
 
 def _extension(filename: str) -> str:
     return filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+
+def _record_ingestion_run(
+    db: Session, document: Document, tracing: TraceContext, started: float, *, chunk_count: int
+) -> None:
+    """Persist the pipeline's own spans as one ``IngestionRun`` row.
+
+    Called exactly once per ``_index_content`` call, on every exit path
+    (parse failure, empty text, or a clean run), so a failed ingest gets its
+    own row too, carrying whatever spans ran before the failure.
+    ``embedding_model`` is left null: this phase's embedder is the local
+    hashing embedder used only to populate the legacy ``Chunk.embedding``
+    column, not the provider the real vector/lexical indexes are built with,
+    so naming a model here would not be a measured value (ADR 0004).
+    """
+    db.add(
+        IngestionRun(
+            document_id=document.id,
+            phase="ingest",
+            status=document.status,
+            chunk_count=chunk_count,
+            embedding_model=None,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            error=document.error or None,
+            trace=[s.model_dump() for s in tracing.spans],
+        )
+    )
+    db.commit()
 
 
 def _index_content(
@@ -57,69 +87,74 @@ def _index_content(
     ``get_config().ingestion``", so a caller that never mentions either
     keeps the exact chunking behaviour it always had.
     """
-    try:
-        with trace("parse", format=document.format):
-            text = parser.parse(document.filename, data)
-        with trace("clean"):
-            text = clean_text(text)
-        cfg = get_config().ingestion
-        size = chunk_size if chunk_size is not None else cfg.chunk_size
-        overlap = chunk_overlap if chunk_overlap is not None else cfg.chunk_overlap
-        with trace("chunk", chunk_size=size, overlap=overlap):
-            chunks = chunk_text(text, chunk_size=size, overlap=overlap, sections=True)
-    except Exception as exc:  # unsupported format, corrupt file, etc.
-        document.status = "failed"
-        document.error = str(exc)[:500]
-        document.num_chunks = 0
+    started = time.perf_counter()
+    with start_trace() as tracing:
+        try:
+            with trace("parse", format=document.format):
+                text = parser.parse(document.filename, data)
+            with trace("clean"):
+                text = clean_text(text)
+            cfg = get_config().ingestion
+            size = chunk_size if chunk_size is not None else cfg.chunk_size
+            overlap = chunk_overlap if chunk_overlap is not None else cfg.chunk_overlap
+            with trace("chunk", chunk_size=size, overlap=overlap):
+                chunks = chunk_text(text, chunk_size=size, overlap=overlap, sections=True)
+        except Exception as exc:  # unsupported format, corrupt file, etc.
+            document.status = "failed"
+            document.error = str(exc)[:500]
+            document.num_chunks = 0
+            db.commit()
+            db.refresh(document)
+            _record_ingestion_run(db, document, tracing, started, chunk_count=0)
+            return document
+
+        if not chunks:
+            # A parse that yields nothing is not a crash, but silently reporting
+            # "ready, 0 chunks" hides why the document never shows up in search.
+            document.status = "ready"
+            document.num_chunks = 0
+            document.error = EMPTY_TEXT_NOTE
+            db.commit()
+            db.refresh(document)
+            _record_ingestion_run(db, document, tracing, started, chunk_count=0)
+            return document
+
+        with trace("persist_chunks", count=len(chunks)):
+            embedder = get_embedder()
+            vectors = embedder.embed([c["text"] for c in chunks])
+
+            for chunk_meta, vector in zip(chunks, vectors, strict=True):
+                chunk_row = Chunk(
+                    document_id=document.id,
+                    collection_id=document.collection_id,
+                    chunk_index=chunk_meta["chunk_index"],
+                    page=chunk_meta["page"],
+                    char_start=chunk_meta["char_start"],
+                    char_end=chunk_meta["char_end"],
+                    text=chunk_meta["text"],
+                    embedding=vector.tolist(),
+                    section=chunk_meta.get("section"),
+                )
+                db.add(chunk_row)
+
+        document.status = "processing"
+        document.num_chunks = len(chunks)
+        document.error = ""
         db.commit()
         db.refresh(document)
-        return document
 
-    if not chunks:
-        # A parse that yields nothing is not a crash, but silently reporting
-        # "ready, 0 chunks" hides why the document never shows up in search.
-        document.status = "ready"
-        document.num_chunks = 0
-        document.error = EMPTY_TEXT_NOTE
+        try:
+            with trace("schedule_indexing", mode=get_config().ingestion.indexing):
+                document.status = schedule_indexing(db, document, build_queue(get_config()))
+        except Exception as exc:  # embedding or store failure during inline indexing
+            db.rollback()
+            document = db.get(Document, document.id)
+            document.status = "failed"
+            document.error = f"indexing failed: {exc}"[:500]
         db.commit()
         db.refresh(document)
+        _record_ingestion_run(db, document, tracing, started, chunk_count=document.num_chunks)
         return document
-
-    with trace("persist_chunks", count=len(chunks)):
-        embedder = get_embedder()
-        vectors = embedder.embed([c["text"] for c in chunks])
-
-        for chunk_meta, vector in zip(chunks, vectors, strict=True):
-            chunk_row = Chunk(
-                document_id=document.id,
-                collection_id=document.collection_id,
-                chunk_index=chunk_meta["chunk_index"],
-                page=chunk_meta["page"],
-                char_start=chunk_meta["char_start"],
-                char_end=chunk_meta["char_end"],
-                text=chunk_meta["text"],
-                embedding=vector.tolist(),
-                section=chunk_meta.get("section"),
-            )
-            db.add(chunk_row)
-
-    document.status = "processing"
-    document.num_chunks = len(chunks)
-    document.error = ""
-    db.commit()
-    db.refresh(document)
-
-    try:
-        with trace("schedule_indexing", mode=get_config().ingestion.indexing):
-            document.status = schedule_indexing(db, document, build_queue(get_config()))
-    except Exception as exc:  # embedding or store failure during inline indexing
-        db.rollback()
-        document = db.get(Document, document.id)
-        document.status = "failed"
-        document.error = f"indexing failed: {exc}"[:500]
-    db.commit()
-    db.refresh(document)
-    return document
 
 
 def ingest_document(

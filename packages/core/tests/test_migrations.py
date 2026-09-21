@@ -46,6 +46,7 @@ EXPECTED_TABLES = {
     "relationships",
     "chunk_embeddings",
     "chunk_search",
+    "ingestion_runs",
 }
 
 
