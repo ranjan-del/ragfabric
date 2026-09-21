@@ -127,6 +127,15 @@ four strategies comparable.
 column on SQLite) or Chroma, lexical data in `chunk_search` (`tsvector`, or a token overlap fallback on
 SQLite) or an in process BM25 index rebuilt from `chunks`, graph data in Neo4j.
 
+`chunks`, `chunk_embeddings` and `chunk_search` each carry their own denormalised `collection_id`,
+which is what lets the access predicate apply inside the store query with no join back to `documents`
+(ADR 0003). `POST /api/documents/{id}/move` (Phase 3, owner or admin, the destination collection's
+visibility checked the same way a read is) updates all three inside one transaction when a document
+changes collection, so no reader ever observes a document whose own row names one collection while its
+index rows still name another. This covers the relational tables only: a Chroma vector store keeps its
+own copy of `collection_id` in its external metadata store, outside this transaction, and is not
+touched by a move.
+
 ## Ingestion
 
 ```
