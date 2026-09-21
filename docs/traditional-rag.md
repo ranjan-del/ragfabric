@@ -98,9 +98,11 @@ a mechanical citation contract before it is recorded:
 
 1. **Marker validity**: every `[n]` refers to a chunk that was actually retrieved.
 2. **Quote fidelity**: a quoted span of eight or more characters, or any quoted span containing a
-   digit, must appear verbatim in the chunk it is attributed to. A shorter, non-numeric quote is not
-   checked; that is a deliberately named gap, not an oversight, because verifying it strictly would
-   trigger retries for phrasing that carries no factual risk.
+   digit, must appear verbatim in the text of the chunks the answer cites, considered together, not
+   necessarily in the one specific chunk the quote is attributed to (the cited chunks are joined into
+   a single string before the check runs). A shorter, non-numeric quote is not checked; that is a
+   deliberately named gap, not an oversight, because verifying it strictly would trigger retries for
+   phrasing that carries no factual risk.
 3. **Grounding**: an answer with evidence available must carry at least one citation.
 
 The contract does **not**, and cannot, verify that a paraphrase is faithful to its source. That is a

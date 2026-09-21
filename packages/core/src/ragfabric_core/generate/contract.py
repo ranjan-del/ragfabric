@@ -35,6 +35,17 @@ extractive fallbacks that buy no safety: nothing dangerous hides inside a
 non-numeric fragment that short. So the gap that remains is narrow and named
 here: a fabricated non-numeric short quote, such as "the CEO" not actually in
 the cited chunk, would still pass.
+
+Known looseness #3, recorded rather than hidden: quote fidelity (rule 2) checks
+a quote against ALL cited chunks joined into one string (``cited_text``
+below), not against the one chunk its ``[n]`` marker attributes it to. Two
+consequences follow. First, a quote genuinely from chunk 2 but attributed to
+``[1]`` passes: the check only asks whether the quote appears somewhere in
+the cited chunks together, never which one. Second, a quote that straddles
+the ``" ".join()`` seam between two chunks, and so exists verbatim in
+NEITHER chunk on its own, can still pass if the join happens to reconstruct
+it. Per-chunk attribution checking would close both gaps; it is a real design
+change, deliberately not made here.
 """
 
 from __future__ import annotations
