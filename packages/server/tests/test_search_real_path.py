@@ -21,7 +21,15 @@ def test_query_answers_from_the_indexed_corpus_with_citations(client, admin_toke
 def test_query_records_the_real_embedding_model_on_the_run(
     client, admin_token, ingested_doc, db_session
 ):
+    """``embedding_model`` on the recorded run must equal the value the
+    configured vector store genuinely reports (its public ``model``
+    property), not a hardcoded string. A test that only checks the recorded
+    value looks like ``hashing-<dim>`` cannot tell a real read from a
+    literal that happens to match this config's dim, so it is compared
+    directly against the store's own ``model`` attribute instead.
+    """
     from ragfabric_core.models.runs import RetrievalRun
+    from ragfabric_server.main import app
 
     client.post(
         "/api/search/query",
@@ -30,7 +38,8 @@ def test_query_records_the_real_embedding_model_on_the_run(
     )
     run = db_session.query(RetrievalRun).order_by(RetrievalRun.id.desc()).first()
     assert run is not None
-    assert not run.embedding_model.startswith("hashing-") or run.embedding_model == "hashing-128", (
+    expected = app.state.vector_store.model
+    assert run.embedding_model == expected, (
         "embedding_model must be the provider's real model name, not a hardcoded string"
     )
     assert [s["name"] for s in run.trace][:2] == ["embed_query", "vector_search"]
