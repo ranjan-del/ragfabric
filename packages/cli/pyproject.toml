@@ -12,6 +12,12 @@ dependencies = [
   "typer>=0.27",
 ]
 
+[project.optional-dependencies]
+openai = ["ragfabric-core[openai]"]
+anthropic = ["ragfabric-core[anthropic]"]
+chroma = ["ragfabric-core[chroma]"]
+rerank = ["ragfabric-core[rerank]"]
+
 [project.scripts]
 ragfabric = "ragfabric_cli.main:app"
 

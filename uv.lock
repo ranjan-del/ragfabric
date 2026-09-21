@@ -1843,13 +1843,32 @@ dependencies = [
     { name = "typer" },
 ]
 
+[package.optional-dependencies]
+anthropic = [
+    { name = "ragfabric-core", extra = ["anthropic"] },
+]
+chroma = [
+    { name = "ragfabric-core", extra = ["chroma"] },
+]
+openai = [
+    { name = "ragfabric-core", extra = ["openai"] },
+]
+rerank = [
+    { name = "ragfabric-core", extra = ["rerank"] },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "ragfabric-core", editable = "packages/core" },
+    { name = "ragfabric-core", extras = ["anthropic"], marker = "extra == 'anthropic'", editable = "packages/core" },
+    { name = "ragfabric-core", extras = ["chroma"], marker = "extra == 'chroma'", editable = "packages/core" },
+    { name = "ragfabric-core", extras = ["openai"], marker = "extra == 'openai'", editable = "packages/core" },
+    { name = "ragfabric-core", extras = ["rerank"], marker = "extra == 'rerank'", editable = "packages/core" },
     { name = "ragfabric-sdk", editable = "packages/sdk-python" },
     { name = "ragfabric-server", editable = "packages/server" },
     { name = "typer", specifier = ">=0.27" },
 ]
+provides-extras = ["openai", "anthropic", "chroma", "rerank"]
 
 [[package]]
 name = "ragfabric-core"
