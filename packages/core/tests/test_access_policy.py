@@ -1,5 +1,5 @@
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from ragfabric_core.auth import service
@@ -226,3 +226,65 @@ def test_grant_collection_upsert_is_idempotent(world):
     )
     assert len(rows) == 1
     assert rows[0].permission == "read"
+
+
+def _count_statements(engine, fn):
+    """Run ``fn()`` and return how many SQL statements it sent to ``engine``."""
+    count = 0
+
+    def _tick(*_args, **_kwargs):
+        nonlocal count
+        count += 1
+
+    event.listen(engine, "before_cursor_execute", _tick)
+    try:
+        fn()
+    finally:
+        event.remove(engine, "before_cursor_execute", _tick)
+    return count
+
+
+def test_compute_access_filter_query_count_does_not_grow_with_corpus_size(world):
+    """Task 16 C3: the collections and documents axes were each a single
+    unscoped table read (every grant, then every collection; every uncollected
+    document) whose result set, and whose query count next to the group/owner
+    reads run alongside them, both scaled with total corpus size rather than
+    with what the principal can actually see. This asserts the number of SQL
+    statements ``compute_access_filter`` issues stays flat as the corpus grows
+    by two orders of magnitude, and stays low in absolute terms: one query for
+    the collections axis, one for the documents axis, one for overrides.
+    """
+    db, users, cols, docs, hr_group = world
+    engine = db.get_bind()
+    groups = service.group_ids_for_user(db, users["alice"].id)
+    p = principal(users["alice"], groups)
+
+    baseline = _count_statements(engine, lambda: compute_access_filter(db, p))
+    assert baseline <= 4, (
+        "compute_access_filter should need about one query per axis plus the "
+        f"override lookup, not {baseline}"
+    )
+
+    # Grow the corpus by two orders of magnitude with rows alice has no
+    # grant, ownership or override on, so none of it is data she is allowed
+    # to see -- only the two axis queries' WHERE clauses should be touched by
+    # this, never their count.
+    for i in range(300):
+        db.add(Collection(name=f"extra-collection-{i}", owner_id=users["bob"].id))
+    for i in range(300):
+        db.add(
+            Document(
+                filename=f"extra-{i}.txt",
+                format="txt",
+                collection_id=None,
+                owner_id=users["bob"].id,
+                status="ready",
+            )
+        )
+    db.commit()
+
+    scaled = _count_statements(engine, lambda: compute_access_filter(db, p))
+    assert scaled == baseline, (
+        "compute_access_filter issued a different number of SQL statements after "
+        f"the corpus grew: {baseline} before, {scaled} after"
+    )
