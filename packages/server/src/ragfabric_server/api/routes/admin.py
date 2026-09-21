@@ -13,13 +13,16 @@ from ragfabric_core.db.session import get_db
 from ragfabric_core.ingest.parser import SUPPORTED_FORMATS
 from ragfabric_core.ingest.pipeline import reingest_document
 from ragfabric_core.ingest.storage import get_storage
-from ragfabric_core.models.document import Document
+from ragfabric_core.models.access import ApiKey, AuditLog
+from ragfabric_core.models.document import Collection, Document, QueryLog
+from ragfabric_core.models.runs import Conversation, RetrievalRun
 from ragfabric_core.models.user import Role, User
 from ragfabric_core.runtime import get_config, get_session_factory
+from ragfabric_core.security import hash_password
 from ragfabric_core.stores.registry import build_lexical_store, build_vector_store
 from ragfabric_server.deps import require_role
 from ragfabric_server.schemas.document import DocumentOut
-from ragfabric_server.schemas.user import PermissionUpdate, UserOut
+from ragfabric_server.schemas.user import AdminUserCreate, PermissionUpdate, UserOut
 
 router = APIRouter()
 
@@ -58,6 +61,119 @@ def set_permissions(
     db.commit()
     db.refresh(user)
     return user
+
+
+@router.post("/users", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+def create_user(
+    payload: AdminUserCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin")),
+) -> User:
+    """Create a user outright (admin only).
+
+    ``/api/auth/register`` exists for self service and hardcodes the ``user``
+    role, which is what stops anyone signing themselves up as an admin. This
+    route is behind the admin guard, so it may name the role and the initial
+    active state, and it is the reason an operator no longer has to insert a
+    row by hand to onboard somebody.
+    """
+    if payload.role not in _VALID_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid role. Allowed: {', '.join(sorted(_VALID_ROLES))}.",
+        )
+    email = payload.email.lower()
+    if db.query(User).filter(User.email == email).first() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A user with that email already exists.",
+        )
+    user = User(
+        email=email,
+        hashed_password=hash_password(payload.password),
+        role=payload.role,
+        is_active=payload.is_active,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_200_OK)
+def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_role("admin")),
+) -> dict:
+    """Delete a user, settling every row that references them (admin only).
+
+    Nine tables carry a foreign key to ``users.id`` and each one is decided
+    here rather than left to whatever the database does by default. Two of
+    them already declare ``ON DELETE CASCADE`` on the column and are left to
+    it; the other seven are nullable with no cascade, which on PostgreSQL
+    (and on SQLite, where this project turns foreign keys on) means the
+    delete is REFUSED until they are settled. They are settled as follows.
+
+    Cascade, because the row means nothing without the user:
+
+    - ``group_members.user_id``: a membership of a deleted user is not a fact
+      about anything.
+    - ``document_overrides.user_id``: a per user grant or denial likewise.
+
+    Revoke and detach, because the row must not keep working but must not
+    vanish either:
+
+    - ``api_keys.principal_user_id``: the key is deactivated AND detached.
+      Deactivating alone would leave a live foreign key and the delete would
+      fail; deleting the key instead would break ``audit_log.api_key_id`` and
+      erase the record of what that key did. A deactivated, detached key
+      authenticates nobody and still anchors its own audit trail.
+
+    Preserve and anonymise, because the history is the product:
+
+    - ``audit_log.principal_user_id``, ``retrieval_runs.user_id``,
+      ``query_logs.user_id``, ``conversations.user_id``: measurement and
+      audit history outlives the account. The rows survive with the
+      reference cleared.
+
+    Preserve and disown, because the content belongs to the organisation:
+
+    - ``collections.owner_id``, ``documents.owner_id``: deleting a person
+      must never delete the corpus. Ownership is cleared and an admin can
+      reassign it.
+
+    Refusing to delete yourself is not a cascade decision, it is an
+    availability one: an admin who deletes their own account can lock the
+    last administrator out of the console.
+    """
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if user.id == admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot delete your own account.",
+        )
+
+    db.query(ApiKey).filter(ApiKey.principal_user_id == user_id).update(
+        {"is_active": False, "principal_user_id": None}, synchronize_session=False
+    )
+    for model, column in (
+        (AuditLog, AuditLog.principal_user_id),
+        (RetrievalRun, RetrievalRun.user_id),
+        (Conversation, Conversation.user_id),
+        (QueryLog, QueryLog.user_id),
+        (Collection, Collection.owner_id),
+        (Document, Document.owner_id),
+    ):
+        db.query(model).filter(column == user_id).update(
+            {column.key: None}, synchronize_session=False
+        )
+
+    db.delete(user)
+    db.commit()
+    return {"detail": "User deleted.", "id": user_id}
 
 
 @router.post("/documents/{document_id}/versions", response_model=DocumentOut)

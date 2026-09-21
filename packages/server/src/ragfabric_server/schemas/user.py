@@ -30,3 +30,15 @@ class Token(BaseModel):
 class PermissionUpdate(BaseModel):
     role: str | None = None
     is_active: bool | None = None
+
+
+class AdminUserCreate(UserCreate):
+    """An admin creating a user outright, rather than a self-service register.
+
+    ``register`` deliberately hardcodes the ``user`` role so nobody can sign
+    themselves up as an admin. This schema is only reachable behind the admin
+    guard, so it may name the role and the initial active state.
+    """
+
+    role: str = "user"
+    is_active: bool = True

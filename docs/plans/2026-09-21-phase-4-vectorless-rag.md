@@ -702,7 +702,7 @@ The console cannot "manage access without DB edits" until these exist. Current s
 - Secrets continue to live in the environment, per `config.py`. This endpoint reports and selects; it does not become a secret store.
 - Writing provider config requires admin, and every write goes to the audit log that Phase 2 built.
 
-- [ ] **Step 1: Write the failing tests**, including these:
+- [x] **Step 1: Write the failing tests**, including these:
 
 ```python
 def test_deleting_a_user_revokes_their_api_keys(client, admin):
@@ -724,10 +724,10 @@ def test_deleting_a_group_removes_its_grants_not_its_users(client, admin):
     ...
 ```
 
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.** Deleting a user or group must not orphan rows: decide cascade versus restrict per relationship and state the choice in the report.
-- [ ] **Step 4: Run tests, confirm they pass.**
-- [ ] **Step 5: Commit** `feat: complete the admin API for console v1`
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.** Deleting a user or group must not orphan rows: decide cascade versus restrict per relationship and state the choice in the report.
+- [x] **Step 4: Run tests, confirm they pass.**
+- [x] **Step 5: Commit** `feat: complete the admin API for console v1`
 
 ---
 

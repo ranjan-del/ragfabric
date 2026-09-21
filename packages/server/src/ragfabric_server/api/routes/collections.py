@@ -18,7 +18,12 @@ from ragfabric_core.models.user import User
 from ragfabric_core.runtime import get_config, get_session_factory
 from ragfabric_core.stores.registry import build_lexical_store, build_vector_store
 from ragfabric_server.deps import get_current_user
-from ragfabric_server.schemas.document import CollectionCreate, CollectionDetail, CollectionOut
+from ragfabric_server.schemas.document import (
+    CollectionCreate,
+    CollectionDetail,
+    CollectionOut,
+    CollectionUpdate,
+)
 
 router = APIRouter()
 
@@ -88,6 +93,37 @@ def get_collection(
         document_count=len(documents),
         documents=documents,
     )
+
+
+@router.put("/{collection_id}", response_model=CollectionOut)
+def update_collection(
+    collection_id: int,
+    payload: CollectionUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CollectionOut:
+    """Rename a collection or change its description (owner or admin).
+
+    A collection could be created and deleted but never edited, so fixing a
+    typo in a name meant deleting the collection, which cascades to every
+    document in it. The permission check is the same one delete uses: owner
+    or admin, and nobody else.
+    """
+    collection = db.get(Collection, collection_id)
+    if collection is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found.")
+    if current_user.role != "admin" and collection.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You may only edit your own collections.",
+        )
+    if payload.name is not None:
+        collection.name = payload.name
+    if payload.description is not None:
+        collection.description = payload.description
+    db.commit()
+    db.refresh(collection)
+    return _to_out(collection, db)
 
 
 @router.delete("/{collection_id}", status_code=status.HTTP_200_OK)

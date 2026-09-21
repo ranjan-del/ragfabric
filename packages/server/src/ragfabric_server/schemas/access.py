@@ -81,3 +81,14 @@ class ApiKeyOut(BaseModel):
 
 class ApiKeyCreated(ApiKeyOut):
     key: str
+
+
+class GroupUpdate(BaseModel):
+    """Rename a group or change its description.
+
+    Both fields are optional so the console can send only what the operator
+    edited, and ``None`` means "leave this alone" rather than "clear it".
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = None

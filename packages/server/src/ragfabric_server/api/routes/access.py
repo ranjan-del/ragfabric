@@ -8,7 +8,13 @@ from sqlalchemy.orm import Session
 from ragfabric_core.auth import service
 from ragfabric_core.auth.api_keys import create_api_key
 from ragfabric_core.db.session import get_db
-from ragfabric_core.models.access import ApiKey, CollectionGrant, DocumentOverride, Group
+from ragfabric_core.models.access import (
+    ApiKey,
+    CollectionGrant,
+    DocumentOverride,
+    Group,
+    GroupMember,
+)
 from ragfabric_core.models.document import Collection, Document
 from ragfabric_core.models.user import User
 from ragfabric_server.deps import require_role
@@ -20,10 +26,12 @@ from ragfabric_server.schemas.access import (
     GrantOut,
     GroupCreate,
     GroupOut,
+    GroupUpdate,
     MemberAdd,
     OverrideCreate,
     OverrideOut,
 )
+from ragfabric_server.schemas.user import UserOut
 
 router = APIRouter(dependencies=[Depends(require_role("admin"))])
 
@@ -50,6 +58,70 @@ def create_group(payload: GroupCreate, db: Session = Depends(get_db)) -> Group:
 @router.get("/groups", response_model=list[GroupOut])
 def list_groups(db: Session = Depends(get_db)) -> list[Group]:
     return db.query(Group).order_by(Group.name).all()
+
+
+@router.put("/groups/{group_id}", response_model=GroupOut)
+def update_group(group_id: int, payload: GroupUpdate, db: Session = Depends(get_db)) -> Group:
+    """Rename a group or change its description.
+
+    A group's name is the handle an operator uses everywhere else in the
+    console, so it has to be editable without recreating the group and
+    re-adding every member and grant.
+    """
+    group = _get_or_404(db, Group, group_id, "Group")
+    if payload.name is not None and payload.name != group.name:
+        clash = db.query(Group).filter(Group.name == payload.name).first()
+        if clash is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Group name already exists."
+            )
+        group.name = payload.name
+    if payload.description is not None:
+        group.description = payload.description
+    db.commit()
+    db.refresh(group)
+    return group
+
+
+@router.delete("/groups/{group_id}", status_code=status.HTTP_200_OK)
+def delete_group(group_id: int, db: Session = Depends(get_db)) -> dict:
+    """Delete a group. Its memberships and grants go with it; its users do not.
+
+    Every foreign key pointing at ``groups.id`` is already declared
+    ``ON DELETE CASCADE``: ``group_members.group_id``,
+    ``collection_grants.group_id`` and ``document_overrides.group_id``. That
+    is the right choice for all three and it is left in place rather than
+    reimplemented here. A membership, a grant or an override belonging to a
+    group that no longer exists is not a fact about anything, and keeping any
+    of them would leave access rows the console can no longer show or revoke.
+
+    What must NOT cascade is the users themselves. ``group_members`` is the
+    join table, so deleting the group removes the membership rows and leaves
+    every user account untouched, which is what the test of this route
+    asserts directly.
+    """
+    group = _get_or_404(db, Group, group_id, "Group")
+    db.delete(group)
+    db.commit()
+    return {"detail": "Group deleted.", "id": group_id}
+
+
+@router.get("/groups/{group_id}/members", response_model=list[UserOut])
+def list_members(group_id: int, db: Session = Depends(get_db)) -> list[User]:
+    """List the users in a group.
+
+    Membership could be written but never read back, so the console had no
+    way to show who is in a group, which is the only question anyone asks of
+    one.
+    """
+    _get_or_404(db, Group, group_id, "Group")
+    return (
+        db.query(User)
+        .join(GroupMember, GroupMember.user_id == User.id)
+        .filter(GroupMember.group_id == group_id)
+        .order_by(User.email)
+        .all()
+    )
 
 
 @router.post("/groups/{group_id}/members", status_code=status.HTTP_200_OK)
