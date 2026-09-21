@@ -102,6 +102,12 @@ def config_validate(
     typer.echo(f"reranker: {cfg.reranker.kind}")
     typer.echo(f"vector_store: {cfg.vector_store.kind}")
     typer.echo(f"lexical_store: {cfg.lexical_store.kind}")
+    vectorless = cfg.strategies.vectorless
+    typer.echo(
+        f"vectorless: top_k {vectorless.top_k}, k1 {vectorless.k1}, b {vectorless.b}, "
+        f"fusion_k {vectorless.fusion_k}, "
+        f"boosts phrase {vectorless.phrase_boost} identifier {vectorless.identifier_boost}"
+    )
     typer.echo(
         f"graph_store: {cfg.graph_store.kind} ({'enabled' if cfg.graph_store.enabled else 'disabled'})"
     )

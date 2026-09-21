@@ -44,7 +44,11 @@ class VectorStoreConfig(_Strict):
 
 
 class LexicalStoreConfig(_Strict):
-    kind: Literal["postgres_fts", "bm25"] = "postgres_fts"
+    kind: Literal["postgres_fts", "bm25", "bm25_memory"] = "postgres_fts"
+    # Only meaningful for bm25_memory, which holds the corpus in each worker's
+    # own memory. Exceeding it raises rather than silently answering from part
+    # of the corpus. See stores/bm25_memory.py for why this is not optional.
+    max_chunks: int = Field(default=50_000, ge=1)
 
 
 class GraphStoreConfig(_Strict):
@@ -65,6 +69,28 @@ class IngestionConfig(_Strict):
     indexing: Literal["inline", "queue"] = "inline"
 
 
+class VectorlessConfig(_Strict):
+    """Tuning for the vectorless strategy. Every bound below is deliberate.
+
+    ``b`` is constrained to [0, 1] because outside that range the length
+    normalisation term stops meaning anything: a negative b rewards long
+    chunks, and b > 1 can drive the BM25 denominator negative, which flips the
+    sign of the score. ``phrase_boost`` and ``identifier_boost`` have a floor
+    of 1.0 because a multiplier below one is a penalty, and anyone who wants
+    to penalise exact matches should have to say so with a different key
+    rather than by writing a number that looks like a boost.
+    """
+
+    top_k: int = Field(default=8, ge=1)
+    k1: float = Field(default=1.2, ge=0.0)
+    b: float = Field(default=0.75, ge=0.0, le=1.0)
+    phrase_boost: float = Field(default=2.0, ge=1.0)
+    identifier_boost: float = Field(default=3.0, ge=1.0)
+    fusion_k: int = Field(default=60, ge=1)
+    fusion_weights: tuple[float, float] = (1.0, 1.0)
+    max_context_tokens: int = Field(default=6000, ge=100)
+
+
 class StrategiesConfig(_Strict):
     traditional: dict[str, float | int | str | bool] = Field(
         default_factory=lambda: {
@@ -74,9 +100,7 @@ class StrategiesConfig(_Strict):
             "max_context_tokens": 6000,
         }
     )
-    vectorless: dict[str, float | int | str | bool] = Field(
-        default_factory=lambda: {"top_k": 8, "phrase_boost": 2.0, "identifier_boost": 3.0}
-    )
+    vectorless: VectorlessConfig = Field(default_factory=VectorlessConfig)
     agentic: dict[str, float | int | str | bool] = Field(
         default_factory=lambda: {"max_iterations": 4, "max_cost_usd": 0.10, "max_latency_ms": 30000}
     )

@@ -611,7 +611,7 @@ class VectorlessConfig(_Strict):
 
 **Bounds are deliberate.** `b` is constrained to `[0, 1]` because outside that range the length-normalisation term is meaningless: negative `b` rewards long chunks, and `b > 1` can drive the denominator negative. `phrase_boost` and `identifier_boost` have a floor of `1.0` because a boost below one is a penalty, and if anyone wants that they should say so with a different key.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_an_unknown_vectorless_key_is_rejected():
@@ -634,10 +634,10 @@ def test_defaults_match_the_documented_bm25_defaults():
     assert (c.k1, c.b, c.fusion_k) == (1.2, 0.75, 60)
 ```
 
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement**, and update `ragfabric.example.yaml` with every key and a one-line comment on what it does.
-- [ ] **Step 4: Verify `ragfabric config validate` reports the vectorless settings.**
-- [ ] **Step 5: Commit** `feat: type the vectorless strategy configuration`
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement**, and update `ragfabric.example.yaml` with every key and a one-line comment on what it does.
+- [x] **Step 4: Verify `ragfabric config validate` reports the vectorless settings.**
+- [x] **Step 5: Commit** `feat: type the vectorless strategy configuration`
 
 ---
 

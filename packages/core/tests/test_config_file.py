@@ -1,7 +1,12 @@
 import pytest
 from pydantic import ValidationError
 
-from ragfabric_core.config_file import RagFabricConfig, load_config
+from ragfabric_core.config_file import (
+    LexicalStoreConfig,
+    RagFabricConfig,
+    VectorlessConfig,
+    load_config,
+)
 
 
 def test_defaults_when_no_file(monkeypatch, tmp_path):
@@ -81,3 +86,76 @@ def test_default_example_config_is_the_no_key_ollama_path(tmp_path):
     assert cfg.llm.provider == "ollama"
     assert cfg.llm.model == "llama3.2:3b"
     assert cfg.llm.base_url == "http://localhost:11434/v1"
+
+
+# --- Task 9: the vectorless strategy configuration -------------------------
+#
+# StrategiesConfig.vectorless used to be dict[str, float | int | str | bool].
+# That dict accepted any key, so `k_1: 1.2` was stored and never read, which
+# contradicts this file's own stated principle that a typo which silently
+# falls back to a default is the worst kind of configuration bug.
+
+
+def test_an_unknown_vectorless_key_is_rejected():
+    with pytest.raises(ValidationError):
+        VectorlessConfig(k_1=1.2)  # typo
+
+
+def test_b_outside_zero_to_one_is_rejected():
+    with pytest.raises(ValidationError):
+        VectorlessConfig(b=1.5)
+
+
+def test_b_below_zero_is_rejected():
+    # Negative b rewards long chunks, which is not "less normalisation", it is
+    # the opposite of normalisation.
+    with pytest.raises(ValidationError):
+        VectorlessConfig(b=-0.1)
+
+
+def test_a_boost_below_one_is_rejected():
+    with pytest.raises(ValidationError):
+        VectorlessConfig(phrase_boost=0.5)
+
+
+def test_an_identifier_boost_below_one_is_rejected():
+    with pytest.raises(ValidationError):
+        VectorlessConfig(identifier_boost=0.9)
+
+
+def test_defaults_match_the_documented_bm25_defaults():
+    c = VectorlessConfig()
+    assert (c.k1, c.b, c.fusion_k) == (1.2, 0.75, 60)
+
+
+def test_the_remaining_vectorless_defaults():
+    c = VectorlessConfig()
+    assert c.top_k == 8
+    assert (c.phrase_boost, c.identifier_boost) == (2.0, 3.0)
+    assert c.fusion_weights == (1.0, 1.0)
+    assert c.max_context_tokens == 6000
+
+
+def test_the_vectorless_block_loads_from_yaml(tmp_path):
+    p = tmp_path / "c.yaml"
+    p.write_text("strategies:\n  vectorless:\n    k1: 1.5\n    b: 0.0\n    fusion_k: 10\n")
+    cfg = load_config(p)
+    assert (cfg.strategies.vectorless.k1, cfg.strategies.vectorless.b) == (1.5, 0.0)
+    assert cfg.strategies.vectorless.fusion_k == 10
+
+
+def test_a_typo_in_the_vectorless_block_fails_the_file_not_just_the_model(tmp_path):
+    p = tmp_path / "c.yaml"
+    p.write_text("strategies:\n  vectorless:\n    k_1: 1.5\n")
+    with pytest.raises(ValidationError):
+        load_config(p)
+
+
+def test_the_lexical_store_accepts_the_in_process_kind_and_a_cap():
+    cfg = LexicalStoreConfig(kind="bm25_memory", max_chunks=1000)
+    assert cfg.kind == "bm25_memory" and cfg.max_chunks == 1000
+
+
+def test_an_unknown_lexical_store_kind_is_rejected():
+    with pytest.raises(ValidationError):
+        LexicalStoreConfig(kind="elasticsearch")

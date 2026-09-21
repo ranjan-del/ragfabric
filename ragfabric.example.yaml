@@ -21,7 +21,8 @@ reranker:
 vector_store:
   kind: pgvector              # pgvector (lite profile) | chroma (full profile) | memory (tests)
 lexical_store:
-  kind: postgres_fts          # postgres_fts | bm25
+  kind: postgres_fts          # postgres_fts (ts_rank_cd) | bm25 (BM25 in SQL) | bm25_memory (in process)
+  max_chunks: 50000           # bm25_memory only: refuse rather than degrade past this many chunks
 graph_store:
   kind: neo4j
   enabled: false              # true needs the full compose profile
@@ -37,7 +38,15 @@ ingestion:
 
 strategies:
   traditional: { top_k: 8, similarity_threshold: 0.25, rerank: none, max_context_tokens: 6000 }
-  vectorless:  { top_k: 8, phrase_boost: 2.0, identifier_boost: 3.0 }
+  vectorless:
+    top_k: 8                  # chunks returned, applied AFTER fusion, never per store
+    k1: 1.2                   # BM25 term frequency saturation. Higher rewards repetition more
+    b: 0.75                   # BM25 length normalisation, 0 to 1. 0 disables it entirely
+    phrase_boost: 2.0         # multiplier for a chunk containing a "quoted phrase" verbatim
+    identifier_boost: 3.0     # multiplier for a chunk containing an identifier such as ERR_QUOTA_4419
+    fusion_k: 60              # the k in RRF's weight/(k + rank). Cormack's original value
+    fusion_weights: [1.0, 1.0]  # relative weight of the [BM25, ts_rank_cd] rankings
+    max_context_tokens: 6000  # context budget for the chunks handed to generation
   agentic:     { max_iterations: 4, max_cost_usd: 0.10, max_latency_ms: 30000 }
   graph:       { max_hops: 2, max_nodes: 200 }
 

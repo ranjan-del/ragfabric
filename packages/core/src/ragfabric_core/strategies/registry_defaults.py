@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from ragfabric_core.config_file import RagFabricConfig
 from ragfabric_core.providers.registry import build_embedding_provider, build_llm_provider
 from ragfabric_core.rerank.registry import build_reranker
-from ragfabric_core.stores.bm25_sql import DEFAULT_B, DEFAULT_K1, Bm25Store
+from ragfabric_core.stores.bm25_sql import Bm25Store
 from ragfabric_core.stores.postgres_fts import PostgresLexicalStore
 from ragfabric_core.stores.registry import build_vector_store
 from ragfabric_core.strategies.base import StrategyRegistry
@@ -24,13 +24,6 @@ from ragfabric_core.strategies.vectorless import VectorlessRAGStrategy
 def _int(value, default: int) -> int:
     try:
         return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _float(value, default: float) -> float:
-    try:
-        return float(value)
     except (TypeError, ValueError):
         return default
 
@@ -69,15 +62,12 @@ def _build_vectorless(
     """
     settings = cfg.strategies.vectorless
     return VectorlessRAGStrategy(
-        bm25_store=Bm25Store(
-            session_factory,
-            k1=_float(settings.get("k1"), DEFAULT_K1),
-            b=_float(settings.get("b"), DEFAULT_B),
-        ),
+        bm25_store=Bm25Store(session_factory, k1=settings.k1, b=settings.b),
         ts_rank_store=PostgresLexicalStore(session_factory),
-        phrase_boost=_float(settings.get("phrase_boost"), 2.0),
-        identifier_boost=_float(settings.get("identifier_boost"), 3.0),
-        fusion_k=_int(settings.get("fusion_k"), 60),
-        max_context_tokens=_int(settings.get("max_context_tokens"), 6000),
+        phrase_boost=settings.phrase_boost,
+        identifier_boost=settings.identifier_boost,
+        fusion_k=settings.fusion_k,
+        fusion_weights=settings.fusion_weights,
+        max_context_tokens=settings.max_context_tokens,
         generation_model=cfg.llm.model,
     )

@@ -58,6 +58,15 @@ def build_lexical_store(
 ) -> LexicalStore:
     if cfg.kind == "postgres_fts":
         return PostgresLexicalStore(session_factory)
+    if cfg.kind == "bm25_memory":
+        try:
+            from ragfabric_core.stores.bm25_memory import InMemoryBm25Store
+        except ImportError as exc:
+            raise ProviderError(
+                "bm25_memory",
+                "rank_bm25 is not installed. Install it with: uv pip install 'ragfabric[bm25]'",
+            ) from exc
+        return InMemoryBm25Store(max_chunks=cfg.max_chunks)
     if cfg.kind == "bm25":
         # k1 and b are BM25 ranking parameters and belong to the strategy that
         # ranks, not to the fan out that indexes. A store built here is built
