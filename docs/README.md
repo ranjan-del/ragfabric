@@ -2,18 +2,20 @@
 
 | Document | What it covers | Status |
 |---|---|---|
-| [getting-started.md](getting-started.md) | Install, first ingest, first question | Phase 2: the real CLI flow and queued indexing; Traditional and Vectorless RAG land in Phases 3 and 4 |
-| [architecture.md](architecture.md) | Layers, packages, request flow, data model | Phase 2: ingestion fan out, access filter, tracing |
+| [getting-started.md](getting-started.md) | Install, first ingest, first question | Phase 3: the real end to end flow with Traditional RAG; Vectorless RAG lands in Phase 4 |
+| [architecture.md](architecture.md) | Layers, packages, request flow, data model | Phase 3: Traditional RAG request flow, the citation contract, the module layout |
 | [concepts/ingestion.md](concepts/ingestion.md) | Cleaning, chunking trade offs, metadata, inline vs queued indexing | Phase 2 |
 | [concepts/access-control.md](concepts/access-control.md) | Principals, groups, grants, overrides, API keys, audit | Phase 2 |
-| [traditional-rag.md](traditional-rag.md) | Embeddings, vector search, thresholds, reranking | Concept complete; implementation v0.1.0 |
+| [concepts/embeddings.md](concepts/embeddings.md) | Text to vector to store, cosine versus dot product, one model per deployment, reindex cost | Phase 3 |
+| [concepts/reranking.md](concepts/reranking.md) | Cheap ranking plus expensive rerank, cross encoder versus bi encoder, when it does not pay | Phase 3 |
+| [traditional-rag.md](traditional-rag.md) | Embeddings, vector search, thresholds, reranking, citation contract | Shipped in v0.1.0 (Phase 3) |
 | [vectorless-rag.md](vectorless-rag.md) | BM25, PostgreSQL full text, fusion | Concept complete; implementation v0.1.0 |
 | [agentic-rag.md](agentic-rag.md) | LangGraph state machine, budgets, verification | Concept complete; implementation v0.2.0 |
 | [graph-rag.md](graph-rag.md) | Extraction, resolution, Neo4j, traversal | Concept complete; implementation v0.3.0 |
 | [routing.md](routing.md) | RouterDecision, signals, fallbacks | Concept complete; implementation v0.4.0 |
 | [evaluation.md](evaluation.md) | Question set, metrics, `make eval`, complexity score | Concept complete; implementation v0.5.0 |
-| [configuration.md](configuration.md) | `ragfabric.yaml`, environment, pricing | Phase 2: `embeddings`, `vector_store`, `lexical_store`, `cache`, `ingestion` and `telemetry` are read by the runtime; `llm` is not yet |
-| [providers.md](providers.md) | LLM, embedding, store and connector implementations | Phase 2: pgvector, PostgreSQL full text, Redis cache and API keys shipped |
+| [configuration.md](configuration.md) | `ragfabric.yaml`, environment, pricing | Phase 3: every top level key, including `llm`, `reranker` and `limits`, is read by the runtime |
+| [providers.md](providers.md) | LLM, embedding, store and connector implementations | Phase 3: pgvector and Chroma queried, rerankers shipped, Ollama the default provider |
 | [licensing.md](licensing.md) | Apache 2.0 in plain words, why not MIT or copyleft, the CLA | Current |
 | [troubleshooting.md](troubleshooting.md) | Common failures and how to diagnose them | Grows with each release |
 | [design/](design/) | Full design document | Approved 2026-09-13 |
