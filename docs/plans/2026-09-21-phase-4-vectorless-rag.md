@@ -754,12 +754,12 @@ The stack is **Tailwind 4 with no component library**. That is a deliberate adva
 
 **Do not** introduce Angular Material or PrimeNG. Mixing a component library into an established Tailwind build means fighting two styling systems, and the visual result is usually worse than either alone.
 
-- [ ] **Step 1: Write failing specs for the primitives** (render, disabled state, keyboard interaction, focus trap on Modal).
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement tokens and primitives.**
-- [ ] **Step 4: Run `npm test`, confirm all pass and the existing 20 tests still pass.**
-- [ ] **Step 5: Run `npm run build` and confirm the bundle budget is not exceeded.** If it is, raise the budget deliberately and say why, or split. Do not silently disable the budget.
-- [ ] **Step 6: Commit** `feat: add console design tokens and UI primitives`
+- [x] **Step 1: Write failing specs for the primitives** (render, disabled state, keyboard interaction, focus trap on Modal).
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement tokens and primitives.**
+- [x] **Step 4: Run `npm test`, confirm all pass and the existing 20 tests still pass.**
+- [x] **Step 5: Run `npm run build` and confirm the bundle budget is not exceeded.** If it is, raise the budget deliberately and say why, or split. Do not silently disable the budget.
+- [x] **Step 6: Commit** `feat: add console design tokens and UI primitives`
 
 ---
 

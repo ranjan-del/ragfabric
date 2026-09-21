@@ -3,6 +3,8 @@ import { CommonModule } from '@angular/common';
 import { RouterOutlet, RouterLink, RouterLinkActive, Router } from '@angular/router';
 
 import { AuthService } from './services/auth.service';
+import { ThemeService } from './ui/theme.service';
+import { ToastsComponent } from './ui/toasts.component';
 
 interface NavItem {
   label: string;
@@ -13,7 +15,7 @@ interface NavItem {
 
 @Component({
     selector: 'app-root',
-    imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive],
+    imports: [CommonModule, RouterOutlet, RouterLink, RouterLinkActive, ToastsComponent],
     templateUrl: './app.component.html',
     changeDetection: ChangeDetectionStrategy.Eager,
     styleUrl: './app.component.scss'
@@ -30,7 +32,11 @@ export class AppComponent implements OnInit {
 
   readonly menuOpen = signal(false);
 
-  constructor(public auth: AuthService, private router: Router) {}
+  constructor(
+    public auth: AuthService,
+    public theme: ThemeService,
+    private router: Router,
+  ) {}
 
   ngOnInit(): void {
     this.auth.restore();
