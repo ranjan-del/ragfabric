@@ -305,11 +305,11 @@ Generation runs over the evidence pool and reuses the Phase 3 citation contract 
 
 Where two chunks answering one sub-question come from documents with different effective dates, both are presented with their dates. This is the whole of the conflict handling that ships in Phase 5.
 
-- [ ] **Step 1: Write the failing tests**, including `test_an_unsupported_claim_is_removed_not_retried` and `test_two_dated_sources_for_one_sub_question_are_both_surfaced`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run tests, confirm they pass.**
-- [ ] **Step 5: Commit** `feat: generate agentic answers with dropped unsupported claims`
+- [x] **Step 1: Write the failing tests**, including `test_an_unsupported_claim_is_removed_not_retried` and `test_two_dated_sources_for_one_sub_question_are_both_surfaced`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run tests, confirm they pass.**
+- [x] **Step 5: Commit** `feat: generate agentic answers with dropped unsupported claims`
 
 ---
 
