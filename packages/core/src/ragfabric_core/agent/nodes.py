@@ -12,7 +12,9 @@ Two node-level rules hold throughout.
 contract parser that returns a ``ContractViolation`` instead of raising, and
 each node has a defined answer to one. For the plan that answer is a single
 sub-question over the whole question, which is exactly what a plain retriever
-would do and is always better than an error.
+would do and is always better than an error. For the assessment it is to leave
+every sub-question open, because a model that could not be read has not said
+anything is answered.
 
 **The access filter is never reconstructed.** Tools are called with the
 caller's own ``RetrievalContext``, so the filter that reaches the store is the
@@ -28,7 +30,7 @@ from collections.abc import Iterable
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ragfabric_core.agent.contracts import ContractViolation, parse_plan
+from ragfabric_core.agent.contracts import ContractViolation, parse_assess, parse_plan
 from ragfabric_core.agent.state import AgentState, NodeName, SubQuestion, SubQuestionStatus
 from ragfabric_core.agent.tools import ToolRegistry
 from ragfabric_core.providers.base import LLMProvider, Message
@@ -70,6 +72,30 @@ Choosing a tool:
 - A request for a whole document, such as "the whole policy", belongs to
   fetch_document.
 - Use only the tools listed above. Do not invent one."""
+
+ASSESS_SYSTEM = (
+    "You judge whether retrieved evidence answers a question. "
+    "You reply with one JSON object and nothing else."
+)
+
+ASSESS_RUBRIC = """For each sub-question, decide whether the evidence above answers it.
+
+The rubric is strict, and being wrong in the permissive direction is the worse
+error. A sub-question counts as answered ONLY if the answer can be read
+directly out of the evidence text. Specifically:
+
+- Evidence that is about the same topic but does not state the answer is NOT
+  answered. Related is not answered.
+- Evidence that implies the answer, or that would let a knowledgeable reader
+  guess it, is NOT answered.
+- Evidence that answers a different question about the same subject is NOT
+  answered.
+- If you are unsure, answer false. An honest gap is better than a confident
+  wrong answer.
+
+When a sub-question is not answered, say in "missing" exactly what is absent,
+in one short phrase. That phrase chooses the next retrieval, so "the number of
+retries allowed" is useful and "more information" is not."""
 
 
 class NodeOutcome(BaseModel):
@@ -113,6 +139,23 @@ class RetrieveOutcome(NodeOutcome):
         rows.
         """
         return bool(self.new_chunk_ids)
+
+
+class Verdicts(BaseModel):
+    """The assessment, indexed by position in ``state.sub_questions``.
+
+    Indexes rather than text, because the repair has to act on the ledger entry
+    and matching a model's paraphrase of a sub-question back to the real one at
+    that point is a second place for the same mistake.
+    """
+
+    answered: list[int] = Field(default_factory=list)
+    missing: dict[int, str] = Field(default_factory=dict)
+    unjudged: list[int] = Field(default_factory=list)
+
+
+class AssessOutcome(NodeOutcome):
+    verdicts: Verdicts = Field(default_factory=Verdicts)
 
 
 class RetrievalOverride(BaseModel):
@@ -317,3 +360,116 @@ def _with_override(ctx: RetrievalContext, override: RetrievalOverride | None) ->
         return ctx
     params = ctx.params.model_copy(update={"top_k": override.top_k})
     return ctx.model_copy(update={"params": params})
+
+
+def build_assess_prompt(state: AgentState, open_indexes: list[int]) -> str:
+    evidence = "\n\n".join(f"[{chunk.chunk_id}] {chunk.text}" for chunk in state.evidence.values())
+    listed = "\n".join(f"- {state.sub_questions[index].text}" for index in open_indexes)
+    return (
+        f"Original question: {state.question}\n\n"
+        f"Evidence retrieved so far:\n{evidence or '(nothing was retrieved)'}\n\n"
+        f"Sub-questions to judge:\n{listed}\n\n"
+        f"{ASSESS_RUBRIC}\n\n"
+        'Reply with JSON of the form {"verdicts": [{"sub_question": "...", '
+        '"answered": true, "missing": null}]}'
+    )
+
+
+def assess(
+    state: AgentState,
+    *,
+    llm: LLMProvider,
+    origin: float | None = None,
+) -> AssessOutcome:
+    """Judge the pooled evidence per open sub-question, pessimistically.
+
+    Judging per sub-question rather than for the question as a whole is what
+    makes the next iteration cheap: the agent chases only what is still
+    missing, instead of re-retrieving everything because "the answer is not
+    complete yet".
+
+    Two pessimistic readings are enforced here rather than merely requested in
+    the prompt, because a rubric in a prompt is a request and this is the node
+    where being wrong is most expensive.
+
+    A verdict that says answered while also naming something missing is treated
+    as not answered. Small models produce exactly that contradiction, and the
+    safe reading of it is the one that keeps looking.
+
+    A sub-question the model did not judge at all stays open. Silence is not
+    consent, and an unjudged sub-question quietly marked answered is how a gap
+    reaches the caller wearing a citation.
+    """
+    begin = time.perf_counter()
+    origin = begin if origin is None else origin
+
+    open_indexes = _open_indexes(state)
+    if not open_indexes:
+        # Nothing to judge costs nothing. The budget exists to be spent on work.
+        return AssessOutcome(
+            span=_span("assess", origin=origin, begin=begin, judged=0, answered=0, skipped=True)
+        )
+
+    state.spend(NodeName.ASSESS, llm_calls=1)
+    completion = llm.complete(
+        [
+            Message(role="system", content=ASSESS_SYSTEM),
+            Message(role="user", content=build_assess_prompt(state, open_indexes)),
+        ],
+        temperature=0.0,
+    )
+    parsed = parse_assess(completion.text)
+
+    verdicts = Verdicts()
+    violation: ContractViolation | None = None
+    if isinstance(parsed, ContractViolation):
+        violation = parsed
+        verdicts.unjudged = list(open_indexes)
+    else:
+        by_text = {_match_key(state.sub_questions[i].text): i for i in open_indexes}
+        judged: set[int] = set()
+        for verdict in parsed.verdicts:
+            index = by_text.get(_match_key(verdict.sub_question))
+            if index is None:
+                # A verdict on a sub-question that was never asked cannot close
+                # one that was. Matching it to the nearest real sub-question
+                # would be guessing on the model's behalf.
+                continue
+            judged.add(index)
+            missing = (verdict.missing or "").strip()
+            if verdict.answered and not missing:
+                state.sub_questions[index].mark_answered()
+                verdicts.answered.append(index)
+            else:
+                verdicts.missing[index] = missing or "the evidence does not state the answer"
+        verdicts.unjudged = [index for index in open_indexes if index not in judged]
+
+    for index in verdicts.unjudged:
+        verdicts.missing.setdefault(index, "the assessment did not judge this sub-question")
+
+    return AssessOutcome(
+        span=_span(
+            "assess",
+            origin=origin,
+            begin=begin,
+            judged=len(open_indexes),
+            answered=len(verdicts.answered),
+            unjudged=len(verdicts.unjudged),
+            skipped=False,
+            violation=violation.error if violation is not None else None,
+        ),
+        violation=violation,
+        verdicts=verdicts,
+        input_tokens=completion.input_tokens,
+        output_tokens=completion.output_tokens,
+    )
+
+
+def _match_key(text: str) -> str:
+    """Normalise a sub-question for matching a verdict back to the ledger.
+
+    Case, spacing and a trailing question mark are all things a model changes
+    without meaning anything by it. Anything beyond that is a different
+    sub-question and is deliberately not matched.
+    """
+    return " ".join(text.lower().split()).rstrip("?.")
