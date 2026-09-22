@@ -47,7 +47,18 @@ strategies:
     fusion_k: 60              # the k in RRF's weight/(k + rank). Cormack's original value
     fusion_weights: [1.0, 1.0]  # relative weight of the [BM25, ts_rank_cd] rankings
     max_context_tokens: 6000  # context budget for the chunks handed to generation
-  agentic:     { max_iterations: 4, max_cost_usd: 0.10, max_latency_ms: 30000 }
+  agentic:
+    max_iterations: 4         # retrieve, assess and repair passes before the loop stops
+    max_llm_calls: 12         # model calls for the whole run, across every node
+    per_node_llm_calls:       # per node caps, so one runaway node cannot spend the lot
+      plan: 2                 # decomposing the question, plus one corrective retry
+      assess: 6               # judging the evidence, once per iteration
+      repair: 6               # choosing a repair move, once per failed sub-question
+      generate: 2             # writing the answer, plus one retry for the citation contract
+    max_cost_usd: 0.10        # spend ceiling for one run, in US dollars
+    max_latency_ms: 30000     # wall clock ceiling for one run, in milliseconds
+    tools: [semantic_search, lexical_search, fetch_document]  # which tools the planner may choose
+    assess_strictness: strict  # strict: answerable from the retrieved text. lenient: topical is enough
   graph:       { max_hops: 2, max_nodes: 200 }
 
 router:

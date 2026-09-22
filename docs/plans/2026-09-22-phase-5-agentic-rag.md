@@ -150,11 +150,11 @@ Tools are thin. They do not re-implement retrieval, they call the strategies tha
 
 **Every tool receives and honours the caller's `AccessFilter`.** `fetch_document` is the dangerous one: fetching a document by id must apply the same access predicate as a search, or the agent becomes a way to read documents the principal cannot search.
 
-- [ ] **Step 1: Write the failing tests**, including `test_fetch_document_refuses_a_document_the_principal_cannot_read` and `test_each_tool_passes_the_access_filter_through`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run tests, confirm they pass.**
-- [ ] **Step 5: Commit** `feat: add agent tools over the traditional and vectorless strategies`
+- [x] **Step 1: Write the failing tests**, including `test_fetch_document_refuses_a_document_the_principal_cannot_read` and `test_each_tool_passes_the_access_filter_through`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run tests, confirm they pass.**
+- [x] **Step 5: Commit** `feat: add agent tools over the traditional and vectorless strategies`
 
 ---
 
@@ -275,11 +275,11 @@ Extend `ScriptedLLMProvider` so a test can queue structured JSON responses per n
 
 Branches covered: each of the six repair moves, budget exhaustion, no-progress stall, malformed JSON at each of the three contracts, a sub-question abandoned with a reason, and a fully resolved multi-sub-question run.
 
-- [ ] **Step 1: Write the failing tests.**
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement the provider extension.**
+- [x] **Step 1: Write the failing tests.**
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement the provider extension.**
 - [ ] **Step 4: Confirm every branch is exercised** and that the suite runs with no network and no database.
-- [ ] **Step 5: Commit** `test: drive every agent branch with scripted JSON doubles`
+- [x] **Step 5: Commit** `test: drive every agent branch with scripted JSON doubles`
 
 ---
 
@@ -289,11 +289,11 @@ Branches covered: each of the six repair moves, budget exhaustion, no-progress s
 
 Typed settings: `max_iterations` (default 4), per-node LLM call caps, `max_cost_usd`, `max_latency_ms`, which tools are enabled, and the assess strictness. Strict validation, extra keys rejected.
 
-- [ ] **Step 1: Write the failing tests**, including `test_an_unknown_agent_key_is_rejected` and `test_max_iterations_below_one_is_rejected`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement**, and document every key with a one-line comment in `ragfabric.example.yaml`.
-- [ ] **Step 4: Verify `ragfabric config validate` reports the agent settings.**
-- [ ] **Step 5: Commit** `feat: type the agentic strategy configuration`
+- [x] **Step 1: Write the failing tests**, including `test_an_unknown_agent_key_is_rejected` and `test_max_iterations_below_one_is_rejected`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement**, and document every key with a one-line comment in `ragfabric.example.yaml`.
+- [x] **Step 4: Verify `ragfabric config validate` reports the agent settings.**
+- [x] **Step 5: Commit** `feat: type the agentic strategy configuration`
 
 ---
 

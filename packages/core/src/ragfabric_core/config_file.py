@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from ragfabric_core.agent.state import NodeName
 
 ENV_VAR = "RAGFABRIC_CONFIG"
 DEFAULT_FILENAME = "ragfabric.yaml"
@@ -91,6 +93,82 @@ class VectorlessConfig(_Strict):
     max_context_tokens: int = Field(default=6000, ge=100)
 
 
+AgentToolName = Literal["semantic_search", "lexical_search", "fetch_document"]
+
+DEFAULT_TOOLS: list[AgentToolName] = ["semantic_search", "lexical_search", "fetch_document"]
+
+
+class PerNodeLLMCallsConfig(_Strict):
+    """How many model calls each node may make across the whole run.
+
+    Only the four nodes that call a model appear. ``retrieve`` and ``finalize``
+    make none, and a cap on a node that cannot spend would be a number in a file
+    that never does anything, which is the kind of setting people later tune in
+    the belief that it matters.
+
+    Why per-node caps exist at all: a global cap alone lets one runaway node
+    consume the entire budget before the others ever run, so a plan that loops
+    would leave nothing for assess and the answer would be generated from
+    evidence nobody judged.
+    """
+
+    plan: int = Field(default=2, ge=1)
+    assess: int = Field(default=6, ge=1)
+    repair: int = Field(default=6, ge=1)
+    generate: int = Field(default=2, ge=1)
+
+
+class AgenticConfig(_Strict):
+    """Everything that bounds the agent. Typed, floored, and strict about typos.
+
+    This is the one strategy that decides for itself how much work to do, so
+    each limit is a declared field with a floor rather than a key in a loose
+    dict. A misspelled cap in a dict does not raise: it leaves the default in
+    place and the operator finds out from the bill.
+    """
+
+    max_iterations: int = Field(default=4, ge=1)
+    max_llm_calls: int = Field(default=12, ge=1)
+    per_node_llm_calls: PerNodeLLMCallsConfig = Field(default_factory=PerNodeLLMCallsConfig)
+    max_cost_usd: float = Field(default=0.10, ge=0.0)
+    max_latency_ms: int = Field(default=30_000, ge=1)
+    tools: list[AgentToolName] = Field(default_factory=lambda: list(DEFAULT_TOOLS), min_length=1)
+    assess_strictness: Literal["strict", "lenient"] = "strict"
+
+    @field_validator("tools")
+    @classmethod
+    def _no_duplicate_tools(cls, tools: list[str]) -> list[str]:
+        if len(set(tools)) != len(tools):
+            raise ValueError("each tool may be listed once")
+        return tools
+
+    @model_validator(mode="after")
+    def _per_node_caps_fit_inside_the_global_cap(self) -> AgenticConfig:
+        """A per-node cap above the global cap is a number that can never bind.
+
+        Left alone, the loop would stop on the global cap while the per-node
+        number in the file was never the reason, and the stop reason the caller
+        reads would name a limit they did not think they had set.
+        """
+        caps = self.per_node_llm_calls
+        largest = max(caps.plan, caps.assess, caps.repair, caps.generate)
+        if largest > self.max_llm_calls:
+            raise ValueError(
+                f"max_llm_calls of {self.max_llm_calls} is below the largest per-node cap "
+                f"of {largest}, which could then never be reached"
+            )
+        return self
+
+    def node_caps(self) -> dict[NodeName, int]:
+        """The per-node caps keyed the way ``AgentState.spend`` reads them."""
+        return {
+            NodeName.PLAN: self.per_node_llm_calls.plan,
+            NodeName.ASSESS: self.per_node_llm_calls.assess,
+            NodeName.REPAIR: self.per_node_llm_calls.repair,
+            NodeName.GENERATE: self.per_node_llm_calls.generate,
+        }
+
+
 class StrategiesConfig(_Strict):
     traditional: dict[str, float | int | str | bool] = Field(
         default_factory=lambda: {
@@ -101,9 +179,7 @@ class StrategiesConfig(_Strict):
         }
     )
     vectorless: VectorlessConfig = Field(default_factory=VectorlessConfig)
-    agentic: dict[str, float | int | str | bool] = Field(
-        default_factory=lambda: {"max_iterations": 4, "max_cost_usd": 0.10, "max_latency_ms": 30000}
-    )
+    agentic: AgenticConfig = Field(default_factory=AgenticConfig)
     graph: dict[str, float | int | str | bool] = Field(
         default_factory=lambda: {"max_hops": 2, "max_nodes": 200}
     )
