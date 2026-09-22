@@ -29,10 +29,10 @@ from collections.abc import Iterable
 from pydantic import BaseModel, ConfigDict, Field
 
 from ragfabric_core.agent.contracts import ContractViolation, parse_plan
-from ragfabric_core.agent.state import AgentState, NodeName, SubQuestion
+from ragfabric_core.agent.state import AgentState, NodeName, SubQuestion, SubQuestionStatus
 from ragfabric_core.agent.tools import ToolRegistry
 from ragfabric_core.providers.base import LLMProvider, Message
-from ragfabric_core.strategies.base import TraceSpan
+from ragfabric_core.strategies.base import RetrievalContext, RetrievedChunk, TraceSpan
 
 # A model asked to decompose will sometimes decompose forever. Each sub-question
 # costs a retrieval on every iteration, so the list is capped: a question that
@@ -85,6 +85,48 @@ class NodeOutcome(BaseModel):
 
 class PlanOutcome(NodeOutcome):
     sub_questions: list[SubQuestion] = Field(default_factory=list)
+
+
+class ToolCall(BaseModel):
+    """One tool invocation, recorded so the counters report what happened."""
+
+    tool: str
+    query: str
+    sub_question_index: int
+    returned: int
+
+
+class RetrieveOutcome(NodeOutcome):
+    new_chunk_ids: set[int] = Field(default_factory=set)
+    tool_calls: list[ToolCall] = Field(default_factory=list)
+    returned_by_sub_question: dict[int, int] = Field(default_factory=dict)
+
+    @property
+    def made_progress(self) -> bool:
+        """True only when this iteration put evidence in the pool it did not hold.
+
+        Read the definition carefully, because the obvious alternative is wrong.
+        Progress is not "the tools returned something": a tool that returns the
+        same three chunks on every call returns something every time and teaches
+        the agent nothing. Progress is new chunk IDS, which is why this reads
+        the set returned by ``AgentState.add_evidence`` and never a count of
+        rows.
+        """
+        return bool(self.new_chunk_ids)
+
+
+class RetrievalOverride(BaseModel):
+    """The working form of a sub-question after the repair policy changed it.
+
+    The sub-question's own ``text`` stays as the plan wrote it, because that is
+    what the caller is shown in the per sub-question report. The query actually
+    sent to a tool lives here, so a broadened or narrowed query never rewrites
+    the record of what was asked.
+    """
+
+    query: str
+    top_k: int | None = None
+    document_id: int | None = None
 
 
 def _span(name: str, *, origin: float, begin: float, **attributes) -> TraceSpan:
@@ -191,3 +233,87 @@ def _dedupe(sub_questions: Iterable[SubQuestion]) -> list[SubQuestion]:
         seen.add(key)
         kept.append(sq)
     return kept
+
+
+def retrieve(
+    state: AgentState,
+    *,
+    tools: ToolRegistry,
+    ctx: RetrievalContext,
+    overrides: dict[int, RetrievalOverride] | None = None,
+    origin: float | None = None,
+) -> RetrieveOutcome:
+    """Run each open sub-question's tool and pool what comes back.
+
+    Only open sub-questions are retrieved for. That is the whole reason the
+    ledger exists: once a part of the question is answered, spending another
+    store query on it is what judging evidence globally looks like from the
+    inside, and it is what makes decomposition pointless.
+
+    The returned outcome carries the ids that were genuinely new. An iteration
+    that produced none of those has not progressed, however many rows came back,
+    and the loop stops rather than spending the rest of the budget re-reading
+    what it already has.
+    """
+    begin = time.perf_counter()
+    origin = begin if origin is None else origin
+    overrides = overrides or {}
+
+    calls: list[ToolCall] = []
+    returned_by_sub_question: dict[int, int] = {}
+    harvested: list[RetrievedChunk] = []
+
+    open_indexes = _open_indexes(state)
+    for index in open_indexes:
+        sq = state.sub_questions[index]
+        override = overrides.get(index)
+        query = override.query if override is not None else sq.text
+        tool = tools.get(sq.tool)
+        if tool is None:
+            # A repair can point a sub-question at a tool this deployment does
+            # not run. Returning nothing lets the next repair try something
+            # else; raising would fail a request over a recoverable choice.
+            continue
+        chunks = tool.run(query, _with_override(ctx, override))
+        harvested.extend(chunks)
+        returned_by_sub_question[index] = len(chunks)
+        calls.append(
+            ToolCall(tool=sq.tool, query=query, sub_question_index=index, returned=len(chunks))
+        )
+
+    new_ids = state.add_evidence(harvested)
+    return RetrieveOutcome(
+        span=_span(
+            "retrieve",
+            origin=origin,
+            begin=begin,
+            tool_calls=len(calls),
+            returned=len(harvested),
+            new_chunks=len(new_ids),
+            pooled=len(state.evidence),
+            progress=bool(new_ids),
+        ),
+        new_chunk_ids=new_ids,
+        tool_calls=calls,
+        returned_by_sub_question=returned_by_sub_question,
+    )
+
+
+def _open_indexes(state: AgentState) -> list[int]:
+    return [
+        index for index, sq in enumerate(state.sub_questions) if sq.status is SubQuestionStatus.OPEN
+    ]
+
+
+def _with_override(ctx: RetrievalContext, override: RetrievalOverride | None) -> RetrievalContext:
+    """Apply a repair's ``top_k`` change without rebuilding the access filter.
+
+    ``model_copy`` carries the principal and the filter over untouched, so
+    broadening a search widens what is searched and never what the caller is
+    allowed to see. Constructing a fresh ``RetrievalContext`` here would make
+    that a matter of remembering to copy a field (ADR 0003).
+    """
+    if override is None or override.top_k is None or override.top_k == ctx.params.top_k:
+        return ctx
+    params = ctx.params.model_copy(update={"top_k": override.top_k})
+    return ctx.model_copy(update={"params": params})
