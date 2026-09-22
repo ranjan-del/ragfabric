@@ -114,11 +114,11 @@ This is the foundation both tracks build on. It lands before either starts.
 
 Budget accounting is a method on the state, not scattered through nodes: `state.spend(node, llm_calls=1)` raises `BudgetExceeded` when a global or per-node cap would be crossed.
 
-- [ ] **Step 1: Write the failing tests.** `test_a_sub_question_starts_open`, `test_abandoning_requires_a_reason`, `test_spend_raises_when_the_global_llm_cap_is_crossed`, `test_spend_raises_when_a_per_node_cap_is_crossed`, `test_evidence_pool_deduplicates_by_chunk_id`.
-- [ ] **Step 2: Run them, confirm they fail** with `ImportError` on `AgentState`.
-- [ ] **Step 3: Implement.** Pydantic models, mirroring the style of `strategies/base.py`.
-- [ ] **Step 4: Run tests, confirm they pass.**
-- [ ] **Step 5: Commit** `feat: add agent state and the sub-question ledger`
+- [x] **Step 1: Write the failing tests.** `test_a_sub_question_starts_open`, `test_abandoning_requires_a_reason`, `test_spend_raises_when_the_global_llm_cap_is_crossed`, `test_spend_raises_when_a_per_node_cap_is_crossed`, `test_evidence_pool_deduplicates_by_chunk_id`.
+- [x] **Step 2: Run them, confirm they fail** with `ImportError` on `AgentState`.
+- [x] **Step 3: Implement.** Pydantic models, mirroring the style of `strategies/base.py`.
+- [x] **Step 4: Run tests, confirm they pass.**
+- [x] **Step 5: Commit** `feat: add agent state and the sub-question ledger`
 
 ---
 
