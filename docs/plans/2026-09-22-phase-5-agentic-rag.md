@@ -371,11 +371,11 @@ ADR 0009 records the LangGraph decision with the spike's real numbers. ADR 0010 
 
 **One implementer at a time in the worktree.** Two agents sharing a tree means one runs `git add -A` over the other's half-finished work. This is recorded in Phase 4's notes and nearly happened again.
 
-- [ ] **Step 1: Write both ADRs.**
-- [ ] **Step 2: Rewrite `docs/agentic-rag.md` to match what shipped.**
+- [x] **Step 1: Write both ADRs.**
+- [x] **Step 2: Rewrite `docs/agentic-rag.md` to match what shipped.**
 - [ ] **Step 3: Update `ROADMAP.md` and issue #6**, ticking Phase 5 only for what actually merged, and correcting the LangGraph promise.
-- [ ] **Step 4: Re-read every changed doc against the code.**
-- [ ] **Step 5: Commit** `docs: record the agent loop and framework decisions`
+- [x] **Step 4: Re-read every changed doc against the code.**
+- [x] **Step 5: Commit** `docs: record the agent loop and framework decisions`
 
 ---
 
