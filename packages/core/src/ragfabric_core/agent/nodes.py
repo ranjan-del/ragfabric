@@ -126,6 +126,10 @@ class RetrieveOutcome(NodeOutcome):
     new_chunk_ids: set[int] = Field(default_factory=set)
     tool_calls: list[ToolCall] = Field(default_factory=list)
     returned_by_sub_question: dict[int, int] = Field(default_factory=dict)
+    # Kept per sub-question, not merged into the pool, because fetch_document
+    # has to pick a document this sub-question actually matched. Choosing from
+    # the whole pool would let one sub-question drag another's document in.
+    chunks_by_sub_question: dict[int, list[RetrievedChunk]] = Field(default_factory=dict)
 
     @property
     def made_progress(self) -> bool:
@@ -304,6 +308,7 @@ def retrieve(
 
     calls: list[ToolCall] = []
     returned_by_sub_question: dict[int, int] = {}
+    chunks_by_sub_question: dict[int, list[RetrievedChunk]] = {}
     harvested: list[RetrievedChunk] = []
 
     open_indexes = _open_indexes(state)
@@ -320,6 +325,7 @@ def retrieve(
         chunks = tool.run(query, _with_override(ctx, override))
         harvested.extend(chunks)
         returned_by_sub_question[index] = len(chunks)
+        chunks_by_sub_question[index] = list(chunks)
         calls.append(
             ToolCall(tool=sq.tool, query=query, sub_question_index=index, returned=len(chunks))
         )
@@ -339,6 +345,7 @@ def retrieve(
         new_chunk_ids=new_ids,
         tool_calls=calls,
         returned_by_sub_question=returned_by_sub_question,
+        chunks_by_sub_question=chunks_by_sub_question,
     )
 
 
