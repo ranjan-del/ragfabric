@@ -278,7 +278,7 @@ Branches covered: each of the six repair moves, budget exhaustion, no-progress s
 - [x] **Step 1: Write the failing tests.**
 - [x] **Step 2: Run them, confirm they fail.**
 - [x] **Step 3: Implement the provider extension.**
-- [ ] **Step 4: Confirm every branch is exercised** and that the suite runs with no network and no database.
+- [x] **Step 4: Confirm every branch is exercised** and that the suite runs with no network and no database.
 - [x] **Step 5: Commit** `test: drive every agent branch with scripted JSON doubles`
 
 ---

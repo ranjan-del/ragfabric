@@ -49,7 +49,14 @@ MAX_SUB_QUESTIONS = 6
 # a paraphrase can return nothing at all.
 _TOOL_PREFERENCE = ("semantic_search", "lexical_search", "fetch_document")
 
+# Every node's system prompt opens by naming the step it is. The model reads it
+# as context, and so does the offline double: ScriptedLLMProvider routes a call
+# to the queue for the node its prompt names, which is what lets a test queue a
+# plan, an assessment and a repair separately and know which call got which.
+# Without the name, all three fall through to one ordered script and a branch
+# that skips a node passes for the wrong reason.
 PLAN_SYSTEM = (
+    "You are the plan step of a retrieval agent. "
     "You plan retrieval for a question answering system. "
     "You reply with one JSON object and nothing else."
 )
@@ -74,6 +81,7 @@ Choosing a tool:
 - Use only the tools listed above. Do not invent one."""
 
 ASSESS_SYSTEM = (
+    "You are the assess step of a retrieval agent. "
     "You judge whether retrieved evidence answers a question. "
     "You reply with one JSON object and nothing else."
 )

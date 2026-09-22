@@ -66,7 +66,9 @@ STOP_NO_PROGRESS = "no_progress"
 DEFAULT_MAX_ITERATIONS = 4
 
 REPAIR_SYSTEM = (
-    "You choose how to recover a failed retrieval. You reply with one JSON object and nothing else."
+    "You are the repair step of a retrieval agent. "
+    "You choose how to recover a failed retrieval. "
+    "You reply with one JSON object and nothing else."
 )
 
 REPAIR_MOVES = """The moves available, and when each fits:

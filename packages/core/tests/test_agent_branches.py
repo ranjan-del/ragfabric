@@ -12,12 +12,21 @@ node's responses come back for that node, in order, as JSON the contract layer
 in ``agent/contracts.py`` can parse, and that a call the double cannot place
 falls back to the ordered script rather than guessing.
 
-The full branch matrix over the assembled loop (six repair moves, budget
-exhaustion, the no-progress stall, a malformed response at each contract) lands
-here after the two tracks merge, once ``agent/loop.py`` exists to drive.
+The second half of this file is the full branch matrix over the assembled
+loop: each of the six repair moves, both ways the budget stops a run, the
+no-progress stall, a malformed response at each of the three contracts, a
+sub-question abandoned with a reason, and a fully resolved multi-sub-question
+run. Every one of them is driven by the queued double alone, so the whole
+matrix runs with no network and no database. ``test_the_matrix_needs_no_socket
+_and_no_database_session`` holds that shut rather than leaving it a claim in a
+docstring.
 """
 
+import socket
+
 import pytest
+from agent_doubles import FakeTool, SequenceTool, chunk
+from agent_doubles import ctx as make_ctx
 
 from ragfabric_core.agent.contracts import (
     AssessResponse,
@@ -28,7 +37,14 @@ from ragfabric_core.agent.contracts import (
     parse_plan,
     parse_repair,
 )
-from ragfabric_core.agent.state import NodeName, RepairMove
+from ragfabric_core.agent.loop import (
+    STOP_BUDGET,
+    STOP_NO_PROGRESS,
+    STOP_RESOLVED,
+    AgentRun,
+    run_agent,
+)
+from ragfabric_core.agent.state import NodeName, RepairMove, SubQuestionStatus
 from ragfabric_core.providers.base import LLMProvider, Message, ProviderError
 from ragfabric_core.providers.offline import ScriptedLLMProvider
 
@@ -189,3 +205,464 @@ def test_streaming_reads_a_node_queue_too() -> None:
 
 def test_streaming_an_exhausted_script_still_yields_nothing() -> None:
     assert list(ScriptedLLMProvider().stream(prompt(NodeName.GENERATE))) == []
+
+
+# ---------------------------------------------------------------------------
+# The branch matrix over the assembled loop.
+#
+# Each test below drives ``run_agent`` with nothing but queued JSON and fake
+# tools, so the branch it names is the branch that ran. The queues are the
+# reason that claim holds: a response queued for ``repair`` can only be
+# returned to a repair call, so a run that took a different path raises
+# "script exhausted for node repair" instead of quietly passing.
+# ---------------------------------------------------------------------------
+
+
+def plan_json(*pairs: tuple[str, str]) -> dict:
+    return {"sub_questions": [{"text": text, "tool": tool, "why": ""} for text, tool in pairs]}
+
+
+def assess_json(*verdicts: tuple[str, bool, str | None]) -> dict:
+    return {
+        "verdicts": [
+            {"sub_question": text, "answered": answered, "missing": missing}
+            for text, answered, missing in verdicts
+        ]
+    }
+
+
+def repair_json(move: str, rewritten: str | None = None, why: str = "") -> dict:
+    return {"move": move, "rewritten_query": rewritten, "why": why}
+
+
+def spans(run: AgentRun, name: str) -> list:
+    return [span for span in run.trace if span.name == name]
+
+
+def repair_moves(run: AgentRun) -> list:
+    return [span.attributes["move"] for span in spans(run, "repair")]
+
+
+def registry(*tools) -> dict:
+    return {tool.name: tool for tool in tools}
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Refuse every socket for the whole module, not just the test that says so.
+
+    The branch matrix exists to prove the agent can be driven offline. A
+    fixture that only guarded one test would leave the other twenty free to
+    reach for a provider, and the suite would still be green on a machine with
+    a model server running.
+    """
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("the agent branch matrix must not open a socket")
+
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+    monkeypatch.setattr(socket, "create_connection", refuse)
+
+
+def test_the_matrix_needs_no_socket_and_no_database_session() -> None:
+    """No network and no database, asserted rather than asserted about.
+
+    The socket ban comes from the autouse fixture above. The database session
+    factory is broken deliberately for the duration of this run, so a tool or
+    a node that reached for one would fail here rather than in whichever
+    deployment first ran the agent without a database in front of it.
+    """
+    import ragfabric_core.db.session as session_module
+
+    def refuse_session(*args, **kwargs):
+        raise AssertionError("the agent branch matrix must not open a database session")
+
+    original = session_module.SessionLocal
+    session_module.SessionLocal = refuse_session
+    try:
+        tool = FakeTool("semantic_search", chunks=[chunk(1, text="the limit is five attempts")])
+        llm = ScriptedLLMProvider(
+            node_responses={
+                NodeName.PLAN: [plan_json(("what is the retry limit", "semantic_search"))],
+                NodeName.ASSESS: [assess_json(("what is the retry limit", True, None))],
+            }
+        )
+        run = run_agent("what is the retry limit", llm=llm, tools=registry(tool), ctx=make_ctx())
+    finally:
+        session_module.SessionLocal = original
+
+    assert run.stop_reason == STOP_RESOLVED
+    assert llm.pending() == {}
+
+
+def test_a_fully_resolved_multi_sub_question_run() -> None:
+    semantic = FakeTool("semantic_search", chunks=[chunk(1, text="the limit is five attempts")])
+    lexical = FakeTool("lexical_search", chunks=[chunk(2, text="the owner signs it off")])
+    llm = ScriptedLLMProvider(
+        node_responses={
+            NodeName.PLAN: [
+                plan_json(
+                    ("what is the retry limit", "semantic_search"),
+                    ("who signs off the change", "lexical_search"),
+                )
+            ],
+            NodeName.ASSESS: [
+                assess_json(
+                    ("what is the retry limit", True, None),
+                    ("who signs off the change", True, None),
+                )
+            ],
+        }
+    )
+
+    run = run_agent(
+        "what is the retry limit and who signs off the change",
+        llm=llm,
+        tools=registry(semantic, lexical),
+        ctx=make_ctx(),
+    )
+
+    assert run.stop_reason == STOP_RESOLVED
+    assert [sq.status for sq in run.state.sub_questions] == [
+        SubQuestionStatus.ANSWERED,
+        SubQuestionStatus.ANSWERED,
+    ]
+    assert run.retrieval_calls == 2
+    assert {c.chunk_id for c in run.chunks} == {1, 2}
+    assert run.state.llm_calls == 2
+    assert llm.pending() == {}
+
+
+def test_the_broaden_branch_relaxes_the_query_and_widens_the_candidate_set() -> None:
+    tool = SequenceTool("semantic_search", [[], [chunk(1, text="the limit is five attempts")]])
+    llm = ScriptedLLMProvider(
+        node_responses={
+            NodeName.PLAN: [
+                plan_json(("what is the exact retry limit for the payments API", "semantic_search"))
+            ],
+            NodeName.ASSESS: [
+                assess_json(
+                    ("what is the exact retry limit for the payments API", False, "the number")
+                ),
+                assess_json(("what is the exact retry limit for the payments API", True, None)),
+            ],
+            NodeName.REPAIR: [repair_json("broaden")],
+        }
+    )
+
+    run = run_agent(
+        "what is the exact retry limit for the payments API",
+        llm=llm,
+        tools=registry(tool),
+        ctx=make_ctx(top_k=5),
+    )
+
+    assert repair_moves(run) == ["broaden"]
+    assert tool.queries == [
+        "what is the exact retry limit for the payments API",
+        "what is the retry limit",
+    ]
+    assert tool.contexts[1].params.top_k == 10
+    assert run.stop_reason == STOP_RESOLVED
+
+
+def test_the_narrow_branch_adds_the_missing_constraint_to_the_query() -> None:
+    tool = SequenceTool(
+        "semantic_search",
+        [[chunk(1, text="retries are discussed at length")], [chunk(2, text="five attempts")]],
+    )
+    llm = ScriptedLLMProvider(
+        node_responses={
+            NodeName.PLAN: [plan_json(("what is the retry limit", "semantic_search"))],
+            NodeName.ASSESS: [
+                assess_json(("what is the retry limit", False, "the number of retries allowed")),
+                assess_json(("what is the retry limit", True, None)),
+            ],
+            NodeName.REPAIR: [repair_json("narrow")],
+        }
+    )
+
+    run = run_agent(
+        "what is the retry limit", llm=llm, tools=registry(tool), ctx=make_ctx(top_k=20)
+    )
+
+    assert repair_moves(run) == ["narrow"]
+    assert tool.queries[1] == "what is the retry limit the number of retries allowed"
+    assert tool.contexts[1].params.top_k == 5
+    assert run.stop_reason == STOP_RESOLVED
+
+
+def test_the_switch_strategy_branch_flips_the_tool_the_next_retrieval_uses() -> None:
+    lexical = FakeTool("lexical_search", chunks=[chunk(1, text="a near miss")])
+    semantic = FakeTool("semantic_search", chunks=[chunk(2, text="five attempts")])
+    llm = ScriptedLLMProvider(
+        node_responses={
+            NodeName.PLAN: [plan_json(("what is the retry limit", "lexical_search"))],
+            NodeName.ASSESS: [
+                assess_json(("what is the retry limit", False, "the number")),
+                assess_json(("what is the retry limit", True, None)),
+            ],
+            NodeName.REPAIR: [repair_json("switch_strategy")],
+        }
+    )
+
+    run = run_agent(
+        "what is the retry limit", llm=llm, tools=registry(lexical, semantic), ctx=make_ctx()
+    )
+
+    assert repair_moves(run) == ["switch_strategy"]
+    assert len(lexical.queries) == 1
+    assert len(semantic.queries) == 1
+    assert run.state.sub_questions[0].tool == "semantic_search"
+    assert run.stop_reason == STOP_RESOLVED
+
+
+def test_the_decompose_branch_splits_the_sub_question_and_retires_the_parent() -> None:
+    tool = SequenceTool(
+        "semantic_search",
+        [
+            [chunk(1, text="a long policy document")],
+            [chunk(2, text="five attempts")],
+            [chunk(3, text="the owner signs it off")],
+        ],
+    )
+    compound = "what is the retry limit and who signs off the change"
+    llm = ScriptedLLMProvider(
+        node_responses={
+            NodeName.PLAN: [plan_json((compound, "semantic_search"))],
+            NodeName.ASSESS: [
+                assess_json((compound, False, "both halves")),
+                assess_json(
+                    ("what is the retry limit", True, None),
+                    ("who signs off the change", True, None),
+                ),
+            ],
+            NodeName.REPAIR: [repair_json("decompose")],
+        }
+    )
+
+    run = run_agent(compound, llm=llm, tools=registry(tool), ctx=make_ctx())
+
+    assert repair_moves(run) == ["decompose"]
+    assert [sq.text for sq in run.state.sub_questions] == [
+        compound,
+        "what is the retry limit",
+        "who signs off the change",
+    ]
+    assert run.state.sub_questions[0].status is SubQuestionStatus.ABANDONED
+    assert "decomposed into 2" in (run.state.sub_questions[0].reason or "")
+    assert run.stop_reason == STOP_RESOLVED
+
+
+def test_the_fetch_document_branch_pulls_the_matched_document_whole() -> None:
+    semantic = FakeTool(
+        "semantic_search", chunks=[chunk(1, document_id=7, text="a fragment", score=0.9)]
+    )
+    fetch = FakeTool("fetch_document", chunks=[chunk(2, document_id=7, text="five attempts")])
+    llm = ScriptedLLMProvider(
+        node_responses={
+            NodeName.PLAN: [plan_json(("what is the retry limit", "semantic_search"))],
+            NodeName.ASSESS: [
+                assess_json(("what is the retry limit", False, "the number")),
+                assess_json(("what is the retry limit", True, None)),
+            ],
+            NodeName.REPAIR: [repair_json("fetch_document")],
+        }
+    )
+
+    run = run_agent(
+        "what is the retry limit", llm=llm, tools=registry(semantic, fetch), ctx=make_ctx()
+    )
+
+    assert repair_moves(run) == ["fetch_document"]
+    assert fetch.queries == ["7"]
+    assert run.state.sub_questions[0].tool == "fetch_document"
+    assert run.stop_reason == STOP_RESOLVED
+
+
+def test_the_abandon_branch_records_a_reason_and_still_stops_as_resolved() -> None:
+    """Resolved is not a synonym for answered, and the report has to show that."""
+    tool = SequenceTool(
+        "semantic_search",
+        [
+            [chunk(1, text="a near miss")],
+            [chunk(2, text="another near miss")],
+        ],
+    )
+    llm = ScriptedLLMProvider(
+        node_responses={
+            NodeName.PLAN: [plan_json(("what is the retry limit", "semantic_search"))],
+            NodeName.ASSESS: [
+                assess_json(("what is the retry limit", False, "the number")),
+                assess_json(("what is the retry limit", False, "the number")),
+            ],
+            NodeName.REPAIR: [
+                repair_json("broaden"),
+                repair_json("abandon", why="nothing in the corpus states the limit"),
+            ],
+        }
+    )
+
+    run = run_agent("what is the retry limit", llm=llm, tools=registry(tool), ctx=make_ctx())
+
+    assert repair_moves(run) == ["broaden", "abandon"]
+    assert run.state.sub_questions[0].status is SubQuestionStatus.ABANDONED
+    assert run.state.sub_questions[0].reason == "nothing in the corpus states the limit"
+    assert run.stop_reason == STOP_RESOLVED
+
+
+def test_an_abandon_proposed_before_anything_was_tried_is_refused() -> None:
+    """The guard that stops a model turning the agent into a plain retriever."""
+    tool = SequenceTool(
+        "semantic_search",
+        [[chunk(1, text="a near miss")], [chunk(2, text="five attempts")]],
+    )
+    llm = ScriptedLLMProvider(
+        node_responses={
+            NodeName.PLAN: [plan_json(("what is the retry limit", "semantic_search"))],
+            NodeName.ASSESS: [
+                assess_json(("what is the retry limit", False, "the number")),
+                assess_json(("what is the retry limit", True, None)),
+            ],
+            NodeName.REPAIR: [repair_json("abandon", why="I give up")],
+        }
+    )
+
+    run = run_agent("what is the retry limit", llm=llm, tools=registry(tool), ctx=make_ctx())
+
+    assert repair_moves(run) == ["narrow"]
+    assert run.state.sub_questions[0].status is SubQuestionStatus.ANSWERED
+
+
+def test_the_loop_stops_on_the_iteration_cap() -> None:
+    tool = SequenceTool(
+        "semantic_search",
+        [[chunk(1, text="a near miss")], [chunk(2, text="another near miss")]],
+    )
+    llm = ScriptedLLMProvider(
+        node_responses={
+            NodeName.PLAN: [plan_json(("what is the retry limit", "semantic_search"))],
+            NodeName.ASSESS: [assess_json(("what is the retry limit", False, "the number"))],
+            NodeName.REPAIR: [repair_json("broaden")],
+        }
+    )
+
+    run = run_agent(
+        "what is the retry limit",
+        llm=llm,
+        tools=registry(tool),
+        ctx=make_ctx(),
+        max_iterations=1,
+    )
+
+    assert run.stop_reason == STOP_BUDGET
+    assert "max_iterations of 1" in run.stop_detail
+    assert run.state.iterations == 1
+
+
+def test_the_loop_stops_when_a_spend_is_refused() -> None:
+    """The other budget: the call cap, refused at the node that would cross it."""
+    tool = FakeTool("semantic_search", chunks=[chunk(1, text="a near miss")])
+    llm = ScriptedLLMProvider(
+        node_responses={
+            NodeName.PLAN: [plan_json(("what is the retry limit", "semantic_search"))],
+            NodeName.ASSESS: [assess_json(("what is the retry limit", False, "the number"))],
+            NodeName.REPAIR: [repair_json("broaden")],
+        }
+    )
+
+    run = run_agent(
+        "what is the retry limit",
+        llm=llm,
+        tools=registry(tool),
+        ctx=make_ctx(max_llm_calls=2),
+    )
+
+    assert run.stop_reason == STOP_BUDGET
+    assert "max_llm_calls of 2" in run.stop_detail
+    assert run.state.llm_calls == 2
+    assert llm.pending() == {"repair": 1}
+
+
+def test_the_loop_stops_on_a_stall_rather_than_re_reading_the_same_chunk() -> None:
+    tool = FakeTool("semantic_search", chunks=[chunk(1, text="a near miss")])
+    llm = ScriptedLLMProvider(
+        node_responses={
+            NodeName.PLAN: [plan_json(("what is the retry limit", "semantic_search"))],
+            NodeName.ASSESS: [assess_json(("what is the retry limit", False, "the number"))],
+            NodeName.REPAIR: [repair_json("broaden")],
+        }
+    )
+
+    run = run_agent("what is the retry limit", llm=llm, tools=registry(tool), ctx=make_ctx())
+
+    assert run.stop_reason == STOP_NO_PROGRESS
+    assert run.state.iterations == 2
+    assert len(spans(run, "assess")) == 1
+
+
+def test_a_malformed_plan_does_not_fail_the_request() -> None:
+    tool = FakeTool("semantic_search", chunks=[chunk(1, text="five attempts")])
+    llm = ScriptedLLMProvider(
+        node_responses={
+            NodeName.PLAN: ["Sure! Let me think about that one."],
+            NodeName.ASSESS: [assess_json(("what is the retry limit", True, None))],
+        }
+    )
+
+    run = run_agent("what is the retry limit", llm=llm, tools=registry(tool), ctx=make_ctx())
+
+    plan_span = spans(run, "plan")[0]
+    assert plan_span.attributes["fallback"] is True
+    assert plan_span.attributes["violation"]
+    assert [sq.text for sq in run.state.sub_questions] == ["what is the retry limit"]
+    assert run.stop_reason == STOP_RESOLVED
+
+
+def test_a_malformed_assessment_leaves_the_sub_question_open() -> None:
+    tool = SequenceTool(
+        "semantic_search",
+        [[chunk(1, text="a near miss")], [chunk(2, text="five attempts")]],
+    )
+    llm = ScriptedLLMProvider(
+        node_responses={
+            NodeName.PLAN: [plan_json(("what is the retry limit", "semantic_search"))],
+            NodeName.ASSESS: [
+                "I am not sure how to judge that.",
+                assess_json(("what is the retry limit", True, None)),
+            ],
+            NodeName.REPAIR: [repair_json("narrow", rewritten="retry limit attempts")],
+        }
+    )
+
+    run = run_agent("what is the retry limit", llm=llm, tools=registry(tool), ctx=make_ctx())
+
+    assert spans(run, "assess")[0].attributes["violation"]
+    assert spans(run, "assess")[0].attributes["unjudged"] == 1
+    assert repair_moves(run) == ["narrow"]
+    assert run.stop_reason == STOP_RESOLVED
+
+
+def test_a_malformed_repair_still_makes_a_move() -> None:
+    tool = SequenceTool(
+        "semantic_search",
+        [[chunk(1, text="a near miss")], [chunk(2, text="five attempts")]],
+    )
+    llm = ScriptedLLMProvider(
+        node_responses={
+            NodeName.PLAN: [plan_json(("what is the retry limit", "semantic_search"))],
+            NodeName.ASSESS: [
+                assess_json(("what is the retry limit", False, "the number")),
+                assess_json(("what is the retry limit", True, None)),
+            ],
+            NodeName.REPAIR: ["I would try searching again, maybe?"],
+        }
+    )
+
+    run = run_agent("what is the retry limit", llm=llm, tools=registry(tool), ctx=make_ctx())
+
+    repair_span = spans(run, "repair")[0]
+    assert repair_span.attributes["violation"]
+    assert repair_span.attributes["proposed"] is None
+    assert repair_span.attributes["move"] == "narrow"
+    assert run.stop_reason == STOP_RESOLVED
