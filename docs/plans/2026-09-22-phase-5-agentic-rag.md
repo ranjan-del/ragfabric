@@ -275,11 +275,11 @@ Extend `ScriptedLLMProvider` so a test can queue structured JSON responses per n
 
 Branches covered: each of the six repair moves, budget exhaustion, no-progress stall, malformed JSON at each of the three contracts, a sub-question abandoned with a reason, and a fully resolved multi-sub-question run.
 
-- [ ] **Step 1: Write the failing tests.**
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement the provider extension.**
+- [x] **Step 1: Write the failing tests.**
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement the provider extension.**
 - [ ] **Step 4: Confirm every branch is exercised** and that the suite runs with no network and no database.
-- [ ] **Step 5: Commit** `test: drive every agent branch with scripted JSON doubles`
+- [x] **Step 5: Commit** `test: drive every agent branch with scripted JSON doubles`
 
 ---
 
