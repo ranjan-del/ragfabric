@@ -150,11 +150,11 @@ Tools are thin. They do not re-implement retrieval, they call the strategies tha
 
 **Every tool receives and honours the caller's `AccessFilter`.** `fetch_document` is the dangerous one: fetching a document by id must apply the same access predicate as a search, or the agent becomes a way to read documents the principal cannot search.
 
-- [ ] **Step 1: Write the failing tests**, including `test_fetch_document_refuses_a_document_the_principal_cannot_read` and `test_each_tool_passes_the_access_filter_through`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run tests, confirm they pass.**
-- [ ] **Step 5: Commit** `feat: add agent tools over the traditional and vectorless strategies`
+- [x] **Step 1: Write the failing tests**, including `test_fetch_document_refuses_a_document_the_principal_cannot_read` and `test_each_tool_passes_the_access_filter_through`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run tests, confirm they pass.**
+- [x] **Step 5: Commit** `feat: add agent tools over the traditional and vectorless strategies`
 
 ---
 
