@@ -32,7 +32,7 @@ from ragfabric_core.generate.contract import (
     assert_citation_contract,
 )
 from ragfabric_core.providers.base import LLMProvider, Message
-from ragfabric_core.strategies.base import RetrievedChunk
+from ragfabric_core.strategies.base import RetrievedChunk, SubQuestionReport
 
 # The exact sentence the contract's NO_EVIDENCE substring must match. Defined
 # from that one sentinel, not restated, so the sentence the generator emits and
@@ -364,6 +364,60 @@ def dated_sources_note(reports: list[DatedSubQuestion]) -> str:
     return " ".join(lines)
 
 
+class AgenticContractResult(BaseModel):
+    """The answer after the contract has been applied claim by claim."""
+
+    text: str
+    dropped_claims: list[DroppedClaim] = Field(default_factory=list)
+    dated_sources: list[DatedSubQuestion] = Field(default_factory=list)
+
+
+def apply_agentic_contract(
+    text: str,
+    chunks: list[RetrievedChunk],
+    sub_question_evidence: Sequence[SubQuestionEvidence] = (),
+) -> AgenticContractResult:
+    """Drop what the contract refuses, then surface differing effective dates.
+
+    Separate from the generation call above because the streaming route already
+    has the text: it watched the model produce it token by token, and re-asking
+    for an answer it has already shown the caller would spend a second call to
+    rewrite the parts that were fine. Editing what is there is both cheaper and
+    closer to what the caller watched arrive.
+
+    An answer left with nothing becomes the no-evidence sentence rather than an
+    empty string. Every claim having been refused is a real outcome and saying
+    so is the honest form of it.
+    """
+    kept, dropped = drop_unsupported_claims(text, chunks)
+    if not kept:
+        kept = NO_EVIDENCE_ANSWER
+    reports = dated_sub_questions(sub_question_evidence, chunks)
+    note = dated_sources_note(reports)
+    if note:
+        kept = f"{kept} {note}"
+    return AgenticContractResult(text=kept, dropped_claims=dropped, dated_sources=reports)
+
+
+def sub_question_evidence_from(
+    reports: Sequence[SubQuestionReport], chunks: list[RetrievedChunk]
+) -> list[SubQuestionEvidence]:
+    """Rebuild the per sub-question grouping from a result and its reports.
+
+    The report carries chunk ids rather than chunks, because the chunks are
+    already on the result and carrying them twice would double the size of
+    every agentic response for no new information.
+    """
+    by_id = {chunk.chunk_id: chunk for chunk in chunks}
+    return [
+        SubQuestionEvidence(
+            text=report.text,
+            chunks=[by_id[chunk_id] for chunk_id in report.chunk_ids if chunk_id in by_id],
+        )
+        for report in reports
+    ]
+
+
 def generate_agentic_answer(
     query: str,
     chunks: list[RetrievedChunk],
@@ -402,22 +456,15 @@ def generate_agentic_answer(
         model=model,
         max_tokens=max_tokens,
     )
-    text, dropped = drop_unsupported_claims(completion.text, chunks)
-    if not text:
-        text = NO_EVIDENCE_ANSWER
-
-    reports = dated_sub_questions(sub_question_evidence, chunks)
-    note = dated_sources_note(reports)
-    if note:
-        text = f"{text} {note}"
+    checked = apply_agentic_contract(completion.text, chunks, sub_question_evidence)
 
     return AgenticAnswer(
-        text=text,
+        text=checked.text,
         model=completion.model,
         input_tokens=completion.input_tokens,
         output_tokens=completion.output_tokens,
         latency_ms=int((time.perf_counter() - started) * 1000),
         generator="llm",
-        dropped_claims=dropped,
-        dated_sources=reports,
+        dropped_claims=checked.dropped_claims,
+        dated_sources=checked.dated_sources,
     )

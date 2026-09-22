@@ -337,12 +337,12 @@ Add `agentic` to the strategy choices on `POST /api/ask` and `POST /api/search/q
 
 The agent's trace and sub-question report are returned on the ask response.
 
-- [ ] **Step 1: Read the current request and response schemas and write down their real fields.**
-- [ ] **Step 2: Write the failing tests**, including `test_the_ask_response_carries_the_sub_question_report` and `test_hybrid_still_refuses_agentic`.
-- [ ] **Step 3: Run them, confirm they fail.**
-- [ ] **Step 4: Implement across route, CLI and SDK.**
-- [ ] **Step 5: Run the full suite** and confirm no Phase 4 route test regressed.
-- [ ] **Step 6: Commit** `feat: expose the agentic strategy over the API, CLI and SDK`
+- [x] **Step 1: Read the current request and response schemas and write down their real fields.**
+- [x] **Step 2: Write the failing tests**, including `test_the_ask_response_carries_the_sub_question_report` and `test_hybrid_still_refuses_agentic`.
+- [x] **Step 3: Run them, confirm they fail.**
+- [x] **Step 4: Implement across route, CLI and SDK.**
+- [x] **Step 5: Run the full suite** and confirm no Phase 4 route test regressed.
+- [x] **Step 6: Commit** `feat: expose the agentic strategy over the API, CLI and SDK`
 
 ---
 

@@ -69,6 +69,53 @@ class Usage(BaseModel):
     output_tokens: int = 0
 
 
+class SubQuestionReport(BaseModel):
+    """Mirrors ``schemas.search.SubQuestionReportOut``.
+
+    Only the agentic strategy fills this in. ``status`` is ``answered``,
+    ``abandoned`` or ``open``, where ``open`` means the run stopped with this
+    part of the question unanswered, and ``reason`` says what stopped it. It
+    replaces what a single "this answer is partial" flag could not express:
+    which part failed, and why.
+    """
+
+    text: str
+    status: str
+    reason: str | None = None
+    chunk_ids: list[int] = Field(default_factory=list)
+
+
+class DroppedClaim(BaseModel):
+    """Mirrors ``schemas.search.DroppedClaimOut``: a claim the contract refused.
+
+    The agent removes an unsupported claim rather than retrying retrieval for
+    it, and reports the removal here so the caller can see what was cut.
+    """
+
+    text: str
+    reason: str
+
+
+class DatedSource(BaseModel):
+    """Mirrors ``schemas.search.DatedSourceOut``."""
+
+    marker: int
+    chunk_id: int
+    document_id: int
+    effective_date: str
+
+
+class DatedSubQuestion(BaseModel):
+    """Mirrors ``schemas.search.DatedSubQuestionOut``.
+
+    Sources for one part of the question carrying different effective dates.
+    This is metadata: nothing here says they disagree in meaning.
+    """
+
+    sub_question: str
+    sources: list[DatedSource] = Field(default_factory=list)
+
+
 class Answer(BaseModel):
     """Mirrors ``schemas.search.AnswerResponse``, returned by both
     ``POST /api/ask`` (non streaming) and ``POST /api/search/query``."""
@@ -82,6 +129,15 @@ class Answer(BaseModel):
     # Optional so this client still parses a response from a server older
     # than Phase 4, which has no usage block to report.
     usage: Usage | None = None
+    # Empty unless the agentic strategy served the request, and empty rather
+    # than optional so a server older than Phase 5 parses without special
+    # cases. ``trace`` stays a list of plain dicts for the same reason
+    # ``Run.trace`` does: a span's attributes differ per node and typing them
+    # would make the client reject a span shape it simply has not seen.
+    sub_questions: list[SubQuestionReport] = Field(default_factory=list)
+    dropped_claims: list[DroppedClaim] = Field(default_factory=list)
+    dated_sources: list[DatedSubQuestion] = Field(default_factory=list)
+    trace: list[dict] = Field(default_factory=list)
 
 
 class SearchResult(BaseModel):
