@@ -32,6 +32,7 @@ class Strategy(StrEnum):
 
     traditional = "traditional"
     vectorless = "vectorless"
+    agentic = "agentic"
 
 
 def ask(
@@ -52,7 +53,9 @@ def ask(
         help=(
             "Retrieval strategy. traditional embeds the question and searches the "
             "vector index; vectorless ranks with BM25 fused with ts_rank_cd and "
-            "never calls an embedding model."
+            "never calls an embedding model; agentic splits the question into "
+            "parts, retrieves per part, and repairs or abandons the parts it "
+            "cannot answer, reporting which those were."
         ),
     ),
     no_stream: bool = typer.Option(

@@ -21,12 +21,20 @@ from __future__ import annotations
 import time
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ragfabric_core.auth.principal import AccessFilter, Principal
 from ragfabric_core.db.session import get_db
 from ragfabric_core.generate.answer import build_answer
-from ragfabric_core.generate.cited import CitedAnswer, generate_cited_answer
+from ragfabric_core.generate.cited import (
+    CitedAnswer,
+    DatedSubQuestion,
+    DroppedClaim,
+    generate_agentic_answer,
+    generate_cited_answer,
+    sub_question_evidence_from,
+)
 from ragfabric_core.models.access import AuditLog
 from ragfabric_core.models.document import QueryLog
 from ragfabric_core.models.runs import RetrievalRun, Source
@@ -159,22 +167,114 @@ def _access_stats(
     expose access_stats, so the number stays a measurement on either path
     rather than a zero standing in for "not looked at" (ADR 0004).
     """
-    store = getattr(strategy, "store", None)
+    store = _countable_store(strategy)
     if store is None:
-        store = getattr(strategy, "bm25_store", None)
-    if store is None or not hasattr(store, "access_stats"):
         raise RuntimeError(f"{type(strategy).__name__} exposes no store to count candidates on")
     return store.access_stats(filters, access)
 
 
-def _usage(result, cited: CitedAnswer | None = None) -> Usage:
+def _countable_store(strategy: RetrieverStrategy):
+    """The store the audit row's candidate counts are measured on.
+
+    The traditional strategy searches a vector store and the vectorless one a
+    BM25 store, so each exposes the store it queried. The agent has neither:
+    it holds tools, each wrapping one of those strategies, and it may search
+    through more than one of them in a single run. Counting the union would
+    mean adding candidate counts from two different indexes over the same
+    corpus, which is not a number that means anything, so the count is taken on
+    the first search tool the agent was built with and is a measurement on that
+    index. Summing them would look more thorough and be less true (ADR 0004).
+    """
+    for attribute in ("store", "bm25_store"):
+        store = getattr(strategy, attribute, None)
+        if store is not None and hasattr(store, "access_stats"):
+            return store
+    for tool in (getattr(strategy, "tools", None) or {}).values():
+        inner = getattr(tool, "strategy", None)
+        if inner is None:
+            continue
+        store = _countable_store(inner)
+        if store is not None:
+            return store
+    return None
+
+
+class Generated(BaseModel):
+    """One generation step, in the form every route accounts for it.
+
+    Both generators (the single shot one from Phase 3 and the agent's, which
+    drops what the contract refuses instead of retrying) report through this,
+    so the routes below never branch on which one ran except where the answer
+    genuinely differs.
+    """
+
+    text: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    # Real calls issued by this step, counted rather than inferred from the
+    # generator that produced the text (ADR 0004).
+    llm_calls: int = 0
+    dropped_claims: list[DroppedClaim] = Field(default_factory=list)
+    dated_sources: list[DatedSubQuestion] = Field(default_factory=list)
+
+
+def _generate(query: str, result, llm: LLMProvider) -> Generated:
+    """Generate the answer this result deserves.
+
+    A result carrying sub-question reports came from the agent, and the agent's
+    answer is checked claim by claim: an unsupported claim is removed and the
+    removal reported, rather than the whole answer being regenerated. There is
+    nothing to regenerate for, because a claim the evidence does not support is
+    the model saying more than it was given.
+    """
+    if result.sub_questions:
+        agentic = generate_agentic_answer(
+            query,
+            result.chunks,
+            llm,
+            sub_question_evidence=sub_question_evidence_from(result.sub_questions, result.chunks),
+        )
+        return Generated(
+            text=agentic.text,
+            input_tokens=agentic.input_tokens,
+            output_tokens=agentic.output_tokens,
+            # Exactly one call, or none at all on the empty-pool path.
+            llm_calls=1 if agentic.generator == "llm" else 0,
+            dropped_claims=agentic.dropped_claims,
+            dated_sources=agentic.dated_sources,
+        )
+    cited = generate_cited_answer(query, result.chunks, llm, model=None, max_tokens=800)
+    return Generated(
+        text=cited.text,
+        input_tokens=cited.input_tokens,
+        output_tokens=cited.output_tokens,
+        llm_calls=_cited_llm_calls(cited),
+    )
+
+
+def _agent_fields(result, generated: Generated | None = None) -> dict:
+    """The response fields only an agent fills in, empty for everything else."""
+    return {
+        "sub_questions": [report.model_dump() for report in result.sub_questions],
+        "dropped_claims": [claim.model_dump() for claim in generated.dropped_claims]
+        if generated is not None
+        else [],
+        "dated_sources": [dated.model_dump() for dated in generated.dated_sources]
+        if generated is not None
+        else [],
+        "trace": [span.model_dump() for span in result.trace] if result.sub_questions else [],
+    }
+
+
+def _usage(result, generated: Generated | None = None) -> Usage:
     """Assemble the response's usage block out of counts, never estimates."""
     return Usage(
         embedding_calls=result.embedding_calls,
-        llm_calls=result.llm_calls + (_cited_llm_calls(cited) if cited is not None else 0),
+        llm_calls=result.llm_calls + (generated.llm_calls if generated is not None else 0),
         retrieval_calls=result.retrieval_calls,
-        input_tokens=result.input_tokens + (cited.input_tokens if cited is not None else 0),
-        output_tokens=result.output_tokens + (cited.output_tokens if cited is not None else 0),
+        input_tokens=result.input_tokens + (generated.input_tokens if generated is not None else 0),
+        output_tokens=result.output_tokens
+        + (generated.output_tokens if generated is not None else 0),
     )
 
 
@@ -269,11 +369,9 @@ def query(
         result = strategy.retrieve(payload.query, _context(payload, principal, access))
         retrieval_ms = int((time.perf_counter() - started) * 1000)
         with trace("answer"):
-            cited = generate_cited_answer(
-                payload.query, result.chunks, llm, model=None, max_tokens=800
-            )
+            generated = _generate(payload.query, result, llm)
         retrieved = [_chunk_to_row(c) for c in result.chunks]
-        result_payload = build_answer(payload.query, retrieved, answer_text=cited.text)
+        result_payload = build_answer(payload.query, retrieved, answer_text=generated.text)
     total_ms = int((time.perf_counter() - started) * 1000)
 
     # Record only the documents the answer actually cited, so the analytics
@@ -309,10 +407,10 @@ def query(
         latency_ms=total_ms,
         retrieval_latency_ms=retrieval_ms,
         generation_latency_ms=total_ms - retrieval_ms,
-        llm_calls=result.llm_calls + _cited_llm_calls(cited),
+        llm_calls=result.llm_calls + generated.llm_calls,
         retrieval_calls=result.retrieval_calls,
-        input_tokens=result.input_tokens + cited.input_tokens,
-        output_tokens=result.output_tokens + cited.output_tokens,
+        input_tokens=result.input_tokens + generated.input_tokens,
+        output_tokens=result.output_tokens + generated.output_tokens,
         estimated_cost_usd=None,
         embedding_model=embedding_model,
         trace=[s.model_dump() for s in result.trace] + [s.model_dump() for s in tracing.spans],
@@ -354,7 +452,9 @@ def query(
         )
     )
     db.commit()
-    return AnswerResponse(**result_payload, usage=_usage(result, cited))
+    return AnswerResponse(
+        **result_payload, usage=_usage(result, generated), **_agent_fields(result, generated)
+    )
 
 
 @router.post("/semantic", response_model=SearchResults)
@@ -426,9 +526,9 @@ def hybrid_search(
         raise HTTPException(
             status_code=422,
             detail=(
-                f"hybrid search fuses a vector ranking with a lexical one, so it cannot run "
-                f"the {payload.strategy!r} strategy, which is lexical on both legs; "
-                f"use /api/search/semantic or /api/search/query instead"
+                f"hybrid search fuses one vector ranking with one lexical ranking, so it "
+                f"cannot run the {payload.strategy} strategy, which does not provide that "
+                f"pair; use /api/search/semantic or /api/search/query instead"
             ),
         )
     strategy = _strategy_for(payload.rerank, registry, llm, payload.strategy)

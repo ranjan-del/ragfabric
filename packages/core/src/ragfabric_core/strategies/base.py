@@ -14,7 +14,7 @@ lets the registry and the tests verify conformance with ``isinstance``.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -59,9 +59,22 @@ class StrategyParams(BaseModel):
 
 
 class Budget(BaseModel):
-    """Hard limits a strategy must respect. Agentic RAG stops when any is hit."""
+    """Hard limits a strategy must respect. Agentic RAG stops when any is hit.
 
-    max_llm_calls: int = Field(default=8, ge=0)
+    This is the caller's ceiling for one request. A deployment's own limits
+    live in ``AgenticConfig``, and the agent enforces whichever of the two is
+    smaller: a request may ask for less than the deployment allows and may not
+    ask for more.
+
+    The defaults therefore match ``AgenticConfig``'s, and that is not a
+    cosmetic tidy. ``max_llm_calls`` defaulted to eight here while the
+    configuration and ``ragfabric.example.yaml`` both said twelve, and since
+    nothing constructed a ``Budget`` on the request path, eight was the number
+    actually enforced. The documented limit could never be reached, and an
+    operator raising it saw no change at all.
+    """
+
+    max_llm_calls: int = Field(default=12, ge=0)
     max_latency_ms: int = Field(default=30_000, ge=0)
     max_cost_usd: float = Field(default=0.10, ge=0.0)
 
@@ -74,6 +87,35 @@ class RetrievalContext(BaseModel):
     collection_ids: list[int] | None = None
     params: StrategyParams = Field(default_factory=StrategyParams)
     budget: Budget = Field(default_factory=Budget)
+
+
+class SubQuestionReport(BaseModel):
+    """What happened to one part of a decomposed question.
+
+    This is what a single ``best_effort`` boolean could not say. A flag tells
+    the caller that an answer is incomplete; it cannot tell them which part is
+    missing or why, so the only honest thing they can do with it is distrust
+    the whole answer. A row per sub-question lets them distrust exactly the
+    part that failed.
+
+    ``status`` uses the agent ledger's own three words rather than a second
+    vocabulary meaning the same thing. ``open`` on a finished run means the run
+    stopped with this part still unanswered, and ``reason`` says what stopped
+    it: a budget, a stall, or an abandonment and what had been tried first.
+
+    ``reason`` is ``None`` only for an answered sub-question. Every other
+    status carries one, because an unexplained gap in an answer is the failure
+    this whole report exists to prevent.
+
+    ``chunk_ids`` names the evidence retrieved for this part, so a caller can
+    tie a citation back to the sub-question it came from without re-running the
+    grouping the agent already did.
+    """
+
+    text: str
+    status: Literal["answered", "abandoned", "open"]
+    reason: str | None = None
+    chunk_ids: list[int] = Field(default_factory=list)
 
 
 class RetrievalResult(BaseModel):
@@ -93,6 +135,10 @@ class RetrievalResult(BaseModel):
     latency_ms: int = Field(ge=0)
     trace: list[TraceSpan] = Field(default_factory=list)
     fallback_from: StrategyName | None = None
+    # Per sub-question outcomes, for a strategy that decomposes the question.
+    # Empty by default: no other strategy has parts to report, and defaulting
+    # to empty is what keeps this addition invisible to all three of them.
+    sub_questions: list[SubQuestionReport] = Field(default_factory=list)
 
 
 @runtime_checkable

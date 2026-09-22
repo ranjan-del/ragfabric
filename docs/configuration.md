@@ -58,7 +58,18 @@ ingestion:
 strategies:
   traditional: { top_k: 8, similarity_threshold: 0.25, rerank: none, max_context_tokens: 6000 }
   vectorless:  { top_k: 8, phrase_boost: 2.0, identifier_boost: 3.0 }
-  agentic:     { max_iterations: 4, max_cost_usd: 0.10, max_latency_ms: 30000 }
+  agentic:
+    max_iterations: 4          # retrieve, assess and repair passes before the loop stops
+    max_llm_calls: 12          # model calls for the whole run, across every node
+    per_node_llm_calls:        # per node caps, so one runaway node cannot spend the lot
+      plan: 2
+      assess: 6
+      repair: 6
+      generate: 2
+    max_cost_usd: 0.10         # spend ceiling for one run, in US dollars
+    max_latency_ms: 30000      # wall clock ceiling for one run, in milliseconds
+    tools: [semantic_search, lexical_search, fetch_document]   # which tools the planner may choose
+    assess_strictness: strict   # strict: answerable from the retrieved text. lenient: topical is enough
   graph:       { max_hops: 2, max_nodes: 200 }
 
 router:

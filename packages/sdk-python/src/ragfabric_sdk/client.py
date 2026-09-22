@@ -71,11 +71,18 @@ class Client:
         """POST /api/ask with stream=False and return the finished, cited answer.
 
         ``strategy`` names the retrieval strategy: ``"traditional"`` (embed the
-        question, search the vector index) or ``"vectorless"`` (BM25 fused with
-        ts_rank_cd, no embedding call at all). It is spelled out as a named
-        parameter rather than left to ``**params`` because it changes what the
-        server does, and a caller should be able to find it in the signature.
-        The server rejects any other name with a 422.
+        question, search the vector index), ``"vectorless"`` (BM25 fused with
+        ts_rank_cd, no embedding call at all) or ``"agentic"`` (decompose the
+        question, retrieve per part, repair or abandon the parts that fail).
+        It is spelled out as a named parameter rather than left to ``**params``
+        because it changes what the server does, and a caller should be able to
+        find it in the signature. The server rejects any other name with a 422.
+
+        With ``"agentic"``, the answer also carries ``sub_questions`` (what was
+        and was not answered, and why), ``dropped_claims`` (claims the citation
+        contract refused, removed rather than retried), ``dated_sources`` and
+        the agent's ``trace``. Every one of them is empty for the other two
+        strategies, which have no parts to report.
         """
         res = self._http.post(
             "/api/ask",
@@ -136,9 +143,10 @@ class Client:
         """POST /api/search/semantic or /api/search/hybrid and return the ranked chunks.
 
         ``strategy`` selects the retrieval strategy, as on ``ask``. Note that
-        ``mode="hybrid"`` fuses a vector ranking with a lexical one, so the
-        server refuses a lexical-only strategy there with a 422; use the
-        default ``mode="semantic"`` to search with ``strategy="vectorless"``.
+        ``mode="hybrid"`` fuses one vector ranking with one lexical ranking, so
+        the server refuses any strategy that does not provide that pair with a
+        422; use the default ``mode="semantic"`` to search with
+        ``strategy="vectorless"`` or ``strategy="agentic"``.
         """
         path = "/api/search/hybrid" if mode == "hybrid" else "/api/search/semantic"
         res = self._http.post(

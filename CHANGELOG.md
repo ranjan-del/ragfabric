@@ -9,11 +9,89 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 | Version | Theme | Contents |
 |---|---|---|
 | v0.1.0 | Initial RAG engine | Monorepo, interfaces, providers, ingestion, access control, Traditional and Vectorless RAG, CLI, Python SDK, console v1 |
-| v0.2.0 | Agentic retrieval | LangGraph agentic strategy with budgets and traces |
+| v0.2.0 | Agentic retrieval | Bounded agent loop with a repair policy, budgets and traces |
 | v0.3.0 | Graph retrieval | Neo4j knowledge graph build and Graph RAG strategy |
 | v0.4.0 | Adaptive router | AUTO and MANUAL modes, RouterDecision, fallbacks |
 | v0.5.0 | Evaluation framework | Corpus, question set, metrics, `make eval`, dashboards, generated benchmarks |
 | v1.0.0 | Production release | Reference UI with Compare and Trace, TypeScript SDK, connectors, hardening, docs site, deployment guides |
+
+## [0.2.0] - unreleased
+
+Agentic retrieval. An agent that decomposes a question, judges its own evidence, and when it comes
+up short chooses a repair move and tries again, stopping honestly when it is not making progress.
+
+### Added
+- **Agentic RAG (Phase 5).** `AgenticRAGStrategy`, selectable as `strategy: "agentic"` on
+  `POST /api/ask` and `POST /api/search/query`, as `ragfabric ask --strategy agentic`, and through
+  the Python SDK. `POST /api/search/hybrid` continues to accept only `traditional`, because a
+  hybrid is one vector ranking fused with one lexical ranking and an agent cannot stand in for
+  either leg.
+- A **sub-question ledger**: the question is decomposed, and each sub-question carries its own
+  status, the tool answering it, and the history of what has already been tried on it. Evidence is
+  judged per sub-question, so the loop chases only what is still missing instead of re-retrieving
+  everything on every pass.
+- A **repair policy with six moves**: `broaden`, `narrow`, `switch_strategy`, `decompose`,
+  `fetch_document`, and `abandon`, which requires a reason. A move is never repeated on an
+  unchanged sub-question, because an agent that can only alternate between broaden and narrow
+  oscillates until its budget dies. The move is chosen from a fixed enum, so a small local model
+  cannot invent an action that does not exist.
+- **Progress detection.** Pooled evidence is keyed by chunk id, and an iteration that adds no new
+  ids has not progressed however many rows the stores returned. This is the failure the textbook
+  agentic design has no answer to.
+- **Three termination conditions**, each recorded at the branch that decides it, never inferred
+  afterwards: `resolved`, `budget` and `no_progress`.
+- Three agent tools over the strategies that already exist: `semantic_search`, `lexical_search` and
+  `fetch_document`, which returns a document whole and in reading order. Every tool passes the
+  caller's `AccessFilter` through unchanged, and `fetch_document` applies the same predicate inside
+  its SQL because it names a document directly instead of searching for one.
+- **Validated JSON contracts** for every model decision, tolerant of fenced code blocks and
+  surrounding prose because small models emit both, and strict about content. A malformed response
+  is a reported violation, never a crash and never a silent success.
+- `RetrievalResult.sub_questions`, a per sub-question report giving each one's final status and,
+  for anything unanswered, the reason: budget, no evidence, or abandoned after N moves. This
+  replaces a single best-effort boolean, and defaults to empty so no other strategy changes.
+- Agentic generation reuses the Phase 3 citation contract unchanged, applied claim by claim. An
+  unsupported claim is **removed** and the removal recorded, rather than triggering more retrieval,
+  which is usually not the fix.
+- Typed agent configuration under `strategies.agentic`: `max_iterations`, `max_llm_calls`,
+  per-node call caps, `max_cost_usd`, `max_latency_ms`, the enabled tool list, and
+  `assess_strictness`. Strict validation, so a misspelled key is an error rather than a silently
+  ignored setting.
+- ADR 0009 (a plain state machine rather than LangGraph) and ADR 0010 (the repair policy and the
+  three termination conditions). New `docs/concepts/agentic-loops.md` and
+  `docs/learning/agentic-first-run.md`.
+
+### Changed
+- **LangGraph is not used, and the roadmap promise is withdrawn.** A spike built the identical loop
+  both ways. The plain state machine was 93 lines against 107, took zero new dependencies against
+  38 (including a SaaS telemetry client), and kept the stop reason at the branch that decided it,
+  where the framework version lost it silently. Issue #6 requires a trace of every node, so the
+  framework worked against a stated requirement. See ADR 0009.
+
+### Fixed
+- Four configured agent limits were typed, validated and printed back by `ragfabric config
+  validate` while nothing read any of them. `Budget` was never constructed outside its own class
+  definition, so the enforced global call cap was the dataclass default of 8 while
+  `ragfabric.example.yaml` advertised 12, and `max_cost_usd`, `max_latency_ms` and
+  `assess_strictness` had no readers at all. All four now bind.
+
+### Notes
+- **Retrieval quality is still not measured.** No accuracy, recall or latency figure exists for any
+  strategy in this project. Phase 8 builds the evaluation framework; until then there is no number
+  to quote for whether agentic retrieval is better than traditional or vectorless retrieval at
+  anything.
+- **`dated_sources` will be empty in a live deployment.** Nothing in the data model carries a
+  document effective date, and `Document.created_at` measures upload time rather than when a policy
+  took effect, so substituting it would be a fabricated number. This needs an ingestion-side field
+  before the dated-source reporting does anything.
+- Semantic conflict detection is deliberately not shipped. Deciding that two passages genuinely
+  contradict is a hard inference task that cannot be tuned without measurement, and a confident
+  "these sources disagree" that is wrong is worse than silence. Deferred to Phase 8.
+- The latency cap is checked between nodes and cannot interrupt a model call in flight, so a run
+  can overshoot `max_latency_ms` by the duration of the node that was running. Read it as "stop
+  starting new work after N", not "return within N".
+- Generation happens above the loop, reusing the Phase 3 path. There is no generate node inside the
+  agent.
 
 ## [0.1.0] - 2026-09-22
 

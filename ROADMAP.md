@@ -64,9 +64,43 @@ Legend: `[x]` merged to main, `[~]` in progress, `[ ]` not started.
 
 ## v0.2.0 Agentic retrieval
 
-### Phase 5: Agentic RAG (LangGraph)
-- [ ] Typed state; analyze, plan, retrieve with tools, evaluate evidence, rewrite loop, generate, verify
-- [ ] Step budget, failure handling, full trace
+### Phase 5: Agentic RAG (plain Python state machine, not LangGraph)
+
+LangGraph was promised here and is not used. A spike built the identical loop both ways and
+measured it: the framework version was longer, added 38 packages, could not carry the model and
+the tools through its state, and lost the reason the loop stopped. Recorded as
+[ADR 0009](docs/adr/0009-plain-state-machine-over-langgraph.md).
+
+Phase 5 has landed on its own branch and is not yet merged to main; `[x]` below means merged
+into that branch.
+
+- [x] Typed `AgentState` with the sub-question ledger: per sub-question status, tool, attempt
+      history and abandon reason, plus budget accounting that refuses a call rather than
+      recording it after the fact
+- [x] Validated JSON contracts for every model decision, no native tool calling, a malformed
+      response handled as a typed violation instead of an exception
+- [x] Three tools over the strategies that already exist: `semantic_search`, `lexical_search`
+      and `fetch_document`, the last with the access predicate inside the SQL (ADR 0003)
+- [x] Nodes: `plan` (decompose and route in one call), `retrieve` (open sub-questions only,
+      evidence pooled by chunk id), `assess` (strict per sub-question rubric), `repair`
+- [x] Repair policy with six distinct moves, never repeating a move on an unchanged
+      sub-question, abandoning with a reason when the set is exhausted
+      ([ADR 0010](docs/adr/0010-repair-policy-and-termination.md))
+- [x] Three termination conditions, `resolved`, `budget` and `no_progress`, each assigned at the
+      branch that decides it, with a `TraceSpan` per node and real counters (ADR 0004)
+- [x] `AgenticRAGStrategy` registered as `agentic`, with typed configuration and per-node call
+      caps
+- [x] Every branch driven offline by scripted JSON model doubles, with no network and no database
+- [x] `docs/concepts/agentic-loops.md`, ADR 0009, ADR 0010, and `docs/agentic-rag.md` rewritten
+      to describe what shipped
+- [ ] Generation over the pooled evidence, reusing the Phase 3 citation contract, with
+      unsupported claims removed rather than retried
+- [ ] Per sub-question report on `RetrievalResult`, replacing a best effort boolean
+- [ ] `agentic` on `POST /api/ask`, `POST /api/search/query`, `ragfabric ask --strategy` and the
+      Python SDK. The API and CLI still accept `traditional` and `vectorless` only
+- [ ] `strategies.agentic.max_cost_usd`, `max_latency_ms`, `max_llm_calls` and
+      `assess_strictness` read by the loop. They are typed and validated today but not enforced
+- [ ] An end to end run against a local model, with whatever it actually did written down
 - [ ] **Release v0.2.0**
 
 ## v0.3.0 Graph retrieval

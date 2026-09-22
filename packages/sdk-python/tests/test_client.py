@@ -390,3 +390,80 @@ def test_run_returns_a_typed_run_with_sources():
     assert run.id == 7
     assert run.sources[0].chunk_id == 3
     assert run.sources[0].cited is True
+
+
+def test_ask_sends_the_agentic_strategy_and_parses_the_sub_question_report():
+    """The agent's partial answers are structured, so the client types them."""
+
+    def handler(request):
+        assert json.loads(request.content)["strategy"] == "agentic"
+        return httpx.Response(
+            200,
+            json={
+                "question": "q",
+                "answer": "a [1]",
+                "confidence": 0.8,
+                "citations": [],
+                "highlights": [],
+                "sub_questions": [
+                    {
+                        "text": "what is the retry limit",
+                        "status": "answered",
+                        "reason": None,
+                        "chunk_ids": [3],
+                    },
+                    {
+                        "text": "who signs it off",
+                        "status": "open",
+                        "reason": "no evidence was retrieved for this sub-question",
+                        "chunk_ids": [],
+                    },
+                ],
+                "dropped_claims": [{"text": "the board approved it", "reason": "uncited answer"}],
+                "dated_sources": [
+                    {
+                        "sub_question": "what is the retry limit",
+                        "sources": [
+                            {
+                                "marker": 1,
+                                "chunk_id": 3,
+                                "document_id": 7,
+                                "effective_date": "2025-06-01",
+                            }
+                        ],
+                    }
+                ],
+                "trace": [{"name": "plan", "started_ms": 0, "duration_ms": 2, "attributes": {}}],
+            },
+        )
+
+    answer = client_with(handler).ask("q", strategy="agentic")
+
+    assert [report.status for report in answer.sub_questions] == ["answered", "open"]
+    assert answer.sub_questions[1].reason
+    assert answer.dropped_claims[0].reason == "uncited answer"
+    assert answer.dated_sources[0].sources[0].effective_date == "2025-06-01"
+    assert answer.trace[0]["name"] == "plan"
+
+
+def test_an_answer_from_a_server_without_the_agent_fields_still_parses():
+    """Every field this task adds is optional, so an older server is readable."""
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "question": "q",
+                "answer": "a [1]",
+                "confidence": 0.8,
+                "citations": [],
+                "highlights": [],
+            },
+        )
+
+    answer = client_with(handler).ask("q")
+
+    assert answer.sub_questions == []
+    assert answer.dropped_claims == []
+    assert answer.dated_sources == []
+    assert answer.trace == []

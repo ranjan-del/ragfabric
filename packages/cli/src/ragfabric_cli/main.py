@@ -108,6 +108,13 @@ def config_validate(
         f"fusion_k {vectorless.fusion_k}, "
         f"boosts phrase {vectorless.phrase_boost} identifier {vectorless.identifier_boost}"
     )
+    agentic = cfg.strategies.agentic
+    typer.echo(
+        f"agentic: max_iterations {agentic.max_iterations}, "
+        f"max_llm_calls {agentic.max_llm_calls}, "
+        f"max_cost_usd {agentic.max_cost_usd}, max_latency_ms {agentic.max_latency_ms}, "
+        f"assess {agentic.assess_strictness}, tools {' '.join(agentic.tools)}"
+    )
     typer.echo(
         f"graph_store: {cfg.graph_store.kind} ({'enabled' if cfg.graph_store.enabled else 'disabled'})"
     )
