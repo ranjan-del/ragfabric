@@ -59,9 +59,22 @@ class StrategyParams(BaseModel):
 
 
 class Budget(BaseModel):
-    """Hard limits a strategy must respect. Agentic RAG stops when any is hit."""
+    """Hard limits a strategy must respect. Agentic RAG stops when any is hit.
 
-    max_llm_calls: int = Field(default=8, ge=0)
+    This is the caller's ceiling for one request. A deployment's own limits
+    live in ``AgenticConfig``, and the agent enforces whichever of the two is
+    smaller: a request may ask for less than the deployment allows and may not
+    ask for more.
+
+    The defaults therefore match ``AgenticConfig``'s, and that is not a
+    cosmetic tidy. ``max_llm_calls`` defaulted to eight here while the
+    configuration and ``ragfabric.example.yaml`` both said twelve, and since
+    nothing constructed a ``Budget`` on the request path, eight was the number
+    actually enforced. The documented limit could never be reached, and an
+    operator raising it saw no change at all.
+    """
+
+    max_llm_calls: int = Field(default=12, ge=0)
     max_latency_ms: int = Field(default=30_000, ge=0)
     max_cost_usd: float = Field(default=0.10, ge=0.0)
 

@@ -14,16 +14,21 @@ the fabricated number ADR 0004 forbids.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from ragfabric_core.agent.state import NodeName
 from ragfabric_core.agent.tools import FetchDocumentTool, LexicalSearchTool, SemanticSearchTool
-from ragfabric_core.config_file import RagFabricConfig
+from ragfabric_core.config_file import RagFabricConfig, load_config
 from ragfabric_core.models import Base
 from ragfabric_core.strategies import registry_defaults
 from ragfabric_core.strategies.agentic import AgenticRAGStrategy
+from ragfabric_core.strategies.base import Budget
+
+EXAMPLE = Path(__file__).resolve().parents[3] / "ragfabric.example.yaml"
 
 
 @pytest.fixture()
@@ -93,3 +98,41 @@ def test_the_per_node_caps_reach_the_strategy(session_factory):
     cfg.strategies.agentic.per_node_llm_calls.assess = 3
     strategy = _agentic(cfg, session_factory)
     assert strategy.per_node_llm_calls[NodeName.ASSESS] == 3
+
+
+def test_every_configured_limit_reaches_the_strategy(session_factory):
+    """Four limits were typed, validated and printed back while nothing read them.
+
+    The registry passed only the tools, the iteration cap and the per-node
+    caps, so an operator could edit three spend limits and a rubric setting,
+    see them echoed by ``config validate``, and get no change in behaviour.
+    """
+    cfg = RagFabricConfig()
+    cfg.strategies.agentic.max_llm_calls = 9
+    cfg.strategies.agentic.max_cost_usd = 0.25
+    cfg.strategies.agentic.max_latency_ms = 12_000
+    cfg.strategies.agentic.assess_strictness = "lenient"
+    strategy = _agentic(cfg, session_factory)
+
+    assert strategy.max_llm_calls == 9
+    assert strategy.max_cost_usd == 0.25
+    assert strategy.max_latency_ms == 12_000
+    assert strategy.assess_strictness == "lenient"
+
+
+def test_the_example_files_advertised_limits_are_the_ones_enforced(session_factory):
+    """The numbers in ``ragfabric.example.yaml`` are what a default run gets.
+
+    ``max_llm_calls`` advertised twelve while the enforced cap was the
+    ``Budget`` default of eight, so the documented number was unreachable.
+    """
+    cfg = load_config(EXAMPLE)
+    strategy = _agentic(cfg, session_factory)
+
+    assert strategy.max_llm_calls == 12
+    assert strategy.max_cost_usd == 0.10
+    assert strategy.max_latency_ms == 30_000
+    assert strategy.assess_strictness == "strict"
+    assert min(strategy.max_llm_calls, Budget().max_llm_calls) == 12
+    assert min(strategy.max_latency_ms, Budget().max_latency_ms) == 30_000
+    assert min(strategy.max_cost_usd, Budget().max_cost_usd) == 0.10

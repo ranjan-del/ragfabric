@@ -23,10 +23,18 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from ragfabric_core.strategies.base import RetrievedChunk
+
+# How hard the assess node judges evidence. Declared here, in the module both
+# the nodes and the configuration already import, so the two cannot drift into
+# two spellings of the same setting.
+AssessStrictness = Literal["strict", "lenient"]
+
+DEFAULT_ASSESS_STRICTNESS: AssessStrictness = "strict"
 
 
 class BudgetExceeded(Exception):

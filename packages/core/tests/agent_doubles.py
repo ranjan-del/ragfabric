@@ -34,9 +34,15 @@ class RecordingLLM:
 
     name = "recording"
 
-    def __init__(self, *responses: str, model: str = "recording") -> None:
+    def __init__(
+        self, *responses: str, model: str = "recording", provider: str = "recording"
+    ) -> None:
         self.responses = list(responses)
         self.default_model = model
+        # Named per instance so a test can speak as a model the pricing table
+        # knows. The cost cap can only bind on a priced model, and a double
+        # that could only ever be "recording" could not exercise that branch.
+        self.name = provider
         self.prompts: list[list[Message]] = []
         self.calls = 0
 
@@ -161,12 +167,18 @@ def ctx(
     top_k: int = 5,
     access: AccessFilter | None = None,
     max_llm_calls: int = 12,
+    max_latency_ms: int = 30_000,
+    max_cost_usd: float = 0.10,
 ) -> RetrievalContext:
     return RetrievalContext(
         principal=Principal(user_id=1, email="engineer@example.com"),
         access_filter=access or AccessFilter.unrestricted(),
         params=StrategyParams(top_k=top_k),
-        budget=Budget(max_llm_calls=max_llm_calls),
+        budget=Budget(
+            max_llm_calls=max_llm_calls,
+            max_latency_ms=max_latency_ms,
+            max_cost_usd=max_cost_usd,
+        ),
     )
 
 

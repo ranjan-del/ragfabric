@@ -31,7 +31,14 @@ from collections.abc import Iterable
 from pydantic import BaseModel, ConfigDict, Field
 
 from ragfabric_core.agent.contracts import ContractViolation, parse_assess, parse_plan
-from ragfabric_core.agent.state import AgentState, NodeName, SubQuestion, SubQuestionStatus
+from ragfabric_core.agent.state import (
+    DEFAULT_ASSESS_STRICTNESS,
+    AgentState,
+    AssessStrictness,
+    NodeName,
+    SubQuestion,
+    SubQuestionStatus,
+)
 from ragfabric_core.agent.tools import ToolRegistry
 from ragfabric_core.providers.base import LLMProvider, Message
 from ragfabric_core.strategies.base import RetrievalContext, RetrievedChunk, TraceSpan
@@ -105,6 +112,33 @@ When a sub-question is not answered, say in "missing" exactly what is absent,
 in one short phrase. That phrase chooses the next retrieval, so "the number of
 retries allowed" is useful and "more information" is not."""
 
+ASSESS_RUBRIC_LENIENT = """For each sub-question, decide whether the evidence above answers it.
+
+The rubric is lenient, and the error to avoid is chasing a part of the question
+the evidence has already covered in its own words. A sub-question counts as
+answered if a careful reader could state the answer from the evidence text.
+Specifically:
+
+- Evidence that states the answer in different words from the question is
+  answered. A paraphrase is an answer.
+- Evidence that implies the answer clearly enough for a knowledgeable reader to
+  draw it is answered.
+- Evidence that is on the subject but leaves the specific point unstated is
+  still not answered. Lenient is not credulous.
+- If you are unsure, answer true.
+
+When a sub-question is not answered, say in "missing" exactly what is absent,
+in one short phrase. That phrase chooses the next retrieval, so "the number of
+retries allowed" is useful and "more information" is not."""
+
+# Which rubric each setting sends. A dict rather than a branch so that adding a
+# third setting means adding a rubric, and a setting with no rubric is a
+# KeyError at the call rather than a silent fall back to the strict one.
+ASSESS_RUBRICS: dict[str, str] = {
+    "strict": ASSESS_RUBRIC,
+    "lenient": ASSESS_RUBRIC_LENIENT,
+}
+
 
 class NodeOutcome(BaseModel):
     """What a node did, in the form the loop needs to account for it."""
@@ -115,6 +149,11 @@ class NodeOutcome(BaseModel):
     violation: ContractViolation | None = None
     input_tokens: int = 0
     output_tokens: int = 0
+    # Who was actually called, copied off the completion. The cost cap prices
+    # real tokens against a real model, and a node that made no call leaves
+    # these empty rather than naming a model it did not use.
+    provider: str = ""
+    model: str = ""
 
 
 class PlanOutcome(NodeOutcome):
@@ -269,6 +308,8 @@ def plan(
         sub_questions=sub_questions,
         input_tokens=completion.input_tokens,
         output_tokens=completion.output_tokens,
+        provider=completion.provider,
+        model=completion.model,
     )
 
 
@@ -377,14 +418,18 @@ def _with_override(ctx: RetrievalContext, override: RetrievalOverride | None) ->
     return ctx.model_copy(update={"params": params})
 
 
-def build_assess_prompt(state: AgentState, open_indexes: list[int]) -> str:
+def build_assess_prompt(
+    state: AgentState,
+    open_indexes: list[int],
+    strictness: AssessStrictness = DEFAULT_ASSESS_STRICTNESS,
+) -> str:
     evidence = "\n\n".join(f"[{chunk.chunk_id}] {chunk.text}" for chunk in state.evidence.values())
     listed = "\n".join(f"- {state.sub_questions[index].text}" for index in open_indexes)
     return (
         f"Original question: {state.question}\n\n"
         f"Evidence retrieved so far:\n{evidence or '(nothing was retrieved)'}\n\n"
         f"Sub-questions to judge:\n{listed}\n\n"
-        f"{ASSESS_RUBRIC}\n\n"
+        f"{ASSESS_RUBRICS[strictness]}\n\n"
         'Reply with JSON of the form {"verdicts": [{"sub_question": "...", '
         '"answered": true, "missing": null}]}'
     )
@@ -394,6 +439,7 @@ def assess(
     state: AgentState,
     *,
     llm: LLMProvider,
+    strictness: AssessStrictness = DEFAULT_ASSESS_STRICTNESS,
     origin: float | None = None,
 ) -> AssessOutcome:
     """Judge the pooled evidence per open sub-question, pessimistically.
@@ -414,6 +460,12 @@ def assess(
     A sub-question the model did not judge at all stays open. Silence is not
     consent, and an unjudged sub-question quietly marked answered is how a gap
     reaches the caller wearing a citation.
+
+    ``strictness`` chooses which rubric is sent. It changes the instruction the
+    model reads, not a threshold applied to its reply: the two settings tell it
+    opposite things about evidence that only implies the answer. The two code
+    level readings above hold under both, because they exist to catch a
+    self contradicting reply rather than to enforce a rubric.
     """
     begin = time.perf_counter()
     origin = begin if origin is None else origin
@@ -429,7 +481,7 @@ def assess(
     completion = llm.complete(
         [
             Message(role="system", content=ASSESS_SYSTEM),
-            Message(role="user", content=build_assess_prompt(state, open_indexes)),
+            Message(role="user", content=build_assess_prompt(state, open_indexes, strictness)),
         ],
         temperature=0.0,
     )
@@ -471,12 +523,15 @@ def assess(
             answered=len(verdicts.answered),
             unjudged=len(verdicts.unjudged),
             skipped=False,
+            strictness=strictness,
             violation=violation.error if violation is not None else None,
         ),
         violation=violation,
         verdicts=verdicts,
         input_tokens=completion.input_tokens,
         output_tokens=completion.output_tokens,
+        provider=completion.provider,
+        model=completion.model,
     )
 
 

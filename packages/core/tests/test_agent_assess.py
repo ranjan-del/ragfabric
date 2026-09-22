@@ -157,3 +157,59 @@ def test_the_evidence_pool_is_what_is_judged():
     prompt = llm.last_prompt()
     assert "the retry limit is five attempts" in prompt
     assert "retries are discussed at length" in prompt
+
+
+def test_the_strict_rubric_is_what_the_model_is_sent_by_default():
+    """The setting is proved by the prompt the provider received, not by a field.
+
+    ``assess_strictness`` was configurable, validated and printed back by
+    ``config validate`` while both settings produced the same prompt. A test
+    that asserted the value was stored would have passed throughout.
+    """
+    state = state_with("what is the retry limit")
+    llm = RecordingLLM(
+        assess_json({"sub_question": "what is the retry limit", "answered": True, "missing": None})
+    )
+
+    assess(state, llm=llm)
+
+    prompt = llm.last_prompt()
+    assert "The rubric is strict" in prompt
+    assert "Related is not answered." in prompt
+    assert "Lenient is not credulous." not in prompt
+
+
+def test_the_lenient_rubric_reaches_the_model_when_it_is_configured():
+    state = state_with("what is the retry limit")
+    llm = RecordingLLM(
+        assess_json({"sub_question": "what is the retry limit", "answered": True, "missing": None})
+    )
+
+    assess(state, llm=llm, strictness="lenient")
+
+    prompt = llm.last_prompt()
+    assert "The rubric is lenient" in prompt
+    assert "Lenient is not credulous." in prompt
+    assert "Related is not answered." not in prompt
+
+
+def test_the_two_rubrics_disagree_about_evidence_that_only_implies_the_answer():
+    """Different words are not enough. The instruction itself has to differ.
+
+    Strict tells the model that evidence which implies the answer is not an
+    answer. Lenient tells it the opposite. Anything less than that is two
+    spellings of one rubric.
+    """
+    state = state_with("what is the retry limit")
+    strict = RecordingLLM(
+        assess_json({"sub_question": "what is the retry limit", "answered": False, "missing": "x"})
+    )
+    lenient = RecordingLLM(
+        assess_json({"sub_question": "what is the retry limit", "answered": True, "missing": None})
+    )
+
+    assess(state_with("what is the retry limit"), llm=strict, strictness="strict")
+    assess(state, llm=lenient, strictness="lenient")
+
+    assert "guess it, is NOT answered." in strict.last_prompt()
+    assert "draw it is answered" in lenient.last_prompt()

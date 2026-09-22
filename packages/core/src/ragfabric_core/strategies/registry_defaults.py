@@ -78,6 +78,11 @@ def _build_agentic(
     with no model cannot plan, assess or repair. Building a provider makes no
     call, so a deployment that never asks for the agentic strategy pays nothing
     for it being registered.
+
+    Every field of ``AgenticConfig`` is passed on. Four of them once were not,
+    and a limit that is loaded, validated and printed back by ``config
+    validate`` while nothing reads it is worse than no limit: the operator
+    edits it, sees it echoed, and gets the old behaviour.
     """
     settings = cfg.strategies.agentic
     return AgenticRAGStrategy(
@@ -92,6 +97,10 @@ def _build_agentic(
         ),
         max_iterations=settings.max_iterations,
         per_node_llm_calls=settings.node_caps(),
+        max_llm_calls=settings.max_llm_calls,
+        max_latency_ms=settings.max_latency_ms,
+        max_cost_usd=settings.max_cost_usd,
+        assess_strictness=settings.assess_strictness,
     )
 
 

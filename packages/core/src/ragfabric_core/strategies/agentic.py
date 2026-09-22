@@ -41,7 +41,7 @@ import time
 from typing import Protocol, runtime_checkable
 
 from ragfabric_core.agent.loop import DEFAULT_MAX_ITERATIONS, AgentRun, run_agent
-from ragfabric_core.agent.state import NodeName
+from ragfabric_core.agent.state import DEFAULT_ASSESS_STRICTNESS, AssessStrictness, NodeName
 from ragfabric_core.agent.tools import ToolRegistry
 from ragfabric_core.providers.base import LLMProvider
 from ragfabric_core.strategies.base import (
@@ -75,11 +75,19 @@ class AgenticRAGStrategy:
         tools: ToolRegistry,
         max_iterations: int = DEFAULT_MAX_ITERATIONS,
         per_node_llm_calls: dict[NodeName, int] | None = None,
+        max_llm_calls: int | None = None,
+        max_latency_ms: int | None = None,
+        max_cost_usd: float | None = None,
+        assess_strictness: AssessStrictness = DEFAULT_ASSESS_STRICTNESS,
     ) -> None:
         self._llm = llm
         self._tools = dict(tools)
         self._max_iterations = max(1, max_iterations)
         self._per_node_llm_calls = dict(per_node_llm_calls or {})
+        self._max_llm_calls = max_llm_calls
+        self._max_latency_ms = max_latency_ms
+        self._max_cost_usd = max_cost_usd
+        self._assess_strictness = assess_strictness
 
     @property
     def tools(self) -> ToolRegistry:
@@ -105,6 +113,31 @@ class AgenticRAGStrategy:
         """The per-node call caps this agent was built with (read only)."""
         return dict(self._per_node_llm_calls)
 
+    @property
+    def max_llm_calls(self) -> int | None:
+        """The deployment's call cap, before the caller's own budget tightens it."""
+        return self._max_llm_calls
+
+    @property
+    def max_latency_ms(self) -> int | None:
+        """The deployment's wall clock cap, before the caller's budget tightens it."""
+        return self._max_latency_ms
+
+    @property
+    def max_cost_usd(self) -> float | None:
+        """The deployment's spend cap, before the caller's budget tightens it.
+
+        It binds only on a run whose models the pricing table knows. An
+        unpriced model leaves the cap inapplicable, and the run says so in its
+        finalize span rather than implying the cap held (ADR 0004).
+        """
+        return self._max_cost_usd
+
+    @property
+    def assess_strictness(self) -> AssessStrictness:
+        """Which rubric the assess node sends the model."""
+        return self._assess_strictness
+
     def retrieve(self, query: str, ctx: RetrievalContext) -> RetrievalResult:
         started = time.perf_counter()
         before = _embedding_spend(self._tools)
@@ -116,6 +149,10 @@ class AgenticRAGStrategy:
             ctx=ctx,
             max_iterations=self._max_iterations,
             per_node_llm_calls=self._per_node_llm_calls,
+            max_llm_calls=self._max_llm_calls,
+            max_latency_ms=self._max_latency_ms,
+            max_cost_usd=self._max_cost_usd,
+            assess_strictness=self._assess_strictness,
         )
 
         return RetrievalResult(

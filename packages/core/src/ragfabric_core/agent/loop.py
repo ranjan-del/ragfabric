@@ -16,8 +16,13 @@ The three stops:
 
 ``resolved``      every sub-question is answered or abandoned, and an abandoned
                   one carries a reason, so this is not a synonym for success.
-``budget``        a cap was reached. Either the state refused a spend, or the
-                  iteration cap was hit. Both are budgets; the detail says which.
+``budget``        a cap was reached. The state refused a spend, the iteration
+                  cap was hit, the wall clock ran past ``max_latency_ms``, or
+                  the estimated spend passed ``max_cost_usd``. All four are
+                  budgets, and the detail says which one it was. Latency and
+                  cost deliberately do not get stop reasons of their own: a
+                  fourth word would mean every reader of a trace has to learn
+                  a vocabulary that grows with the number of caps.
 ``no_progress``   an iteration added no chunk id the pool did not already hold.
                   This is the one the textbook design has no answer to, and
                   without it an agent that re-fetches the same evidence will
@@ -35,6 +40,7 @@ import time
 from pydantic import BaseModel, ConfigDict, Field
 
 from ragfabric_core.agent.contracts import ContractViolation, parse_repair
+from ragfabric_core.agent.cost import CostLedger
 from ragfabric_core.agent.nodes import (
     NodeOutcome,
     RetrievalOverride,
@@ -46,7 +52,9 @@ from ragfabric_core.agent.nodes import (
 )
 from ragfabric_core.agent.policy import apply_move, choose_move
 from ragfabric_core.agent.state import (
+    DEFAULT_ASSESS_STRICTNESS,
     AgentState,
+    AssessStrictness,
     BudgetExceeded,
     NodeName,
     RepairMove,
@@ -113,6 +121,14 @@ class AgentRun(BaseModel):
     stop_reason: str
     stop_detail: str = ""
     tool_calls: list[ToolCall] = Field(default_factory=list)
+    # The estimated spend, and whether it could be estimated at all. ``None``
+    # with ``cost_known`` false means at least one model used has no price in
+    # pricing.yaml, so the cost cap could not bind on this run. That is
+    # reported rather than rounded to zero, because zero is a number somebody
+    # would act on (ADR 0004).
+    cost_usd: float | None = None
+    cost_known: bool = True
+    unpriced_models: list[str] = Field(default_factory=list)
     # Evidence ids per sub-question index, accumulated across iterations. Kept
     # separately from the pool because the pool is deliberately flat: the
     # answer is generated over all of it, while the report has to say which
@@ -282,6 +298,8 @@ def repair(
         violation=violation,
         input_tokens=completion.input_tokens,
         output_tokens=completion.output_tokens,
+        provider=completion.provider,
+        model=completion.model,
         sub_question_index=index,
         move=move,
         abandoned=outcome.abandoned,
@@ -298,14 +316,31 @@ def run_agent(
     ctx: RetrievalContext,
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
     per_node_llm_calls: dict[NodeName, int] | None = None,
+    max_llm_calls: int | None = None,
+    max_latency_ms: int | None = None,
+    max_cost_usd: float | None = None,
+    assess_strictness: AssessStrictness = DEFAULT_ASSESS_STRICTNESS,
 ) -> AgentRun:
-    """Plan once, then retrieve, assess and repair until one of three stops fires."""
+    """Plan once, then retrieve, assess and repair until one of three stops fires.
+
+    The three spend caps arrive from two places and are combined the same way:
+    the deployment's configured limit and the caller's own ``ctx.budget``, with
+    the smaller of the two enforced. A request may ask for less than the
+    deployment allows, and may not ask for more, which is what keeps the
+    strategy contract's ``llm_calls <= ctx.budget.max_llm_calls`` true while
+    still letting an operator's configuration mean something. ``None`` means
+    the deployment set no limit of its own and the caller's budget decides.
+    """
     origin = time.perf_counter()
+    call_cap = _tighter(max_llm_calls, ctx.budget.max_llm_calls)
+    latency_cap = _tighter(max_latency_ms, ctx.budget.max_latency_ms)
+    cost_cap = _tighter(max_cost_usd, ctx.budget.max_cost_usd)
     state = AgentState(
         question=question,
-        max_llm_calls=ctx.budget.max_llm_calls,
+        max_llm_calls=call_cap,
         per_node_llm_calls=per_node_llm_calls or {},
     )
+    ledger = CostLedger()
     trace: list[TraceSpan] = []
     tool_calls: list[ToolCall] = []
     grouped: dict[int, list[int]] = {}
@@ -318,6 +353,7 @@ def run_agent(
         trace.append(outcome.span)
         tokens[0] += outcome.input_tokens
         tokens[1] += outcome.output_tokens
+        ledger.record(outcome.provider, outcome.model, outcome.input_tokens, outcome.output_tokens)
 
     try:
         record(plan(state, llm=llm, tools=tools, origin=origin))
@@ -330,11 +366,29 @@ def run_agent(
             detail = f"max_iterations of {max_iterations} reached"
             break
 
+        spent = _spend_stop(
+            origin=origin, latency_cap=latency_cap, cost_cap=cost_cap, ledger=ledger
+        )
+        if spent is not None:
+            stop, detail = spent
+            break
+
         state.iterations += 1
         retrieved = retrieve(state, tools=tools, ctx=ctx, overrides=overrides, origin=origin)
         record(retrieved)
         tool_calls.extend(retrieved.tool_calls)
         _group_evidence(grouped, retrieved.chunks_by_sub_question)
+
+        # Checked again here, between the retrieval and the assessment, because
+        # retrieval is the slow half of an iteration and the assessment is the
+        # part that costs a model call. A cap read only once per pass would let
+        # a run that has already gone over the wall clock pay for one more.
+        spent = _spend_stop(
+            origin=origin, latency_cap=latency_cap, cost_cap=cost_cap, ledger=ledger
+        )
+        if spent is not None:
+            stop, detail = spent
+            break
 
         if not retrieved.made_progress and state.iterations > 1:
             # The first iteration is exempt: an empty first retrieval is what
@@ -347,7 +401,7 @@ def run_agent(
             break
 
         try:
-            assessed = assess(state, llm=llm, origin=origin)
+            assessed = assess(state, llm=llm, strictness=assess_strictness, origin=origin)
         except BudgetExceeded as exc:
             stop, detail = STOP_BUDGET, str(exc)
             break
@@ -363,6 +417,7 @@ def run_agent(
             llm=llm,
             trace=trace,
             tokens=tokens,
+            ledger=ledger,
             overrides=overrides,
             retrieved=retrieved,
             assessed=assessed,
@@ -385,6 +440,14 @@ def run_agent(
             evidence=len(state.evidence),
             answered=sum(1 for sq in state.sub_questions if sq.status.value == "answered"),
             abandoned=sum(1 for sq in state.sub_questions if sq.status.value == "abandoned"),
+            cost_usd=ledger.usd(),
+            cost_known=ledger.known,
+            # Whether the cost cap could have stopped this run at all. A cap
+            # is always in force, so this is false exactly when a model used
+            # has no price, which is the one thing a reader of an unpriced run
+            # needs to be told before trusting the cap held.
+            cost_cap_enforceable=ledger.known,
+            unpriced_models=",".join(ledger.unpriced_models()) or None,
         )
     )
     return AgentRun(
@@ -396,7 +459,52 @@ def run_agent(
         chunk_ids_by_sub_question=grouped,
         input_tokens=tokens[0],
         output_tokens=tokens[1],
+        cost_usd=ledger.usd(),
+        cost_known=ledger.known,
+        unpriced_models=ledger.unpriced_models(),
     )
+
+
+def _tighter[Limit: (int, float)](configured: Limit | None, requested: Limit) -> Limit:
+    """The smaller of the deployment's limit and the caller's own.
+
+    Both directions matter and they fail differently. A configured cap that a
+    request could raise is not a cap. A caller's tighter budget that the
+    deployment could override would break the strategy contract, which asserts
+    a run stayed inside the budget it was given.
+    """
+    return requested if configured is None else min(configured, requested)
+
+
+def _spend_stop(
+    *,
+    origin: float,
+    latency_cap: int,
+    cost_cap: float,
+    ledger: CostLedger,
+) -> tuple[str, str] | None:
+    """Whether the wall clock or the estimated spend has run out, and which.
+
+    Both report ``budget``: they are caps, and the plan defines three stop
+    reasons, so the cap that fired is named in the detail rather than in a
+    fourth reason nobody downstream knows how to read.
+
+    The cost check is skipped when the price is unknown. That is not the cap
+    being lenient, it is the cap being inapplicable: no number exists to
+    compare against, and inventing zero would disable the cap while the trace
+    still said it was enforced (ADR 0004).
+    """
+    elapsed_ms = int((time.perf_counter() - origin) * 1000)
+    if elapsed_ms >= latency_cap:
+        return STOP_BUDGET, f"max_latency_ms of {latency_cap} reached after {elapsed_ms}ms"
+    if ledger.known:
+        spent = ledger.usd() or 0.0
+        if spent > cost_cap:
+            return (
+                STOP_BUDGET,
+                f"max_cost_usd of {cost_cap} reached at an estimated ${spent:.6f}",
+            )
+    return None
 
 
 def _group_evidence(
@@ -422,6 +530,7 @@ def _repair_open_sub_questions(
     llm: LLMProvider,
     trace: list[TraceSpan],
     tokens: list[int],
+    ledger: CostLedger,
     overrides: dict[int, RetrievalOverride],
     retrieved,
     assessed,
@@ -457,6 +566,7 @@ def _repair_open_sub_questions(
         trace.append(step.span)
         tokens[0] += step.input_tokens
         tokens[1] += step.output_tokens
+        ledger.record(step.provider, step.model, step.input_tokens, step.output_tokens)
         if step.working is not None:
             overrides[index] = step.working
         added.extend(step.new_sub_questions)
