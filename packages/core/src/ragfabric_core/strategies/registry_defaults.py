@@ -10,14 +10,21 @@ from collections.abc import Callable
 
 from sqlalchemy.orm import Session
 
+from ragfabric_core.agent.tools import (
+    FetchDocumentTool,
+    LexicalSearchTool,
+    SemanticSearchTool,
+    build_tool_registry,
+)
 from ragfabric_core.config_file import RagFabricConfig
 from ragfabric_core.providers.base import LLMProvider
 from ragfabric_core.providers.registry import build_embedding_provider, build_llm_provider
 from ragfabric_core.rerank.registry import build_reranker
 from ragfabric_core.stores.bm25_sql import Bm25Store
+from ragfabric_core.stores.document_chunks import SqlDocumentChunkReader
 from ragfabric_core.stores.postgres_fts import PostgresLexicalStore
 from ragfabric_core.stores.registry import build_vector_store
-from ragfabric_core.strategies.agentic import AgenticRAGStrategy, lexical_tool, semantic_tool
+from ragfabric_core.strategies.agentic import AgenticRAGStrategy
 from ragfabric_core.strategies.base import StrategyRegistry
 from ragfabric_core.strategies.traditional import TraditionalRAGStrategy
 from ragfabric_core.strategies.vectorless import VectorlessRAGStrategy
@@ -48,7 +55,7 @@ def default_registry(
     vectorless = _build_vectorless(cfg, session_factory)
     registry.register(traditional)
     registry.register(vectorless)
-    registry.register(_build_agentic(cfg, traditional, vectorless, llm=llm))
+    registry.register(_build_agentic(cfg, traditional, vectorless, session_factory, llm=llm))
     return registry
 
 
@@ -56,6 +63,7 @@ def _build_agentic(
     cfg: RagFabricConfig,
     traditional: TraditionalRAGStrategy,
     vectorless: VectorlessRAGStrategy,
+    session_factory: Callable[[], Session],
     *,
     llm: LLMProvider | None,
 ) -> AgenticRAGStrategy:
@@ -71,13 +79,19 @@ def _build_agentic(
     call, so a deployment that never asks for the agentic strategy pays nothing
     for it being registered.
     """
+    settings = cfg.strategies.agentic
     return AgenticRAGStrategy(
         llm=llm if llm is not None else build_llm_provider(cfg.llm),
-        tools={
-            "semantic_search": semantic_tool(traditional),
-            "lexical_search": lexical_tool(vectorless),
-        },
-        max_iterations=max(1, _int(cfg.strategies.agentic.get("max_iterations"), 4)),
+        tools=build_tool_registry(
+            [
+                SemanticSearchTool(traditional),
+                LexicalSearchTool(vectorless),
+                FetchDocumentTool(SqlDocumentChunkReader(session_factory)),
+            ],
+            enabled=settings.tools,
+        ),
+        max_iterations=settings.max_iterations,
+        per_node_llm_calls=settings.node_caps(),
     )
 
 

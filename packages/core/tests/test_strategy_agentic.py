@@ -189,4 +189,5 @@ def test_agentic_is_registered_by_the_default_registry(tmp_path):
     assert StrategyName.AGENTIC in registry.names()
     strategy = registry.get("agentic")
     assert isinstance(strategy, AgenticRAGStrategy)
-    assert sorted(strategy.tools) == ["lexical_search", "semantic_search"]
+    # fetch_document joined the default registry when the concrete tools landed.
+    assert sorted(strategy.tools) == ["fetch_document", "lexical_search", "semantic_search"]

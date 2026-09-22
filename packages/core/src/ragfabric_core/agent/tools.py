@@ -77,6 +77,14 @@ class SemanticSearchTool:
 
     def __init__(self, strategy: TraditionalRAGStrategy) -> None:
         self._strategy = strategy
+        # Cumulative across the run. AgenticRAGStrategy reads the delta of this
+        # counter to report embedding_calls, so a tool that embeds without
+        # carrying one makes the strategy report zero for a run that really did
+        # embed. ADR 0004 calls that a fabricated number, and it is the kind
+        # that looks right: zero is exactly what the vectorless path reports.
+        # Only this tool has the counter; see the lexical and fetch tools.
+        self.embedding_calls = 0
+        self.retrieval_calls = 0
 
     @property
     def strategy(self) -> TraditionalRAGStrategy:
@@ -87,7 +95,10 @@ class SemanticSearchTool:
         # ctx is passed through untouched, filter included. A tool that rebuilt
         # the context could drop the filter by omission, which is the one
         # mistake in this file that would not show up as a failing feature.
-        return self._strategy.retrieve(query, ctx).chunks
+        result = self._strategy.retrieve(query, ctx)
+        self.embedding_calls += result.embedding_calls
+        self.retrieval_calls += result.retrieval_calls
+        return result.chunks
 
 
 class LexicalSearchTool:
@@ -108,6 +119,11 @@ class LexicalSearchTool:
 
     def __init__(self, strategy: VectorlessRAGStrategy) -> None:
         self._strategy = strategy
+        # Deliberately no embedding_calls attribute. This path never embeds, and
+        # a counter stuck at zero would state a measurement nobody took. The
+        # strategy sums the counter only from tools that carry one, so silence
+        # here is read as "nothing to report" rather than as "zero spent".
+        self.retrieval_calls = 0
 
     @property
     def strategy(self) -> VectorlessRAGStrategy:
@@ -115,7 +131,9 @@ class LexicalSearchTool:
         return self._strategy
 
     def run(self, query: str, ctx: RetrievalContext) -> list[RetrievedChunk]:
-        return self._strategy.retrieve(query, ctx).chunks
+        result = self._strategy.retrieve(query, ctx)
+        self.retrieval_calls += result.retrieval_calls
+        return result.chunks
 
 
 class FetchDocumentTool:

@@ -42,13 +42,11 @@ from typing import Protocol, runtime_checkable
 
 from ragfabric_core.agent.loop import DEFAULT_MAX_ITERATIONS, AgentRun, run_agent
 from ragfabric_core.agent.state import NodeName
-from ragfabric_core.agent.tools import AgentTool, ToolRegistry
+from ragfabric_core.agent.tools import ToolRegistry
 from ragfabric_core.providers.base import LLMProvider
 from ragfabric_core.strategies.base import (
     RetrievalContext,
     RetrievalResult,
-    RetrievedChunk,
-    RetrieverStrategy,
     StrategyName,
 )
 
@@ -65,30 +63,6 @@ class CountsEmbeddings(Protocol):
     """
 
     embedding_calls: int
-
-
-class StrategyTool:
-    """Adapts an existing retriever strategy to the agent's tool protocol.
-
-    Thin by design: it calls a strategy that already exists and is already
-    tested, and it passes the caller's context through untouched so the access
-    filter reaches the store the way ADR 0003 requires. The counters it keeps
-    are the wrapped strategy's own reported numbers, not a count of how many
-    times it was asked.
-    """
-
-    def __init__(self, name: str, description: str, strategy: RetrieverStrategy) -> None:
-        self.name = name
-        self.description = description
-        self._strategy = strategy
-        self.embedding_calls = 0
-        self.retrieval_calls = 0
-
-    def run(self, query: str, ctx: RetrievalContext) -> list[RetrievedChunk]:
-        result = self._strategy.retrieve(query, ctx)
-        self.embedding_calls += result.embedding_calls
-        self.retrieval_calls += result.retrieval_calls
-        return result.chunks
 
 
 class AgenticRAGStrategy:
@@ -115,6 +89,21 @@ class AgenticRAGStrategy:
         rather than inferring it from what the agent happened to call.
         """
         return dict(self._tools)
+
+    @property
+    def max_iterations(self) -> int:
+        """The iteration cap this agent was built with (read only).
+
+        Exposed for the same reason as ``tools``: a deployment's limits should
+        be checkable directly rather than inferred from how long a run happened
+        to take, which would only prove the cap on a run that reached it.
+        """
+        return self._max_iterations
+
+    @property
+    def per_node_llm_calls(self) -> dict[NodeName, int]:
+        """The per-node call caps this agent was built with (read only)."""
+        return dict(self._per_node_llm_calls)
 
     def retrieve(self, query: str, ctx: RetrievalContext) -> RetrievalResult:
         started = time.perf_counter()
@@ -147,22 +136,4 @@ class AgenticRAGStrategy:
 def _embedding_spend(tools: ToolRegistry) -> int:
     return sum(
         tool.embedding_calls for tool in tools.values() if isinstance(tool, CountsEmbeddings)
-    )
-
-
-def semantic_tool(strategy: RetrieverStrategy) -> AgentTool:
-    return StrategyTool(
-        "semantic_search",
-        "Meaning based search. Use for conceptual, paraphrased or descriptive questions "
-        "where the wording of the answer will not match the wording of the question.",
-        strategy,
-    )
-
-
-def lexical_tool(strategy: RetrieverStrategy) -> AgentTool:
-    return StrategyTool(
-        "lexical_search",
-        "Exact word search. Use for identifiers, error codes, versions, file names and "
-        "quoted phrases, where the exact string is expected to appear in the text.",
-        strategy,
     )
