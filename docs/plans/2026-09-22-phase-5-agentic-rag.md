@@ -354,8 +354,8 @@ Skipped unless `RAGFABRIC_TEST_OLLAMA` is set. Ingest a small fixture corpus, as
 
 **Per ADR 0004, whatever this run produces is reported as what happened on that corpus with that model. It is not a benchmark and must not be quoted as one.** If `llama3.1:8b` plans badly, that is a finding to write down, not to hide.
 
-- [ ] **Step 1: Write the test and the fixture corpus.**
-- [ ] **Step 2: Run it against real Ollama and record the actual trace.**
+- [x] **Step 1: Write the test and the fixture corpus.**
+- [ ] **Step 2: Run it against real Ollama and record the actual trace.** NOT DONE: the run was never performed.
 - [ ] **Step 3: Write the findings into the learning notes**, including anything the model did badly.
 - [ ] **Step 4: Commit** `test: exercise the agent end to end against a local model`
 
