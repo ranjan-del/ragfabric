@@ -130,6 +130,9 @@ class AgenticRAGStrategy:
             output_tokens=run.output_tokens,
             latency_ms=int((time.perf_counter() - started) * 1000),
             trace=run.trace,
+            # What was and was not answered, per part of the question. The
+            # other strategies leave this empty because they have no parts.
+            sub_questions=run.sub_question_reports(),
         )
 
 

@@ -321,11 +321,11 @@ Where two chunks answering one sub-question come from documents with different e
 
 This replaces `best_effort` as a boolean. The caller can say exactly what was and was not answered.
 
-- [ ] **Step 1: Write the failing tests**, including `test_an_unanswered_sub_question_reports_why` and `test_other_strategies_return_an_empty_report`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run the full suite** and confirm no Phase 3 or 4 strategy test regressed.
-- [ ] **Step 5: Commit** `feat: report per sub-question outcomes instead of a best effort flag`
+- [x] **Step 1: Write the failing tests**, including `test_an_unanswered_sub_question_reports_why` and `test_other_strategies_return_an_empty_report`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run the full suite** and confirm no Phase 3 or 4 strategy test regressed.
+- [x] **Step 5: Commit** `feat: report per sub-question outcomes instead of a best effort flag`
 
 ---
 

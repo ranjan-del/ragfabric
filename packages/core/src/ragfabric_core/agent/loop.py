@@ -54,7 +54,12 @@ from ragfabric_core.agent.state import (
 )
 from ragfabric_core.agent.tools import ToolRegistry
 from ragfabric_core.providers.base import LLMProvider, Message
-from ragfabric_core.strategies.base import RetrievalContext, RetrievedChunk, TraceSpan
+from ragfabric_core.strategies.base import (
+    RetrievalContext,
+    RetrievedChunk,
+    SubQuestionReport,
+    TraceSpan,
+)
 
 STOP_RESOLVED = "resolved"
 STOP_BUDGET = "budget"
@@ -108,8 +113,50 @@ class AgentRun(BaseModel):
     stop_reason: str
     stop_detail: str = ""
     tool_calls: list[ToolCall] = Field(default_factory=list)
+    # Evidence ids per sub-question index, accumulated across iterations. Kept
+    # separately from the pool because the pool is deliberately flat: the
+    # answer is generated over all of it, while the report has to say which
+    # part of the question each chunk was found for.
+    chunk_ids_by_sub_question: dict[int, list[int]] = Field(default_factory=dict)
     input_tokens: int = 0
     output_tokens: int = 0
+
+    def sub_question_reports(self) -> list[SubQuestionReport]:
+        """One row per sub-question, saying what happened to it and why.
+
+        Built from the ledger and the stop reason that was recorded at the
+        branch which decided it, never from inspecting the finished run and
+        working backwards. An open sub-question always gets a reason: it names
+        what was retrieved for it and what stopped the loop, which are the two
+        things a caller needs to decide whether to ask again differently.
+        """
+        reports: list[SubQuestionReport] = []
+        for index, sub_question in enumerate(self.state.sub_questions):
+            chunk_ids = list(self.chunk_ids_by_sub_question.get(index, []))
+            status = sub_question.status.value
+            if status == "answered":
+                reason = None
+            elif status == "abandoned":
+                reason = sub_question.reason
+            else:
+                reason = self._open_reason(chunk_ids)
+            reports.append(
+                SubQuestionReport(
+                    text=sub_question.text,
+                    status=status,
+                    reason=reason,
+                    chunk_ids=chunk_ids,
+                )
+            )
+        return reports
+
+    def _open_reason(self, chunk_ids: list[int]) -> str:
+        if not chunk_ids:
+            found = "no evidence was retrieved for this sub-question"
+        else:
+            plural = "" if len(chunk_ids) == 1 else "s"
+            found = f"{len(chunk_ids)} chunk{plural} were retrieved but none answered it"
+        return f"{found}; the run stopped on {self.stop_reason} ({self.stop_detail})"
 
     @property
     def retrieval_calls(self) -> int:
@@ -261,6 +308,7 @@ def run_agent(
     )
     trace: list[TraceSpan] = []
     tool_calls: list[ToolCall] = []
+    grouped: dict[int, list[int]] = {}
     overrides: dict[int, RetrievalOverride] = {}
     tokens = [0, 0]
     stop: str | None = None
@@ -286,6 +334,7 @@ def run_agent(
         retrieved = retrieve(state, tools=tools, ctx=ctx, overrides=overrides, origin=origin)
         record(retrieved)
         tool_calls.extend(retrieved.tool_calls)
+        _group_evidence(grouped, retrieved.chunks_by_sub_question)
 
         if not retrieved.made_progress and state.iterations > 1:
             # The first iteration is exempt: an empty first retrieval is what
@@ -344,9 +393,27 @@ def run_agent(
         stop_reason=stop or STOP_RESOLVED,
         stop_detail=detail,
         tool_calls=tool_calls,
+        chunk_ids_by_sub_question=grouped,
         input_tokens=tokens[0],
         output_tokens=tokens[1],
     )
+
+
+def _group_evidence(
+    grouped: dict[int, list[int]], retrieved: dict[int, list[RetrievedChunk]]
+) -> None:
+    """Accumulate this iteration's chunk ids under the sub-question they answered.
+
+    Sub-question indexes are stable because the ledger is only ever appended
+    to: decompose retires a parent and adds children rather than replacing it
+    in place, so a group recorded on the first iteration still names the same
+    sub-question on the fourth.
+    """
+    for index, chunks in retrieved.items():
+        known = grouped.setdefault(index, [])
+        for chunk in chunks:
+            if chunk.chunk_id not in known:
+                known.append(chunk.chunk_id)
 
 
 def _repair_open_sub_questions(

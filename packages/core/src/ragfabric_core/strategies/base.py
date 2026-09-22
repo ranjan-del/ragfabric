@@ -14,7 +14,7 @@ lets the registry and the tests verify conformance with ``isinstance``.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -76,6 +76,35 @@ class RetrievalContext(BaseModel):
     budget: Budget = Field(default_factory=Budget)
 
 
+class SubQuestionReport(BaseModel):
+    """What happened to one part of a decomposed question.
+
+    This is what a single ``best_effort`` boolean could not say. A flag tells
+    the caller that an answer is incomplete; it cannot tell them which part is
+    missing or why, so the only honest thing they can do with it is distrust
+    the whole answer. A row per sub-question lets them distrust exactly the
+    part that failed.
+
+    ``status`` uses the agent ledger's own three words rather than a second
+    vocabulary meaning the same thing. ``open`` on a finished run means the run
+    stopped with this part still unanswered, and ``reason`` says what stopped
+    it: a budget, a stall, or an abandonment and what had been tried first.
+
+    ``reason`` is ``None`` only for an answered sub-question. Every other
+    status carries one, because an unexplained gap in an answer is the failure
+    this whole report exists to prevent.
+
+    ``chunk_ids`` names the evidence retrieved for this part, so a caller can
+    tie a citation back to the sub-question it came from without re-running the
+    grouping the agent already did.
+    """
+
+    text: str
+    status: Literal["answered", "abandoned", "open"]
+    reason: str | None = None
+    chunk_ids: list[int] = Field(default_factory=list)
+
+
 class RetrievalResult(BaseModel):
     strategy: StrategyName
     chunks: list[RetrievedChunk]
@@ -93,6 +122,10 @@ class RetrievalResult(BaseModel):
     latency_ms: int = Field(ge=0)
     trace: list[TraceSpan] = Field(default_factory=list)
     fallback_from: StrategyName | None = None
+    # Per sub-question outcomes, for a strategy that decomposes the question.
+    # Empty by default: no other strategy has parts to report, and defaulting
+    # to empty is what keeps this addition invisible to all three of them.
+    sub_questions: list[SubQuestionReport] = Field(default_factory=list)
 
 
 @runtime_checkable
