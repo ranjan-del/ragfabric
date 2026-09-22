@@ -132,11 +132,11 @@ A model returns text. This layer extracts the JSON (tolerating a fenced code blo
 
 **A malformed response must never crash a request and must never be silently treated as success.**
 
-- [ ] **Step 1: Write the failing tests**, including `test_json_inside_a_fenced_code_block_is_accepted`, `test_leading_prose_before_the_json_is_tolerated`, `test_an_unknown_repair_move_is_a_violation_not_a_crash`, `test_a_violation_is_reported_not_swallowed`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run tests, confirm they pass.**
-- [ ] **Step 5: Commit** `feat: add validated JSON contracts for agent decisions`
+- [x] **Step 1: Write the failing tests**, including `test_json_inside_a_fenced_code_block_is_accepted`, `test_leading_prose_before_the_json_is_tolerated`, `test_an_unknown_repair_move_is_a_violation_not_a_crash`, `test_a_violation_is_reported_not_swallowed`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run tests, confirm they pass.**
+- [x] **Step 5: Commit** `feat: add validated JSON contracts for agent decisions`
 
 ---
 
