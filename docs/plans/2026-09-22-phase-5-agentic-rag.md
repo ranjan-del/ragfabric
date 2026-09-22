@@ -385,10 +385,10 @@ ADR 0009 records the LangGraph decision with the spike's real numbers. ADR 0010 
 
 **Publishing is GATED.** Prepare in the working tree only. Tagging, pushing to main, publishing images and creating a release each need explicit per-action approval from the owner at the time. Do not read a standing permission out of this document.
 
-- [ ] **Step 1: Write the `[0.2.0]` changelog section**, every entry traceable to a merged commit, heading dated `unreleased` until tag time.
-- [ ] **Step 2: Set the version to `0.2.0`** across core, server, cli and sdk-python, and confirm `uv.lock` agrees.
-- [ ] **Step 3: Verify the image still builds and runs** with the agent strategy reachable.
-- [ ] **Step 4: Stop.** Report and wait for approval on the release steps.
+- [x] **Step 1: Write the `[0.2.0]` changelog section**, every entry traceable to a merged commit, heading dated `unreleased` until tag time.
+- [x] **Step 2: Set the version to `0.2.0`** across core, server, cli and sdk-python, and confirm `uv.lock` agrees.
+- [x] **Step 3: Verify the image still builds and runs** with the agent strategy reachable.
+- [x] **Step 4: Stop.** Report and wait for approval on the release steps.
 
 ---
 
