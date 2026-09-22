@@ -166,11 +166,11 @@ One LLM call decomposes the question into sub-questions and assigns a tool to ea
 
 The prompt states the available tools and when each fits: identifiers and error codes to `lexical_search`, conceptual or paraphrased questions to `semantic_search`, "the whole policy" to `fetch_document`.
 
-- [ ] **Step 1: Write the failing tests**, including `test_a_simple_question_yields_one_sub_question`, `test_a_comparison_question_is_decomposed`, `test_an_identifier_question_is_routed_to_lexical_search`, `test_a_malformed_plan_falls_back_to_a_single_sub_question`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run tests, confirm they pass.**
-- [ ] **Step 5: Commit** `feat: add the plan node with question decomposition`
+- [x] **Step 1: Write the failing tests**, including `test_a_simple_question_yields_one_sub_question`, `test_a_comparison_question_is_decomposed`, `test_an_identifier_question_is_routed_to_lexical_search`, `test_a_malformed_plan_falls_back_to_a_single_sub_question`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run tests, confirm they pass.**
+- [x] **Step 5: Commit** `feat: add the plan node with question decomposition`
 
 ---
 
@@ -182,11 +182,11 @@ Retrieve runs the tool for each open sub-question, adds chunks to the evidence p
 
 **Progress detection is the point of this task.** If an iteration adds zero new chunk ids, the loop is not progressing and must not simply try again. This is the failure mode the textbook design has no answer to.
 
-- [ ] **Step 1: Write the failing tests**, including `test_an_iteration_that_adds_no_new_chunks_is_marked_no_progress`, `test_evidence_is_deduplicated_across_iterations`, `test_only_open_sub_questions_are_retrieved_for`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Mutation check.** Make the novelty check compare counts instead of ids and confirm `test_an_iteration_that_adds_no_new_chunks_is_marked_no_progress` fails. Revert.
-- [ ] **Step 5: Commit** `feat: add the retrieve node with evidence pooling and progress detection`
+- [x] **Step 1: Write the failing tests**, including `test_an_iteration_that_adds_no_new_chunks_is_marked_no_progress`, `test_evidence_is_deduplicated_across_iterations`, `test_only_open_sub_questions_are_retrieved_for`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Mutation check.** Make the novelty check compare counts instead of ids and confirm `test_an_iteration_that_adds_no_new_chunks_is_marked_no_progress` fails. Revert.
+- [x] **Step 5: Commit** `feat: add the retrieve node with evidence pooling and progress detection`
 
 ---
 
@@ -207,11 +207,11 @@ The heart of the phase. Six moves, each with a defined effect on the sub-questio
 
 **A move must never be repeated for the same sub-question without something else having changed**, or the agent oscillates between broaden and narrow forever. The attempt history enforces this.
 
-- [ ] **Step 1: Write the failing tests**, one per move, plus `test_the_same_move_is_not_repeated_on_an_unchanged_sub_question`, `test_switch_strategy_flips_the_tool`, `test_abandon_records_a_reason`, `test_exhausting_the_moves_abandons_rather_than_loops`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Mutation check.** Remove the repeat guard and confirm `test_the_same_move_is_not_repeated_on_an_unchanged_sub_question` fails. Revert.
-- [ ] **Step 5: Commit** `feat: add the repair policy with six distinct recovery moves`
+- [x] **Step 1: Write the failing tests**, one per move, plus `test_the_same_move_is_not_repeated_on_an_unchanged_sub_question`, `test_switch_strategy_flips_the_tool`, `test_abandon_records_a_reason`, `test_exhausting_the_moves_abandons_rather_than_loops`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Mutation check.** Remove the repeat guard and confirm `test_the_same_move_is_not_repeated_on_an_unchanged_sub_question` fails. Revert.
+- [x] **Step 5: Commit** `feat: add the repair policy with six distinct recovery moves`
 
 ---
 
@@ -223,11 +223,11 @@ One LLM call returns, per open sub-question, whether the evidence answers it and
 
 The rubric is strict: evidence answers a sub-question only if the answer can be read out of the retrieved text. "Related to the topic" is not answered. A permissive assessor is how an agent ends up confidently wrong, and this is the node most worth being pessimistic in.
 
-- [ ] **Step 1: Write the failing tests**, including `test_topically_related_evidence_is_not_counted_as_answered`, `test_a_missing_description_is_carried_into_the_repair`, `test_a_malformed_assessment_leaves_the_sub_question_open`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run tests, confirm they pass.**
-- [ ] **Step 5: Commit** `feat: add the assess node with a strict evidence rubric`
+- [x] **Step 1: Write the failing tests**, including `test_topically_related_evidence_is_not_counted_as_answered`, `test_a_missing_description_is_carried_into_the_repair`, `test_a_malformed_assessment_leaves_the_sub_question_open`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run tests, confirm they pass.**
+- [x] **Step 5: Commit** `feat: add the assess node with a strict evidence rubric`
 
 ---
 
@@ -243,11 +243,11 @@ The state machine. Three stop conditions, and the result records which one fired
 
 Every node appends a `TraceSpan` with its name, duration and the counters it changed. The stop reason is recorded where the branch is decided, not inferred afterwards.
 
-- [ ] **Step 1: Write the failing tests**, including `test_the_loop_terminates_on_budget`, `test_the_loop_terminates_on_no_progress`, `test_the_loop_terminates_when_all_sub_questions_resolve`, `test_the_stop_reason_is_recorded`, `test_every_node_appends_a_trace_span`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Mutation check.** Remove the no-progress check and confirm the loop runs to the budget on a static retriever. Revert.
-- [ ] **Step 5: Commit** `feat: add the agent loop with three explicit termination conditions`
+- [x] **Step 1: Write the failing tests**, including `test_the_loop_terminates_on_budget`, `test_the_loop_terminates_on_no_progress`, `test_the_loop_terminates_when_all_sub_questions_resolve`, `test_the_stop_reason_is_recorded`, `test_every_node_appends_a_trace_span`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Mutation check.** Remove the no-progress check and confirm the loop runs to the budget on a static retriever. Revert.
+- [x] **Step 5: Commit** `feat: add the agent loop with three explicit termination conditions`
 
 ---
 
@@ -259,11 +259,11 @@ Implements `RetrieverStrategy`: `retrieve(query, ctx) -> RetrievalResult`. Runs 
 
 `embedding_calls` is whatever the semantic tool actually spent, and zero when the agent used only lexical tools. Per ADR 0004 it is counted, never estimated.
 
-- [ ] **Step 1: Write the failing tests**, including `test_counters_report_actual_calls`, `test_embedding_calls_is_zero_when_only_lexical_tools_ran`, `test_the_access_filter_reaches_every_tool_call`, `test_the_strategy_is_resolvable_from_the_registry`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement and register.**
-- [ ] **Step 4: Run tests, confirm they pass.**
-- [ ] **Step 5: Commit** `feat: add AgenticRAGStrategy over the bounded agent loop`
+- [x] **Step 1: Write the failing tests**, including `test_counters_report_actual_calls`, `test_embedding_calls_is_zero_when_only_lexical_tools_ran`, `test_the_access_filter_reaches_every_tool_call`, `test_the_strategy_is_resolvable_from_the_registry`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement and register.**
+- [x] **Step 4: Run tests, confirm they pass.**
+- [x] **Step 5: Commit** `feat: add AgenticRAGStrategy over the bounded agent loop`
 
 ---
 
