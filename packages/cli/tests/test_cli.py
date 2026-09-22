@@ -33,6 +33,27 @@ def test_config_validate_reports_active_implementations(tmp_path):
     assert "vector_store: pgvector" in result.stdout
 
 
+def test_config_validate_reports_the_agent_settings(tmp_path):
+    """The agent's limits are the ones worth seeing before a run, not after."""
+    p = tmp_path / "ragfabric.yaml"
+    p.write_text(
+        "llm:\n  provider: offline\nembeddings:\n  provider: offline\n  dim: 16\n"
+        "strategies:\n  agentic:\n    max_iterations: 3\n    tools: [lexical_search]\n"
+    )
+    result = runner.invoke(app, ["config", "validate", "--path", str(p)])
+    assert result.exit_code == 0, result.stdout
+    assert "agentic: max_iterations 3" in result.stdout
+    assert "tools lexical_search" in result.stdout
+    assert "assess strict" in result.stdout
+
+
+def test_config_validate_rejects_an_agent_typo(tmp_path):
+    p = tmp_path / "ragfabric.yaml"
+    p.write_text("strategies:\n  agentic:\n    max_iteration: 4\n")
+    result = runner.invoke(app, ["config", "validate", "--path", str(p)])
+    assert result.exit_code == 1 and "max_iteration" in result.stdout
+
+
 def test_config_validate_fails_on_missing_provider_key(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     p = tmp_path / "ragfabric.yaml"

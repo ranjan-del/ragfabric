@@ -289,11 +289,11 @@ Branches covered: each of the six repair moves, budget exhaustion, no-progress s
 
 Typed settings: `max_iterations` (default 4), per-node LLM call caps, `max_cost_usd`, `max_latency_ms`, which tools are enabled, and the assess strictness. Strict validation, extra keys rejected.
 
-- [ ] **Step 1: Write the failing tests**, including `test_an_unknown_agent_key_is_rejected` and `test_max_iterations_below_one_is_rejected`.
-- [ ] **Step 2: Run them, confirm they fail.**
-- [ ] **Step 3: Implement**, and document every key with a one-line comment in `ragfabric.example.yaml`.
-- [ ] **Step 4: Verify `ragfabric config validate` reports the agent settings.**
-- [ ] **Step 5: Commit** `feat: type the agentic strategy configuration`
+- [x] **Step 1: Write the failing tests**, including `test_an_unknown_agent_key_is_rejected` and `test_max_iterations_below_one_is_rejected`.
+- [x] **Step 2: Run them, confirm they fail.**
+- [x] **Step 3: Implement**, and document every key with a one-line comment in `ragfabric.example.yaml`.
+- [x] **Step 4: Verify `ragfabric config validate` reports the agent settings.**
+- [x] **Step 5: Commit** `feat: type the agentic strategy configuration`
 
 ---
 
