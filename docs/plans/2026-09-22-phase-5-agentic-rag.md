@@ -373,7 +373,7 @@ ADR 0009 records the LangGraph decision with the spike's real numbers. ADR 0010 
 
 - [x] **Step 1: Write both ADRs.**
 - [x] **Step 2: Rewrite `docs/agentic-rag.md` to match what shipped.**
-- [ ] **Step 3: Update `ROADMAP.md` and issue #6**, ticking Phase 5 only for what actually merged, and correcting the LangGraph promise.
+- [x] **Step 3: Update `ROADMAP.md` and issue #6**, ticking Phase 5 only for what actually merged, and correcting the LangGraph promise.
 - [x] **Step 4: Re-read every changed doc against the code.**
 - [x] **Step 5: Commit** `docs: record the agent loop and framework decisions`
 
