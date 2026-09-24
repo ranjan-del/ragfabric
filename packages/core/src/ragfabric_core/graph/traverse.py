@@ -38,6 +38,22 @@ reached below the hop limit, it is walkable in that direction under the rules
 above, and it has an admitted source chunk and a visible destination.
 ``max_hops`` must lie in ``1..MAX_HOPS_CEILING``.
 
+**Guidance and budget (ruling R16).** ``relation_types`` narrows the walk to
+the types a question implies. It is part of the join condition in the recursive
+term and of the edge fetch, so a node reachable only through an unimplied type
+is never reached, and an unimplied edge between reached nodes is never
+reported. A relation walked backwards is filtered by its stored type, so
+implying ``BELONGS_TO`` admits it read as ``CONTAINS``. ``None`` or an empty
+collection means every type. ``node_budget`` caps the reached set: nodes are
+ordered by (minimum depth, id), which puts the seeds (depth 0) first, and only
+the first ``node_budget`` are kept, seeds included, so the cap is hard. Edges
+are fetched among the kept nodes only, so every edge touching a dropped node is
+dropped, and ``truncated`` is True exactly when more nodes were reached than
+kept. Because every node at a smaller depth is kept before any node at a larger
+one, each kept node still has a kept node one hop nearer the seeds. The budget
+bounds the result, not the CTE's own work, which R12's hop ceiling bounds; a
+``LIMIT`` inside the recursive term is not allowed on PostgreSQL.
+
 Everything is portable SQL (``WITH RECURSIVE``, ``UNION``, ``CASE``,
 ``EXISTS``) and runs unchanged on SQLite and PostgreSQL. The recursive term has
 a single reference to the CTE joined with one ``OR`` condition, rather than two
@@ -47,7 +63,7 @@ once in the recursive term.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 
 from sqlalchemy import Integer, Text, and_, case, cast, func, literal_column, or_, select
 from sqlalchemy.orm import Session, aliased
@@ -69,6 +85,10 @@ from ragfabric_core.models.graph import Entity, EntitySource, Relationship, Rela
 from ragfabric_core.stores.access_sql import access_clause
 
 MAX_HOPS_CEILING = 4
+
+# Enough for a focused answer over a few hops, small enough that a dense
+# neighbourhood cannot flood the context. Callers pass their own when they know better.
+DEFAULT_NODE_BUDGET = 50
 
 _KNOWN = sorted(rel.value for rel in RelationType)
 _INVERTIBLE = sorted(rel.value for rel in INVERSES)
@@ -177,8 +197,28 @@ def visible_entity_chunks(
     return {entity_id: sorted(chunks) for entity_id, chunks in sorted(out.items())}
 
 
-def _reach_statement(seed_ids: list[int], access: AccessFilter, max_hops: int):
-    """The recursive CTE, then the minimum depth at which each node was reached."""
+def _walkable_types(
+    relation_types: Collection[RelationType] | None,
+) -> tuple[list[str], list[str]]:
+    """Stored type values walkable forwards and backwards. ``None`` or empty means all."""
+    if not relation_types:
+        return _KNOWN, _INVERTIBLE
+    wanted = {RelationType(rel).value for rel in relation_types}
+    return sorted(wanted), [value for value in _INVERTIBLE if value in wanted]
+
+
+def _reach_statement(
+    seed_ids: list[int],
+    access: AccessFilter,
+    max_hops: int,
+    known: list[str],
+    invertible: list[str],
+    limit: int,
+):
+    """The recursive CTE, then the minimum depth of each node, nearest first, up to ``limit``.
+
+    Ordered by (minimum depth, id), so seeds come first and the order is stable.
+    """
     anchor = select(
         Entity.id.label("node_id"),
         cast(literal_column("0"), Integer).label("depth"),
@@ -186,8 +226,8 @@ def _reach_statement(seed_ids: list[int], access: AccessFilter, max_hops: int):
     reach = anchor.cte("reach", recursive=True)
 
     rel = aliased(Relationship)
-    forwards = and_(rel.source_entity_id == reach.c.node_id, rel.relation_type.in_(_KNOWN))
-    backwards = and_(rel.target_entity_id == reach.c.node_id, rel.relation_type.in_(_INVERTIBLE))
+    forwards = and_(rel.source_entity_id == reach.c.node_id, rel.relation_type.in_(known))
+    backwards = and_(rel.target_entity_id == reach.c.node_id, rel.relation_type.in_(invertible))
     # A row joined through ``forwards`` leads to the target; otherwise it came
     # through ``backwards`` and leads to the source. A self-loop reads as forwards.
     next_node = case(
@@ -204,10 +244,22 @@ def _reach_statement(seed_ids: list[int], access: AccessFilter, max_hops: int):
         )
     )
     reach = reach.union(step)
-    return select(reach.c.node_id, func.min(reach.c.depth)).group_by(reach.c.node_id)
+    min_depth = func.min(reach.c.depth)
+    return (
+        select(reach.c.node_id, min_depth)
+        .group_by(reach.c.node_id)
+        .order_by(min_depth, reach.c.node_id)
+        .limit(limit)
+    )
 
 
-def _edge_statement(depths: dict[int, int], access: AccessFilter, max_hops: int):
+def _edge_statement(
+    depths: dict[int, int],
+    access: AccessFilter,
+    max_hops: int,
+    known: list[str],
+    invertible: list[str],
+):
     """Edges the walk could have used among the reached nodes, with their direction flag.
 
     ``goes_forwards`` is 1 when the edge is walkable forwards from its source,
@@ -218,13 +270,13 @@ def _edge_statement(depths: dict[int, int], access: AccessFilter, max_hops: int)
     expandable = sorted(node for node, depth in depths.items() if depth < max_hops)
     rel = aliased(Relationship)
     forwards = and_(
-        rel.relation_type.in_(_KNOWN),
+        rel.relation_type.in_(known),
         rel.source_entity_id.in_(expandable),
         rel.target_entity_id.in_(reached),
         _entity_visible(rel.target_entity_id, access),
     )
     backwards = and_(
-        rel.relation_type.in_(_INVERTIBLE),
+        rel.relation_type.in_(invertible),
         rel.target_entity_id.in_(expandable),
         rel.source_entity_id.in_(reached),
         _entity_visible(rel.source_entity_id, access),
@@ -249,11 +301,16 @@ def traverse(
     access: AccessFilter,
     *,
     max_hops: int,
+    node_budget: int = DEFAULT_NODE_BUDGET,
+    relation_types: Collection[RelationType] | None = None,
 ) -> Subgraph:
     """Walk from ``seed_ids`` up to ``max_hops`` edges, under ``access``.
 
-    ``max_hops`` must be in ``1..MAX_HOPS_CEILING``; anything else raises
-    ``ValueError``. Seeds are re-checked for visibility inside the anchor, so
+    ``max_hops`` must be in ``1..MAX_HOPS_CEILING`` and ``node_budget`` at
+    least 1; anything else raises ``ValueError``. Only ``relation_types`` are
+    walked (``None`` or empty: all), and at most ``node_budget`` nodes are kept,
+    nearest first by (depth, id) with seeds first; ``truncated`` says whether
+    any reached node was dropped. Seeds are re-checked for visibility inside the anchor, so
     passing an id the caller may not see yields no node for it. Each edge
     appears once; when it is walkable in both directions the forward reading is
     reported. An edge's ``source_chunk_ids`` are its admitted source chunks only.
@@ -261,20 +318,26 @@ def traverse(
     ``empty_reason`` is set only as far as the ``Subgraph`` contract requires:
     ``NO_ENTITY_MATCHED`` when no seed is visible, ``NO_WALKABLE_EDGES`` when
     seeds are visible but no edge was walked. Telling a graph with no coverage
-    apart from a non-match is the strategy's job. ``truncated`` is always False
-    here; the node budget that can truncate a walk is added separately.
+    apart from a non-match is the strategy's job. A truncated walk that kept no
+    edge still reports ``NO_WALKABLE_EDGES``, as the contract requires.
     """
     if not 1 <= max_hops <= MAX_HOPS_CEILING:
         raise ValueError(f"max_hops must be between 1 and {MAX_HOPS_CEILING}, got {max_hops}")
+    if node_budget < 1:
+        raise ValueError(f"node_budget must be at least 1, got {node_budget}")
+    known, invertible = _walkable_types(relation_types)
     seeds = sorted(set(seed_ids))
     if not seeds:
         return Subgraph(
             nodes=[], edges=[], truncated=False, empty_reason=EmptyReason.NO_ENTITY_MATCHED
         )
 
-    depths = {
-        node_id: depth for node_id, depth in db.execute(_reach_statement(seeds, access, max_hops))
-    }
+    # One row past the budget tells a walk that was cut short from one that fitted.
+    reached = db.execute(
+        _reach_statement(seeds, access, max_hops, known, invertible, node_budget + 1)
+    ).all()
+    truncated = len(reached) > node_budget
+    depths = {node_id: depth for node_id, depth in reached[:node_budget]}
     if not depths:
         return Subgraph(
             nodes=[], edges=[], truncated=False, empty_reason=EmptyReason.NO_ENTITY_MATCHED
@@ -288,19 +351,24 @@ def traverse(
             .order_by(Entity.id)
         )
     ]
-    edges = _edges(db, depths, access, max_hops)
+    edges = _edges(db, depths, access, max_hops, known, invertible)
     return Subgraph(
         nodes=nodes,
         edges=edges,
-        truncated=False,
+        truncated=truncated,
         empty_reason=None if edges else EmptyReason.NO_WALKABLE_EDGES,
     )
 
 
 def _edges(
-    db: Session, depths: dict[int, int], access: AccessFilter, max_hops: int
+    db: Session,
+    depths: dict[int, int],
+    access: AccessFilter,
+    max_hops: int,
+    known: list[str],
+    invertible: list[str],
 ) -> list[GraphEdge]:
-    rows = db.execute(_edge_statement(depths, access, max_hops)).all()
+    rows = db.execute(_edge_statement(depths, access, max_hops, known, invertible)).all()
     if not rows:
         return []
     ids = [row.id for row in rows]
