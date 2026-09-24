@@ -19,6 +19,7 @@ from typing import Literal, Protocol, runtime_checkable
 from pydantic import BaseModel, ConfigDict, Field
 
 from ragfabric_core.auth.principal import AccessFilter, Principal
+from ragfabric_core.graph.contracts import Subgraph
 
 
 class StrategyName(StrEnum):
@@ -139,6 +140,10 @@ class RetrievalResult(BaseModel):
     # Empty by default: no other strategy has parts to report, and defaulting
     # to empty is what keeps this addition invisible to all three of them.
     sub_questions: list[SubQuestionReport] = Field(default_factory=list)
+    # The graph strategy's walked sub-graph, for the trace and the API to
+    # render. None for every other strategy, which is what keeps this
+    # addition invisible to them (the same additive move as sub_questions).
+    subgraph: Subgraph | None = None
 
 
 @runtime_checkable
