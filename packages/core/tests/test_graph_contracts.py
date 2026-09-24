@@ -310,14 +310,42 @@ def test_belongs_to_read_backwards_is_contains():
         ("C++", "c++"),
         ("Straße", "strasse"),
         (" . ", ""),
+        ("C#", "c#"),
+        ("F#", "f#"),
+        (".NET", ".net"),
+        ("100%", "100%"),
+        ("@ispf", "@ispf"),
+        ("Atlas (beta)", "atlas (beta)"),
+        ("(a) and (b)", "(a) and (b)"),
+        ("[Atlas]", "atlas"),
+        ("Who is Priya?", "who is priya"),
+        ("Atlas;", "atlas"),
+        ("ＡＣＭＥ", "acme"),
     ],
 )
 def test_normalise(raw, expected):
     assert normalise(raw) == expected
 
 
+@pytest.mark.parametrize(
+    ("one", "other"),
+    [("C#", "C"), ("F#", "F"), (".NET", "NET"), ("100%", "100")],
+)
+def test_normalise_keeps_distinct_names_distinct(one, other):
+    """R5: normalise defines entity identity, so a symbol that is part of a name
+    must survive it."""
+    assert normalise(one) != normalise(other)
+
+
+def test_normalise_treats_composed_and_decomposed_forms_as_one_name():
+    composed = "Café"
+    decomposed = "Café"
+    assert composed != decomposed
+    assert normalise(composed) == normalise(decomposed) == "café"
+
+
 def test_normalise_is_idempotent():
-    for raw in ['  "ACME,   Inc."  ', "Platform Team", "(( x ))"]:
+    for raw in ['  "ACME,   Inc."  ', "Platform Team", "(( x ))", "Café", "[C#]."]:
         once = normalise(raw)
         assert normalise(once) == once
 

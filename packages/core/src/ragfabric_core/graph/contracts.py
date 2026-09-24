@@ -83,22 +83,59 @@ INVERSES: dict[RelationType, str] = {
 def normalise(name: str) -> str:
     """The form entity names are matched and stored under.
 
-    Casefolded, trimmed, internal whitespace collapsed to single spaces, and
-    punctuation stripped from both ends (``'"Platform Team."'`` becomes
-    ``"platform team"``). Punctuation inside a name is kept (``"acme, inc"``),
-    and so are symbols such as ``+`` (``"c++"``).
+    This defines entity identity (the unique key is ``(normalise(name),
+    entity_type)``), so it only removes what cannot be part of a name:
+
+    * Unicode NFKC normalisation, then casefolding, so composed and decomposed
+      accents and fullwidth letters compare equal (``"Straße"`` is ``"strasse"``);
+    * surrounding whitespace trimmed, internal whitespace collapsed to one space;
+    * quotation marks at either end (ASCII ``"`` ``'`` and backtick, and Unicode
+      opening and closing quotes);
+    * a bracket pair ``()``, ``[]`` or ``{}`` only when it encloses the whole
+      name (``"(Platform Team)"`` loses it, ``"atlas (beta)"`` keeps it);
+    * trailing sentence punctuation ``. , ; : ! ?``.
+
+    Everything else is kept, at either end: ``"c#"``, ``".net"``, ``"100%"``,
+    ``"@ispf"``, ``"c++"``, and punctuation inside a name (``"acme, inc"``).
     """
-    text = " ".join(name.casefold().split())
-    start, end = 0, len(text)
-    while start < end and _strippable(text[start]):
-        start += 1
-    while end > start and _strippable(text[end - 1]):
-        end -= 1
-    return " ".join(text[start:end].split())
+    text = unicodedata.normalize("NFKC", unicodedata.normalize("NFKC", name).casefold())
+    text = " ".join(text.split())
+    previous = None
+    while text != previous:
+        previous = text
+        text = text.rstrip(_TRAILING).strip()
+        while text and _is_quote(text[0]):
+            text = text[1:]
+        while text and _is_quote(text[-1]):
+            text = text[:-1]
+        if _enclosed(text):
+            text = text[1:-1]
+        text = text.strip()
+    return text
 
 
-def _strippable(char: str) -> bool:
-    return char.isspace() or unicodedata.category(char).startswith("P")
+_TRAILING = ".,;:!? "
+_PAIRS = {"(": ")", "[": "]", "{": "}"}
+
+
+def _is_quote(char: str) -> bool:
+    return char in "\"'`" or unicodedata.category(char) in ("Pi", "Pf")
+
+
+def _enclosed(text: str) -> bool:
+    """Whether the first character opens a bracket that the last character closes."""
+    if len(text) < 2 or _PAIRS.get(text[0]) != text[-1]:
+        return False
+    opening, closing = text[0], text[-1]
+    depth = 0
+    for index, char in enumerate(text):
+        if char == opening:
+            depth += 1
+        elif char == closing:
+            depth -= 1
+            if depth == 0:
+                return index == len(text) - 1
+    return False
 
 
 def _named(name: str) -> str:
