@@ -1,21 +1,23 @@
 """Walk the knowledge graph outward from matched entities, with the access filter inside the query.
 
-Two functions, used in order by the graph strategy:
+Three functions, used in order by the graph strategy:
 
 - ``match_entities`` turns the entities a question mentions into the ids of
   entities the caller may see.
 - ``traverse`` walks from those ids up to ``max_hops`` and returns a
   ``Subgraph``.
+- ``visible_entity_chunks`` gives the admitted source chunks of entities, so
+  the strategy never writes its own access join.
 
 **Access (ADR 0003, ruling R10).** A node is visible iff at least one
 ``entity_sources`` row points at a chunk the ``AccessFilter`` admits. An edge
 is walkable iff at least one ``relationship_sources`` chunk is admitted and the
 node it leads to is visible. Both predicates are correlated ``EXISTS``
 subqueries built with ``access_clause`` and placed in the SQL itself: in the
-match, in the anchor of the recursive CTE, and in its recursive term. Nothing
-is filtered after the walk, because a walk that crosses a denied edge and drops
-it afterwards has already used it to reach whatever lies beyond, and matching
-an entity at all reveals that it exists.
+match, in the anchor of the recursive CTE, in its recursive term, and in the
+edge fetch. Nothing is filtered after the walk, because a walk that crosses a
+denied edge and drops it afterwards has already used it to reach whatever lies
+beyond, and matching an entity at all reveals that it exists.
 
 **Direction (ruling R2).** Every known ``RelationType`` walks forwards. It
 walks backwards only when it is in ``INVERSES``, and is then reported under
@@ -24,37 +26,30 @@ walks backwards only when it is in ``INVERSES``, and is then reported under
 asserts the opposite fact. A stored relation type that is not a
 ``RelationType`` has no direction rule and is not walked at all.
 
-**Termination.** Each CTE row carries the path of node ids it took, as a
-delimited string. A step into a node already on its path is kept, so the edge
-that closes a cycle is reported, but it is flagged ``closes_cycle`` and never
-expanded, so cycles terminate; ``depth < max_hops`` bounds the rest. Because visited nodes
-are tracked per path rather than globally, a node can be reached along several
-paths; the result is deduplicated, and Task 7's node budget is what caps the
-work on dense graphs.
+**Shape of the walk (ruling R12).** The recursive CTE produces
+``(node_id, depth)`` rows combined with ``UNION``, which deduplicates, and
+stops at ``depth = max_hops``. That bounds the work by visible nodes times
+hops, where tracking a path per row would grow as degree to the power of hops.
+Cycles terminate because a revisited ``(node, depth)`` pair adds no row and
+depth is bounded. The minimum depth per node is then taken, and the edges are
+fetched in a second statement: an edge is reported only when the walk could
+have used it, that is, it joins two reached nodes, the node it leaves was
+reached below the hop limit, it is walkable in that direction under the rules
+above, and it has an admitted source chunk and a visible destination.
+``max_hops`` must lie in ``1..MAX_HOPS_CEILING``.
 
-The CTE uses only portable SQL (``WITH RECURSIVE``, ``CASE``, ``||``, ``LIKE``,
-``CAST(... AS TEXT)``) and runs unchanged on SQLite and PostgreSQL. It has a
-single recursive reference joined with one ``OR`` condition, rather than two
-``UNION ALL`` branches, because PostgreSQL allows the recursive table to be
-referenced only once in the recursive term.
+Everything is portable SQL (``WITH RECURSIVE``, ``UNION``, ``CASE``,
+``EXISTS``) and runs unchanged on SQLite and PostgreSQL. The recursive term has
+a single reference to the CTE joined with one ``OR`` condition, rather than two
+branches, because PostgreSQL allows the recursive table to be referenced only
+once in the recursive term.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
-from sqlalchemy import (
-    Integer,
-    Text,
-    and_,
-    case,
-    cast,
-    func,
-    literal_column,
-    null,
-    or_,
-    select,
-)
+from sqlalchemy import Integer, Text, and_, case, cast, func, literal_column, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from ragfabric_core.auth.principal import AccessFilter
@@ -72,6 +67,8 @@ from ragfabric_core.graph.contracts import (
 from ragfabric_core.models.document import Chunk
 from ragfabric_core.models.graph import Entity, EntitySource, Relationship, RelationshipSource
 from ragfabric_core.stores.access_sql import access_clause
+
+MAX_HOPS_CEILING = 4
 
 _KNOWN = sorted(rel.value for rel in RelationType)
 _INVERTIBLE = sorted(rel.value for rel in INVERSES)
@@ -120,9 +117,10 @@ def match_entities(
     visibility predicate is in both queries, so an entity whose every source
     chunk is denied never matches.
 
-    Aliases are compared in Python after the SQL has already restricted the
-    candidates to visible entities that have aliases, because ``normalise``
-    (casefold, Unicode punctuation) has no portable SQL equivalent.
+    Aliases are compared in Python over rows the SQL has already restricted to
+    visible entities, because ``normalise`` (casefold, Unicode punctuation) has
+    no portable SQL equivalent. An ``aliases`` value that is not a list, and an
+    alias that is not a string, are skipped rather than failing the match.
     """
     wanted = [(normalise(m.name), m.entity_type) for m in mentions]
     wanted = [(name, entity_type) for name, entity_type in wanted if name]
@@ -140,13 +138,17 @@ def match_entities(
     )
     matched = set(db.execute(select(Entity.id).where(visible, by_name)).scalars())
 
-    aliased_rows = db.execute(
+    # Comparing the serialised text skips the common empty list without any
+    # JSON function, which would raise on a row whose value is not an array.
+    candidates = db.execute(
         select(Entity.id, Entity.entity_type, Entity.aliases).where(
-            visible, func.json_array_length(Entity.aliases) > 0
+            visible, cast(Entity.aliases, Text) != "[]"
         )
     ).all()
-    for entity_id, entity_type, aliases in aliased_rows:
-        names = {normalise(alias) for alias in aliases or [] if isinstance(alias, str)}
+    for entity_id, entity_type, aliases in candidates:
+        if not isinstance(aliases, list):
+            continue
+        names = {normalise(alias) for alias in aliases if isinstance(alias, str)}
         for name, want_type in wanted:
             if name in names and (want_type is None or want_type.value == entity_type):
                 matched.add(entity_id)
@@ -154,46 +156,91 @@ def match_entities(
     return sorted(matched)
 
 
-def _walk_statement(seed_ids: list[int], access: AccessFilter, max_hops: int):
-    """The recursive CTE and the select over it: one row per (node reached, edge used)."""
-    path_of = cast(literal_column("','"), Text)
+def visible_entity_chunks(
+    db: Session, entity_ids: Iterable[int], access: AccessFilter
+) -> dict[int, list[int]]:
+    """Admitted source chunk ids per entity, sorted. An entity with none is absent."""
+    ids = sorted(set(entity_ids))
+    if not ids:
+        return {}
+    query = (
+        select(EntitySource.entity_id, EntitySource.chunk_id)
+        .join(Chunk, Chunk.id == EntitySource.chunk_id)
+        .where(EntitySource.entity_id.in_(ids))
+    )
+    clause = access_clause(access, Chunk.document_id, Chunk.collection_id)
+    if clause is not None:
+        query = query.where(clause)
+    out: dict[int, list[int]] = {}
+    for entity_id, chunk_id in db.execute(query):
+        out.setdefault(entity_id, []).append(chunk_id)
+    return {entity_id: sorted(chunks) for entity_id, chunks in sorted(out.items())}
+
+
+def _reach_statement(seed_ids: list[int], access: AccessFilter, max_hops: int):
+    """The recursive CTE, then the minimum depth at which each node was reached."""
     anchor = select(
         Entity.id.label("node_id"),
         cast(literal_column("0"), Integer).label("depth"),
-        (path_of + cast(Entity.id, Text) + path_of).label("path"),
-        cast(null(), Integer).label("rel_id"),
-        cast(literal_column("0"), Integer).label("is_reversed"),
-        cast(literal_column("0"), Integer).label("closes_cycle"),
     ).where(Entity.id.in_(seed_ids), _entity_visible(Entity.id, access))
-    walk = anchor.cte("walk", recursive=True)
+    reach = anchor.cte("reach", recursive=True)
 
     rel = aliased(Relationship)
-    forwards = and_(rel.source_entity_id == walk.c.node_id, rel.relation_type.in_(_KNOWN))
-    backwards = and_(rel.target_entity_id == walk.c.node_id, rel.relation_type.in_(_INVERTIBLE))
+    forwards = and_(rel.source_entity_id == reach.c.node_id, rel.relation_type.in_(_KNOWN))
+    backwards = and_(rel.target_entity_id == reach.c.node_id, rel.relation_type.in_(_INVERTIBLE))
     # A row joined through ``forwards`` leads to the target; otherwise it came
     # through ``backwards`` and leads to the source. A self-loop reads as forwards.
-    goes_forwards = rel.source_entity_id == walk.c.node_id
-    next_node = case((goes_forwards, rel.target_entity_id), else_=rel.source_entity_id)
-    on_path = walk.c.path.contains(path_of + cast(next_node, Text) + path_of)
+    next_node = case(
+        (rel.source_entity_id == reach.c.node_id, rel.target_entity_id),
+        else_=rel.source_entity_id,
+    )
     step = (
-        select(
-            next_node.label("node_id"),
-            (walk.c.depth + 1).label("depth"),
-            (walk.c.path + cast(next_node, Text) + path_of).label("path"),
-            rel.id.label("rel_id"),
-            case((goes_forwards, 0), else_=1).label("is_reversed"),
-            case((on_path, 1), else_=0).label("closes_cycle"),
-        )
-        .select_from(walk.join(rel, or_(forwards, backwards)))
+        select(next_node.label("node_id"), (reach.c.depth + 1).label("depth"))
+        .select_from(reach.join(rel, or_(forwards, backwards)))
         .where(
-            walk.c.depth < max_hops,
-            walk.c.closes_cycle == 0,
+            reach.c.depth < max_hops,
             _relationship_visible(rel.id, access),
             _entity_visible(next_node, access),
         )
     )
-    walk = walk.union_all(step)
-    return select(walk.c.node_id, walk.c.rel_id, walk.c.is_reversed).distinct()
+    reach = reach.union(step)
+    return select(reach.c.node_id, func.min(reach.c.depth)).group_by(reach.c.node_id)
+
+
+def _edge_statement(depths: dict[int, int], access: AccessFilter, max_hops: int):
+    """Edges the walk could have used among the reached nodes, with their direction flag.
+
+    ``goes_forwards`` is 1 when the edge is walkable forwards from its source,
+    which is preferred when both directions are; otherwise it is walkable
+    backwards from its target, which only an invertible relation can be.
+    """
+    reached = sorted(depths)
+    expandable = sorted(node for node, depth in depths.items() if depth < max_hops)
+    rel = aliased(Relationship)
+    forwards = and_(
+        rel.relation_type.in_(_KNOWN),
+        rel.source_entity_id.in_(expandable),
+        rel.target_entity_id.in_(reached),
+        _entity_visible(rel.target_entity_id, access),
+    )
+    backwards = and_(
+        rel.relation_type.in_(_INVERTIBLE),
+        rel.target_entity_id.in_(expandable),
+        rel.source_entity_id.in_(reached),
+        _entity_visible(rel.source_entity_id, access),
+    )
+    return (
+        select(
+            rel.id,
+            rel.source_entity_id,
+            rel.target_entity_id,
+            rel.relation_type,
+            rel.confidence,
+            case((forwards, 1), else_=0).label("goes_forwards"),
+        )
+        .where(or_(forwards, backwards), _relationship_visible(rel.id, access))
+        .order_by(rel.id)
+    )
 
 
 def traverse(
@@ -205,10 +252,11 @@ def traverse(
 ) -> Subgraph:
     """Walk from ``seed_ids`` up to ``max_hops`` edges, under ``access``.
 
-    Seeds are re-checked for visibility inside the anchor, so passing an id the
-    caller may not see yields no node for it. Each edge appears once; when it
-    was reached in both directions the forward reading is reported. An edge's
-    ``source_chunk_ids`` are its admitted source chunks only.
+    ``max_hops`` must be in ``1..MAX_HOPS_CEILING``; anything else raises
+    ``ValueError``. Seeds are re-checked for visibility inside the anchor, so
+    passing an id the caller may not see yields no node for it. Each edge
+    appears once; when it is walkable in both directions the forward reading is
+    reported. An edge's ``source_chunk_ids`` are its admitted source chunks only.
 
     ``empty_reason`` is set only as far as the ``Subgraph`` contract requires:
     ``NO_ENTITY_MATCHED`` when no seed is visible, ``NO_WALKABLE_EDGES`` when
@@ -216,23 +264,18 @@ def traverse(
     apart from a non-match is the strategy's job. ``truncated`` is always False
     here; the node budget that can truncate a walk is added separately.
     """
-    if max_hops < 0:
-        raise ValueError(f"max_hops must be at least 0, got {max_hops}")
+    if not 1 <= max_hops <= MAX_HOPS_CEILING:
+        raise ValueError(f"max_hops must be between 1 and {MAX_HOPS_CEILING}, got {max_hops}")
     seeds = sorted(set(seed_ids))
     if not seeds:
         return Subgraph(
             nodes=[], edges=[], truncated=False, empty_reason=EmptyReason.NO_ENTITY_MATCHED
         )
 
-    node_ids: set[int] = set()
-    edge_reversed: dict[int, bool] = {}
-    for node_id, rel_id, is_reversed in db.execute(_walk_statement(seeds, access, max_hops)):
-        node_ids.add(node_id)
-        if rel_id is not None:
-            # Forward wins when an edge was reached both ways: it needs no inverse.
-            edge_reversed[rel_id] = edge_reversed.get(rel_id, True) and bool(is_reversed)
-
-    if not node_ids:
+    depths = {
+        node_id: depth for node_id, depth in db.execute(_reach_statement(seeds, access, max_hops))
+    }
+    if not depths:
         return Subgraph(
             nodes=[], edges=[], truncated=False, empty_reason=EmptyReason.NO_ENTITY_MATCHED
         )
@@ -241,11 +284,11 @@ def traverse(
         GraphNode(id=entity_id, name=name, entity_type=EntityType(entity_type))
         for entity_id, name, entity_type in db.execute(
             select(Entity.id, Entity.name, Entity.entity_type)
-            .where(Entity.id.in_(sorted(node_ids)))
+            .where(Entity.id.in_(sorted(depths)))
             .order_by(Entity.id)
         )
     ]
-    edges = _edges(db, edge_reversed, access)
+    edges = _edges(db, depths, access, max_hops)
     return Subgraph(
         nodes=nodes,
         edges=edges,
@@ -254,10 +297,13 @@ def traverse(
     )
 
 
-def _edges(db: Session, edge_reversed: dict[int, bool], access: AccessFilter) -> list[GraphEdge]:
-    if not edge_reversed:
+def _edges(
+    db: Session, depths: dict[int, int], access: AccessFilter, max_hops: int
+) -> list[GraphEdge]:
+    rows = db.execute(_edge_statement(depths, access, max_hops)).all()
+    if not rows:
         return []
-    ids = sorted(edge_reversed)
+    ids = [row.id for row in rows]
     chunk_query = (
         select(RelationshipSource.relationship_id, RelationshipSource.chunk_id)
         .join(Chunk, Chunk.id == RelationshipSource.chunk_id)
@@ -271,19 +317,9 @@ def _edges(db: Session, edge_reversed: dict[int, bool], access: AccessFilter) ->
         chunks.setdefault(relationship_id, []).append(chunk_id)
 
     edges = []
-    for row in db.execute(
-        select(
-            Relationship.id,
-            Relationship.source_entity_id,
-            Relationship.target_entity_id,
-            Relationship.relation_type,
-            Relationship.confidence,
-        )
-        .where(Relationship.id.in_(ids))
-        .order_by(Relationship.id)
-    ):
+    for row in rows:
         relation = RelationType(row.relation_type)
-        is_reversed = edge_reversed[row.id]
+        is_reversed = not row.goes_forwards
         edges.append(
             GraphEdge(
                 id=row.id,
