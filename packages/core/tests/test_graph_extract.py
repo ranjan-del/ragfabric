@@ -18,6 +18,7 @@ from ragfabric_core.graph.extract import extract_chunk, extract_chunks
 from ragfabric_core.models import Base
 from ragfabric_core.models.document import Chunk, Collection, Document
 from ragfabric_core.models.graph import Entity, EntitySource, Relationship, RelationshipSource
+from ragfabric_core.providers.base import Completion
 from ragfabric_core.providers.offline import ScriptedLLMProvider
 
 FLOOR = 0.5
@@ -55,6 +56,40 @@ def _provider(payload: dict) -> ScriptedLLMProvider:
     return ScriptedLLMProvider(responses=[json.dumps(payload)], model="test-extractor")
 
 
+class _RelabelingProvider:
+    """A double for a provider that serves a different model than requested.
+
+    A real provider can do this (a router, a fallback after a rate limit), so
+    the writer has to record what the completion says was actually used, not
+    what the caller asked for.
+    """
+
+    name = "relabeling"
+    default_model = "requested-model"
+
+    def __init__(self, response: str, actual_model: str) -> None:
+        self._response = response
+        self._actual_model = actual_model
+
+    def complete(
+        self,
+        messages,
+        *,
+        model=None,
+        max_tokens=1024,
+        temperature=0.0,
+        json_schema=None,
+    ) -> Completion:
+        return Completion(
+            text=self._response,
+            model=self._actual_model,
+            provider=self.name,
+            input_tokens=0,
+            output_tokens=0,
+            latency_ms=0,
+        )
+
+
 def test_an_edge_below_the_floor_is_not_stored(db):
     chunk = _make_chunk(db)
     payload = {
@@ -76,6 +111,59 @@ def test_an_edge_below_the_floor_is_not_stored(db):
     assert report.relationships_stored == 0
     assert report.relationships_discarded == 1
     assert db.execute(select(Relationship)).scalars().all() == []
+
+
+def test_an_edge_whose_endpoint_fell_below_the_floor_is_discarded_and_counted(db):
+    """R9: an edge cannot point at a row that was never stored.
+
+    The relationship's own confidence clears the floor here; its target
+    entity does not. The edge must be discarded and counted anyway, and the
+    endpoint that did clear the floor must still be stored normally.
+    """
+    chunk = _make_chunk(db)
+    payload = {
+        "entities": [
+            {"name": "Ada Lovelace", "entity_type": "person", "confidence": 0.9},
+            {"name": "Analytical Engine", "entity_type": "product", "confidence": 0.2},
+        ],
+        "relationships": [
+            {
+                "source": "Ada Lovelace",
+                "target": "Analytical Engine",
+                "relation_type": "WORKS_ON",
+                "confidence": 0.9,
+            }
+        ],
+    }
+    report = extract_chunk(db, chunk, _provider(payload), floor=FLOOR, model="test-extractor")
+
+    assert report.relationships_stored == 0
+    assert report.relationships_discarded == 1
+    assert db.execute(select(Relationship)).scalars().all() == []
+
+    assert report.entities_stored == 1
+    assert report.entities_discarded == 1
+    ada = db.execute(select(Entity).where(Entity.normalized_name == "ada lovelace")).scalar_one()
+    assert ada.confidence == 0.9
+
+
+def test_extraction_model_records_what_the_completion_reports(db):
+    """completion.model, not the requested model, is what gets stored.
+
+    A router or a fallback can serve a different model than the one asked
+    for; the row has to be traceable to the model that actually answered.
+    """
+    chunk = _make_chunk(db)
+    payload = {
+        "entities": [{"name": "Ada Lovelace", "entity_type": "person", "confidence": 0.9}],
+        "relationships": [],
+    }
+    provider = _RelabelingProvider(json.dumps(payload), actual_model="actually-served-model")
+
+    extract_chunk(db, chunk, provider, floor=FLOOR, model="requested-model")
+
+    ada = db.execute(select(Entity).where(Entity.normalized_name == "ada lovelace")).scalar_one()
+    assert ada.extraction_model == "actually-served-model"
 
 
 def test_the_number_discarded_is_reported(db):

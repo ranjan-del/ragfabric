@@ -102,7 +102,14 @@ Both keys are required; an empty list is fine.
 
 @dataclass(frozen=True)
 class ExtractionReport:
-    """Counts from one extraction call, small enough to sum across a batch."""
+    """Counts from one extraction call, small enough to sum across a batch.
+
+    The stored counts are distinct upserted keys (an entity's
+    ``(normalise(name), entity_type)``, an edge's ``(source_entity_id,
+    target_entity_id, relation_type)``), not the raw number of kept items:
+    the contract tolerates the same entity or edge listed twice in one
+    response, and both collapse into one stored row.
+    """
 
     entities_stored: int = 0
     relationships_stored: int = 0
