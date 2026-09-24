@@ -51,6 +51,9 @@ EXPECTED_TABLES = {
     "chunk_embeddings",
     "chunk_search",
     "ingestion_runs",
+    "entity_sources",
+    "relationship_sources",
+    "entity_merges",
 }
 
 
@@ -157,3 +160,43 @@ def test_0006_declares_timezone_aware_columns_but_sqlite_still_returns_naive_val
         "docstring should be updated"
     )
     assert reread.replace(tzinfo=UTC) == written
+
+
+def test_0008_adds_confidence_extraction_hash_and_provenance_tables(tmp_path):
+    engine, _ = _migrated_engine(tmp_path)
+    ecols = {c["name"] for c in inspect(engine).get_columns("entities")}
+    assert {"confidence", "extraction_model"} <= ecols
+    assert "source_chunk_ids" not in ecols
+
+    rcols = {c["name"] for c in inspect(engine).get_columns("relationships")}
+    assert {"confidence", "extraction_model"} <= rcols
+    assert "source_chunk_ids" not in rcols
+
+    ccols = {c["name"] for c in inspect(engine).get_columns("chunks")}
+    assert "extraction_hash" in ccols
+
+    tables = set(inspect(engine).get_table_names())
+    assert {"entity_sources", "relationship_sources", "entity_merges"} <= tables
+
+
+def test_0008_downgrade_returns_to_0007(tmp_path):
+    url = f"sqlite:///{tmp_path / 'm.db'}"
+    migrate.upgrade(url, "head")
+    migrate.downgrade(url, "0007_bm25_term_stats")
+    engine = sa.create_engine(url)
+
+    tables = set(sa.inspect(engine).get_table_names())
+    assert "entity_sources" not in tables
+    assert "relationship_sources" not in tables
+    assert "entity_merges" not in tables
+
+    ecols = {c["name"] for c in sa.inspect(engine).get_columns("entities")}
+    assert "source_chunk_ids" in ecols
+    assert "confidence" not in ecols
+    assert "extraction_model" not in ecols
+
+    rcols = {c["name"] for c in sa.inspect(engine).get_columns("relationships")}
+    assert "source_chunk_ids" in rcols
+
+    ccols = {c["name"] for c in sa.inspect(engine).get_columns("chunks")}
+    assert "extraction_hash" not in ccols
