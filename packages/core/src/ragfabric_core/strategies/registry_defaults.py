@@ -26,6 +26,7 @@ from ragfabric_core.stores.postgres_fts import PostgresLexicalStore
 from ragfabric_core.stores.registry import build_vector_store
 from ragfabric_core.strategies.agentic import AgenticRAGStrategy
 from ragfabric_core.strategies.base import StrategyRegistry
+from ragfabric_core.strategies.graph import GraphRAGStrategy
 from ragfabric_core.strategies.traditional import TraditionalRAGStrategy
 from ragfabric_core.strategies.vectorless import VectorlessRAGStrategy
 
@@ -56,6 +57,7 @@ def default_registry(
     registry.register(traditional)
     registry.register(vectorless)
     registry.register(_build_agentic(cfg, traditional, vectorless, session_factory, llm=llm))
+    registry.register(_build_graph(cfg, session_factory, llm=llm))
     return registry
 
 
@@ -101,6 +103,31 @@ def _build_agentic(
         max_latency_ms=settings.max_latency_ms,
         max_cost_usd=settings.max_cost_usd,
         assess_strictness=settings.assess_strictness,
+    )
+
+
+def _build_graph(
+    cfg: RagFabricConfig,
+    session_factory: Callable[[], Session],
+    *,
+    llm: LLMProvider | None,
+) -> GraphRAGStrategy:
+    """The graph strategy, built with its own constructor defaults.
+
+    ``max_hops`` and ``node_budget`` are left at the strategy's own defaults
+    (2 and ``traverse.DEFAULT_NODE_BUDGET``) rather than read from
+    ``cfg.strategies.graph`` here. Task 11 wires that configuration through;
+    reading it now would mean two places claim to set the same number before
+    either one is tested end to end.
+
+    The LLM is built unconditionally, the same reasoning as the agentic
+    strategy's: entity extraction cannot run without a model, and building a
+    provider makes no call, so a deployment that never asks for the graph
+    strategy pays nothing for it being registered.
+    """
+    return GraphRAGStrategy(
+        llm=llm if llm is not None else build_llm_provider(cfg.llm),
+        session_factory=session_factory,
     )
 
 
