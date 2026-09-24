@@ -27,7 +27,12 @@ from ragfabric_core.graph.contracts import (
     EntityType,
     RelationType,
 )
-from ragfabric_core.graph.traverse import match_entities, traverse
+from ragfabric_core.graph.traverse import (
+    MAX_HOPS_CEILING,
+    match_entities,
+    traverse,
+    visible_entity_chunks,
+)
 from ragfabric_core.models import Base
 from ragfabric_core.models.document import Chunk, Collection, Document
 from ragfabric_core.models.graph import Entity, EntitySource, Relationship, RelationshipSource
@@ -51,6 +56,9 @@ class Graph:
     secret_chunk: int
     secret_document: int
     secret_collection: int
+    open_collection: int
+    other_open_chunk: int
+    other_open_document: int
     ids: dict[str, int] = field(default_factory=dict)
 
     @property
@@ -63,13 +71,13 @@ class Graph:
         entity_type: EntityType = EntityType.PERSON,
         *,
         chunks: tuple[int, ...] | None = None,
-        aliases: list[str] | None = None,
+        aliases: object = None,
     ) -> int:
         row = Entity(
             name=name,
             normalized_name=name.casefold(),
             entity_type=entity_type.value,
-            aliases=aliases or [],
+            aliases=[] if aliases is None else aliases,
         )
         self.db.add(row)
         self.db.flush()
@@ -133,7 +141,10 @@ def graph(request, tmp_path):
             collection_id=secret_collection.id,
             status="ready",
         )
-        db.add_all([open_document, secret_document])
+        other_open_document = Document(
+            filename="other.txt", format="txt", collection_id=open_collection.id, status="ready"
+        )
+        db.add_all([open_document, secret_document, other_open_document])
         db.flush()
 
         def chunk(document, index):
@@ -155,6 +166,9 @@ def graph(request, tmp_path):
             secret_chunk=chunk(secret_document, 0),
             secret_document=secret_document.id,
             secret_collection=secret_collection.id,
+            open_collection=open_collection.id,
+            other_open_chunk=chunk(other_open_document, 0),
+            other_open_document=other_open_document.id,
         )
         yield seeded
     engine.dispose()
@@ -189,6 +203,20 @@ def test_a_denied_edge_does_not_carry_the_walk_further(graph):
 
     hidden = traverse(graph.db, [graph.ids["ada"]], graph.restricted, max_hops=3)
     assert graph.names(hidden) == {"ada"}
+
+
+def test_a_denied_edge_between_reached_nodes_is_not_reported(graph):
+    for name in ("ada", "grace", "linus"):
+        graph.entity(name)
+    graph.edge("ada", RelationType.REPORTS_TO, "grace")
+    graph.edge("ada", RelationType.REPORTS_TO, "linus")
+    denied = graph.edge("grace", RelationType.REPORTS_TO, "linus", chunks=(graph.secret_chunk,))
+
+    seen = traverse(graph.db, [graph.ids["ada"]], ALL, max_hops=2)
+    assert denied in {edge.id for edge in seen.edges}
+    hidden = traverse(graph.db, [graph.ids["ada"]], graph.restricted, max_hops=2)
+    assert graph.names(hidden) == {"ada", "grace", "linus"}
+    assert denied not in {edge.id for edge in hidden.edges}
 
 
 def test_a_denied_entity_does_not_match(graph):
@@ -246,7 +274,7 @@ def test_an_edge_carries_only_admitted_source_chunks(graph):
     assert restricted.edges[0].source_chunk_ids == sorted([graph.open_chunk, graph.open_chunk_2])
 
 
-def test_an_allow_list_filter_is_applied_in_the_walk(graph):
+def test_an_allow_list_filter_hides_a_seed_outside_it(graph):
     graph.entity("ada")
     graph.entity("grace")
     graph.entity("linus", chunks=(graph.secret_chunk,))
@@ -335,7 +363,7 @@ def test_a_cycle_terminates(graph):
     graph.edge("linus", RelationType.REPORTS_TO, "ada")
     graph.edge("ada", RelationType.RELATED_TO, "linus")
 
-    looped = traverse(graph.db, [graph.ids["ada"]], ALL, max_hops=50)
+    looped = traverse(graph.db, [graph.ids["ada"]], ALL, max_hops=MAX_HOPS_CEILING)
     assert graph.names(looped) == {"ada", "grace", "linus"}
     assert len(looped.edges) == 4
 
@@ -351,12 +379,94 @@ def test_the_hop_limit_is_respected(graph):
     assert graph.names(two) == {"a", "b", "c"}
     assert len(two.edges) == 2
 
-    zero = traverse(graph.db, [graph.ids["a"]], ALL, max_hops=0)
-    assert graph.names(zero) == {"a"}
-    assert zero.edges == []
+    one = traverse(graph.db, [graph.ids["a"]], ALL, max_hops=1)
+    assert graph.names(one) == {"a", "b"}
+    assert len(one.edges) == 1
 
+
+@pytest.mark.parametrize("hops", [0, -1, MAX_HOPS_CEILING + 1, 50])
+def test_max_hops_outside_one_to_the_ceiling_is_refused(graph, hops):
+    graph.entity("a")
     with pytest.raises(ValueError):
-        traverse(graph.db, [graph.ids["a"]], ALL, max_hops=-1)
+        traverse(graph.db, [graph.ids["a"]], ALL, max_hops=hops)
+
+
+def test_the_ceiling_is_four():
+    assert MAX_HOPS_CEILING == 4
+
+
+def test_an_edge_between_two_nodes_at_the_hop_limit_is_not_reported(graph):
+    for name in ("s", "x", "y"):
+        graph.entity(name)
+    graph.edge("s", RelationType.REPORTS_TO, "x")
+    graph.edge("s", RelationType.REPORTS_TO, "y")
+    graph.edge("x", RelationType.REPORTS_TO, "y")
+
+    # Both x and y are reached at depth 1; walking x -> y would be a second hop.
+    one = traverse(graph.db, [graph.ids["s"]], ALL, max_hops=1)
+    assert graph.names(one) == {"s", "x", "y"}
+    assert len(one.edges) == 2
+    assert len(traverse(graph.db, [graph.ids["s"]], ALL, max_hops=2).edges) == 3
+
+
+def _reach_both_ends_of(graph, relation):
+    """b is the seed, a is reached at depth 2 via a shared team, then a --relation--> b."""
+    graph.entity("a")
+    graph.entity("b")
+    graph.entity("t", EntityType.TEAM)
+    graph.edge("b", RelationType.MEMBER_OF, "t")
+    graph.edge("a", RelationType.MEMBER_OF, "t")
+    return graph.edge("a", relation, "b")
+
+
+def test_a_directed_edge_between_reached_nodes_is_never_reported_reversed(graph):
+    edge_id = _reach_both_ends_of(graph, RelationType.REPORTS_TO)
+
+    # a sits at the hop limit, so a -> b cannot be walked forwards, and
+    # REPORTS_TO cannot be walked backwards from b.
+    result = traverse(graph.db, [graph.ids["b"]], ALL, max_hops=2)
+    assert graph.names(result) == {"a", "b", "t"}
+    assert edge_id not in {edge.id for edge in result.edges}
+    assert not any(edge.reversed and edge.relation_type == "REPORTS_TO" for edge in result.edges)
+
+    # With a hop to spare the walk can use it forwards from a.
+    wider = traverse(graph.db, [graph.ids["b"]], ALL, max_hops=3)
+    [edge] = [edge for edge in wider.edges if edge.id == edge_id]
+    assert edge.reversed is False and edge.walked_as == "REPORTS_TO"
+
+
+def test_an_invertible_edge_is_reported_in_the_direction_the_walk_could_use(graph):
+    for name in ("s", "b", "a"):
+        graph.entity(name)
+    graph.edge("s", RelationType.REPORTS_TO, "b")
+    edge_id = graph.edge("a", RelationType.BELONGS_TO, "b")
+
+    # s (0) -> b (1) -> a (2) backwards: a is at the limit, so only the
+    # backwards reading from b was walkable, and it carries the inverse name.
+    at_limit = traverse(graph.db, [graph.ids["s"]], ALL, max_hops=2)
+    [edge] = [edge for edge in at_limit.edges if edge.id == edge_id]
+    assert edge.reversed is True and edge.walked_as == "CONTAINS"
+
+    # With a hop to spare it is walkable forwards from a too, and forwards wins.
+    wider = traverse(graph.db, [graph.ids["s"]], ALL, max_hops=3)
+    [edge] = [edge for edge in wider.edges if edge.id == edge_id]
+    assert edge.reversed is False and edge.walked_as == "BELONGS_TO"
+
+
+def test_a_hub_walk_stays_bounded(graph):
+    # 30 members of one hub, chained by a symmetric relation: many paths reach
+    # each node within four hops, but each node and each edge is reported once.
+    graph.entity("hub")
+    people = [f"p{i}" for i in range(30)]
+    for name in people:
+        graph.entity(name)
+        graph.edge(name, RelationType.MEMBER_OF, "hub")
+    for left, right in zip(people, people[1:], strict=False):
+        graph.edge(left, RelationType.RELATED_TO, right)
+
+    result = traverse(graph.db, [graph.ids["hub"]], ALL, max_hops=MAX_HOPS_CEILING)
+    assert len(result.nodes) == 31
+    assert len(result.edges) == 30 + 29
 
 
 def test_edges_report_names_types_and_confidence(graph):
@@ -408,3 +518,81 @@ def test_a_denied_entity_does_not_match_by_alias(graph):
     graph.entity("platform team", EntityType.TEAM, chunks=(graph.secret_chunk,), aliases=["PT"])
     assert match_entities(graph.db, [EntityMention(name="PT")], graph.restricted) == []
     assert len(match_entities(graph.db, [EntityMention(name="PT")], ALL)) == 1
+
+
+def test_a_malformed_aliases_value_on_another_entity_does_not_break_matching(graph):
+    graph.entity("platform team", EntityType.TEAM, aliases=["PT"])
+    graph.entity("broken object", EntityType.TEAM, aliases={"not": "a list"})
+    graph.entity("broken scalar", EntityType.TEAM, aliases="PT")
+    graph.entity("mixed", EntityType.TEAM, aliases=[7, None, "Mixed Up"])
+    graph.db.commit()
+
+    assert match_entities(graph.db, [EntityMention(name="pt")], ALL) == [graph.ids["platform team"]]
+    assert match_entities(graph.db, [EntityMention(name="mixed up")], ALL) == [graph.ids["mixed"]]
+
+
+# ---------------------------------------------------------------------------
+# Visible entity source chunks (for the strategy)
+# ---------------------------------------------------------------------------
+
+
+def test_visible_entity_chunks_excludes_denied_chunks(graph):
+    graph.entity("ada", chunks=(graph.open_chunk, graph.secret_chunk, graph.open_chunk_2))
+    graph.entity("grace", chunks=(graph.secret_chunk,))
+    graph.entity("linus")
+    ids = [graph.ids["ada"], graph.ids["grace"], graph.ids["linus"]]
+
+    assert visible_entity_chunks(graph.db, ids, ALL) == {
+        graph.ids["ada"]: sorted([graph.open_chunk, graph.secret_chunk, graph.open_chunk_2]),
+        graph.ids["grace"]: [graph.secret_chunk],
+        graph.ids["linus"]: [graph.open_chunk],
+    }
+    restricted = visible_entity_chunks(graph.db, ids, graph.restricted)
+    assert restricted == {
+        graph.ids["ada"]: sorted([graph.open_chunk, graph.open_chunk_2]),
+        graph.ids["linus"]: [graph.open_chunk],
+    }
+    assert graph.ids["grace"] not in restricted
+    assert visible_entity_chunks(graph.db, [], ALL) == {}
+
+
+# ---------------------------------------------------------------------------
+# Allow lists applied to the walk itself, not only to the seed
+# ---------------------------------------------------------------------------
+
+
+def test_a_collection_allow_list_blocks_an_edge_whose_only_chunk_is_outside_it(graph):
+    graph.entity("ada")
+    graph.entity("grace")
+    graph.entity("linus")
+    graph.edge("ada", RelationType.REPORTS_TO, "grace")
+    graph.edge("ada", RelationType.OWNS, "linus", chunks=(graph.secret_chunk,))
+
+    only_open = AccessFilter(collection_ids=frozenset({graph.open_collection}))
+    assert len(traverse(graph.db, [graph.ids["ada"]], ALL, max_hops=1).edges) == 2
+    result = traverse(graph.db, [graph.ids["ada"]], only_open, max_hops=2)
+    assert graph.names(result) == {"ada", "grace"}
+    [edge] = result.edges
+    assert edge.walked_as == "REPORTS_TO"
+
+
+def test_a_document_deny_inside_an_allowed_collection_is_applied_in_the_walk(graph):
+    graph.entity("ada")
+    graph.entity("grace")
+    graph.entity("linus")
+    graph.entity("hopper", chunks=(graph.other_open_chunk,))
+    graph.edge("ada", RelationType.REPORTS_TO, "grace")
+    # Walkable only through a chunk of the denied document.
+    graph.edge("ada", RelationType.OWNS, "linus", chunks=(graph.other_open_chunk,))
+    # Admitted edge, but it leads to a node only the denied document mentions.
+    graph.edge("ada", RelationType.WORKS_ON, "hopper")
+
+    access = AccessFilter(
+        collection_ids=frozenset({graph.open_collection}),
+        denied_document_ids=frozenset({graph.other_open_document}),
+    )
+    assert len(traverse(graph.db, [graph.ids["ada"]], ALL, max_hops=1).edges) == 3
+    result = traverse(graph.db, [graph.ids["ada"]], access, max_hops=2)
+    assert graph.names(result) == {"ada", "grace"}
+    assert [edge.walked_as for edge in result.edges] == ["REPORTS_TO"]
+    assert match_entities(graph.db, [EntityMention(name="hopper")], access) == []
