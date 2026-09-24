@@ -89,6 +89,10 @@ class Chunk(Base):
     embedding: Mapped[list] = mapped_column(JSON, nullable=False)
     # Nearest preceding heading detected before this chunk, if any.
     section: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Hash of the chunk text as of its last graph extraction, so Task 4 can
+    # skip re-extracting a chunk whose text has not changed since. Null until
+    # the chunk has been extracted at least once.
+    extraction_hash: Mapped[str | None] = mapped_column(String, nullable=True)
 
     document: Mapped["Document"] = relationship(back_populates="chunks")
 
