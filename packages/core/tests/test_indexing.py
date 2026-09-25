@@ -331,3 +331,101 @@ def test_reconcile_leaves_a_recently_stuck_document_alone(db_and_doc):
     with factory() as db:
         assert db.get(Document, doc_id).status == "indexing"
         assert db.query(ChunkEmbedding).filter(ChunkEmbedding.document_id == doc_id).count() == 0
+
+
+# --- R44: job order must not erase a graph failure ------------------------------------
+
+
+class _GraphLLM:
+    """An extraction model that either fails every call or returns one entity."""
+
+    name = "graph-double"
+    default_model = "graph-double-model"
+
+    def __init__(self, *, fail: bool) -> None:
+        self.fail = fail
+
+    def complete(self, messages, *, model=None, max_tokens=1024, temperature=0.0, json_schema=None):
+        from ragfabric_core.providers.base import Completion
+
+        if self.fail:
+            raise RuntimeError("model down")
+        payload = '{"entities": [{"name": "Leave", "entity_type": "concept", "confidence": 0.9}],'
+        payload += ' "relationships": []}'
+        return Completion(
+            text=payload,
+            model=model or self.default_model,
+            provider=self.name,
+            input_tokens=0,
+            output_tokens=0,
+            latency_ms=0,
+        )
+
+    def stream(self, *args, **kwargs):
+        raise AssertionError("extraction never streams")
+
+
+def _run(factory, llm: _GraphLLM, doc_id: int, *kinds: str) -> None:
+    queue = MemoryJobQueue()
+    for number, kind in enumerate(kinds):
+        queue.enqueue(Job(id=f"j{number}", kind=kind, payload={"document_id": doc_id}))
+    worker = Worker(
+        queue,
+        factory,
+        default_handlers(
+            embedding_provider=HashingEmbeddingProvider(dim=16),
+            vector_store=PgVectorStore(factory),
+            lexical_store=PostgresLexicalStore(factory),
+            graph_settings=GraphStoreConfig(enabled=True),
+            llm=llm,
+        ),
+    )
+    while worker.run_once(timeout_seconds=0):
+        pass
+
+
+def _state(factory, doc_id: int) -> tuple[str, str]:
+    with factory() as db:
+        document = db.get(Document, doc_id)
+        return document.status, document.error
+
+
+def test_a_graph_failure_after_indexing_marks_the_document_failed(db_and_doc):
+    factory, doc_id = db_and_doc
+    _run(factory, _GraphLLM(fail=True), doc_id, "index_document", "extract_graph")
+    assert _state(factory, doc_id) == ("failed", "extract_graph failed: model down")
+
+
+def test_indexing_after_a_graph_failure_does_not_erase_it(db_and_doc):
+    """Workers can run a document's two jobs in either order. index_document used to
+    set ready and clear the error unconditionally, so a graph failure recorded first
+    vanished and the document looked healthy with no graph."""
+    factory, doc_id = db_and_doc
+    _run(factory, _GraphLLM(fail=True), doc_id, "extract_graph", "index_document")
+    assert _state(factory, doc_id) == ("failed", "extract_graph failed: model down")
+
+
+def test_indexing_still_clears_its_own_earlier_failure(db_and_doc):
+    factory, doc_id = db_and_doc
+    with factory() as db:
+        document = db.get(Document, doc_id)
+        document.status, document.error = "failed", "index_document failed: store down"
+        db.commit()
+    _run(factory, _GraphLLM(fail=False), doc_id, "index_document")
+    assert _state(factory, doc_id) == ("ready", "")
+
+
+def test_a_later_graph_success_clears_its_own_failure(db_and_doc):
+    factory, doc_id = db_and_doc
+    _run(factory, _GraphLLM(fail=True), doc_id, "extract_graph", "index_document")
+    _run(factory, _GraphLLM(fail=False), doc_id, "extract_graph")
+    assert _state(factory, doc_id) == ("ready", "")
+
+
+def test_a_graph_success_before_indexing_clears_the_failure_but_not_to_ready(db_and_doc):
+    """Nothing has indexed the document yet, so clearing the graph failure must not
+    claim it is searchable; it goes back to waiting for its index job."""
+    factory, doc_id = db_and_doc
+    _run(factory, _GraphLLM(fail=True), doc_id, "extract_graph")
+    _run(factory, _GraphLLM(fail=False), doc_id, "extract_graph")
+    assert _state(factory, doc_id) == ("indexing", "")
