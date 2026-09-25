@@ -206,38 +206,7 @@ up short chooses a repair move and tries again, stopping honestly when it is not
   `ragfabric.example.yaml` advertised 12, and `max_cost_usd`, `max_latency_ms` and
   `assess_strictness` had no readers at all. All four now bind.
 
-### Fixed
-Found by the whole-branch review before merge, fixed before release.
-- **A merged entity's name could leak a denied chunk.** After a merge, `Entity.name` and
-  `Entity.aliases` can hold a spelling only a denied document uses, and the traversal returned the
-  stored name and matched on aliases, so a restricted caller saw the denied spelling and could probe
-  for it. `entity_sources.surface_name` (migration 0008, amended) records each chunk's own spelling;
-  a node is named by the caller's best admitted source and a question matches only admitted
-  spellings. (b82df5e)
-- **Edge confidence counted denied sources.** `GraphEdge.confidence` is now the max over the
-  caller's admitted sources, `None` when none measured one. (b82df5e)
-- **An identical re-ingest re-extracted every chunk**, because the replacement rows had no hash.
-  The graph is now carried across the replacement. (1e63d70)
-- **Confidence went stale after a delete.** Deleting a document or a collection, or a re-ingest
-  dropping a chunk, left parents with a confidence only the deleted chunk had reported, and entities
-  and edges with no source at all. They are now recomputed and collected before the delete.
-  (1e63d70)
-- **A graph failure could be erased by job order.** `index_document` reset status and error
-  unconditionally, hiding an earlier `extract_graph` failure; it now leaves that failure in place
-  and only `extract_graph` clears it. (b8b456c)
-- **The SQLite downgrade of 0008 deleted every relationship**, and the upgrade did the same to
-  existing rows: the global foreign-key listener made the batch rebuild's DROP TABLE cascade. The
-  migration environment now switches SQLite foreign keys off around the run and checks
-  `PRAGMA foreign_key_check` before switching them back on. (9415706)
-- `strategies.graph.node_budget` is bounded at 1000 (untuned), and a test pins
-  `ragfabric_core.__version__` to `packages/core/pyproject.toml`. (0902044)
-
 ### Notes
-- **Breaking: Neo4j is removed.** It is gone from Docker Compose, and `graph_store.kind: neo4j` is
-  rejected at configuration validation (see Changed).
-- **Breaking: the `GraphStore` protocol is removed** from `stores/base` (see Changed).
-- **Breaking: `strategies.graph.max_nodes` is replaced by `node_budget`**; a configuration still
-  naming `max_nodes` fails validation (see Changed).
 - **Retrieval quality is still not measured.** No accuracy, recall or latency figure exists for any
   strategy in this project. Phase 8 builds the evaluation framework; until then there is no number
   to quote for whether agentic retrieval is better than traditional or vectorless retrieval at
