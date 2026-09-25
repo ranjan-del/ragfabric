@@ -31,6 +31,7 @@ from ragfabric_core.graph.traverse import (
     MAX_HOPS_CEILING,
     has_visible_entities,
     match_entities,
+    source_chunk_access_stats,
     traverse,
     visible_entity_chunks,
 )
@@ -724,4 +725,19 @@ def test_collection_ids_never_widens_past_the_access_filter(graph):
             collection_ids=[graph.secret_collection],
         ).nodes
         == []
+    )
+
+
+def test_source_chunk_access_stats_counts_each_sourcing_chunk_once(graph):
+    graph.entity("ada", chunks=(graph.open_chunk, graph.secret_chunk))
+    graph.entity("engine", chunks=(graph.open_chunk,))
+    graph.edge("ada", RelationType.WORKS_ON, "engine", chunks=(graph.other_open_chunk,))
+    # open_chunk_2 sources nothing, so it is not a graph candidate.
+
+    assert source_chunk_access_stats(graph.db, ALL) == (3, 3)
+    assert source_chunk_access_stats(graph.db, graph.restricted) == (3, 2)
+    # The request scope narrows both numbers; the secret collection holds one.
+    assert source_chunk_access_stats(graph.db, graph.restricted, [graph.secret_collection]) == (
+        1,
+        0,
     )

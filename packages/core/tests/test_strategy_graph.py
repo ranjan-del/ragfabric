@@ -176,8 +176,17 @@ def test_chunks_come_from_nodes_and_edges_on_the_path(graph):
     # (depth 0) and engine (depth 1) must be reached before the edge between
     # them is usable, so its chunk carries depth 1, not 0.
     assert depths[graph.other_open_chunk] == 1
-    # Ordered by (graph_depth, chunk id).
-    assert [c.chunk_id for c in result.chunks] == sorted(depths, key=lambda cid: (depths[cid], cid))
+    # Ordered by graph_depth, then edge sources before node-only chunks (ruling
+    # R37), then chunk id.
+    edge_sources = {cid for edge in result.subgraph.edges for cid in edge.source_chunk_ids}
+    assert [c.chunk_id for c in result.chunks] == sorted(
+        depths, key=lambda cid: (depths[cid], cid not in edge_sources, cid)
+    )
+    assert [c.chunk_id for c in result.chunks] == [
+        graph.open_chunk,
+        graph.other_open_chunk,
+        graph.open_chunk_2,
+    ]
     assert all(c.score is None for c in result.chunks)
 
 
@@ -189,6 +198,25 @@ def test_chunks_are_capped_to_top_k(graph):
 
     result = strategy(graph, llm, max_hops=2).retrieve("what does ada work on", ctx(top_k=1))
     assert len(result.chunks) == 1
+
+
+def test_the_top_k_cap_keeps_an_edges_source_before_a_node_only_chunk_at_the_same_depth(graph):
+    """Ruling R37: a cited edge's backing chunk is not the first thing the cap cuts.
+
+    ``engine``'s own chunk and the chunk behind ``ada --WORKS_ON--> engine``
+    both sit at depth 1, and the node's chunk has the lower id. Ordered by id
+    alone, a cap of two keeps the node's chunk and cuts the only passage a
+    claim about the edge could cite.
+    """
+    graph.entity("ada", chunks=(graph.open_chunk,))
+    graph.entity("engine", chunks=(graph.open_chunk_2,))
+    graph.edge("ada", RelationType.WORKS_ON, "engine", chunks=(graph.other_open_chunk,))
+    assert graph.open_chunk_2 < graph.other_open_chunk  # the order that exposes the cut
+    llm = ScriptedLLMProvider([question_response([{"name": "ada", "entity_type": "person"}])])
+
+    result = strategy(graph, llm, max_hops=2).retrieve("what does ada work on", ctx(top_k=2))
+
+    assert [c.chunk_id for c in result.chunks] == [graph.open_chunk, graph.other_open_chunk]
 
 
 # ---------------------------------------------------------------------------

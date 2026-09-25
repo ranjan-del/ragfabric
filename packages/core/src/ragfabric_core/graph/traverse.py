@@ -9,6 +9,9 @@ Three functions, used in order by the graph strategy:
 - ``visible_entity_chunks`` gives the admitted source chunks of entities, so
   the strategy never writes its own access join.
 
+``source_chunk_access_stats`` counts the chunks that source the graph before
+and after the access filter, for the audit row, with the same predicate.
+
 **Access (ADR 0003, ruling R10).** A node is visible iff at least one
 ``entity_sources`` row points at a chunk the ``AccessFilter`` admits. An edge
 is walkable iff at least one ``relationship_sources`` chunk is admitted and the
@@ -176,6 +179,42 @@ def has_visible_entities(
     if clause is not None:
         query = query.where(clause)
     return bool(db.execute(select(query.exists())).scalar())
+
+
+def source_chunk_access_stats(
+    db: Session, access: AccessFilter, collection_ids: Collection[int] | None = None
+) -> tuple[int, int]:
+    """How many chunks source the graph, before and after ``access`` admits them.
+
+    The graph's candidate universe is every chunk that sources an entity or a
+    relationship, counted once however many rows point at it. ``before`` is
+    that count within the request scope ``collection_ids`` (a scope, not a
+    permission, so it narrows both numbers); ``after`` is the part of it the
+    access predicate admits. It is the graph strategy's measurement for the
+    audit row's ``sources_filtered``, taken with the same ``access_clause`` the
+    walk uses, so the two can never disagree about what is admitted.
+    """
+    sourced = (
+        select(EntitySource.chunk_id.label("chunk_id"))
+        .union(select(RelationshipSource.chunk_id.label("chunk_id")))
+        .subquery()
+    )
+    chunk = aliased(Chunk)
+    base = select(chunk.id, chunk.document_id, chunk.collection_id).join(
+        sourced, sourced.c.chunk_id == chunk.id
+    )
+    if collection_ids:
+        base = base.where(chunk.collection_id.in_(sorted(collection_ids)))
+    candidates = base.subquery()
+    clause = access_clause(access, candidates.c.document_id, candidates.c.collection_id)
+    if clause is None:
+        total = int(db.execute(select(func.count()).select_from(candidates)).scalar() or 0)
+        return total, total
+    admitted = case((clause, 1), else_=0)
+    before, after = db.execute(
+        select(func.count(), func.coalesce(func.sum(admitted), 0)).select_from(candidates)
+    ).one()
+    return int(before), int(after)
 
 
 def match_entities(

@@ -15,6 +15,18 @@ answer that disagrees with what the user watched stream would be worse than
 failing or announcing. ``docs/traditional-rag.md`` documents this event and
 the SDK (``ragfabric_sdk``) handles it.
 
+**The graph strategy on the stream** follows the agent's pattern. The walked
+sub-graph is known the moment retrieval finishes, so it travels on the
+``retrieval`` event as ``subgraph`` (null for every other strategy), the way
+the agent's ``sub_questions`` do. The answer streams from the graph prompt
+(passages plus the numbered relationships) and is then checked claim by claim
+by ``apply_graph_contract``, never regenerated. When that check removes
+anything, ``superseded`` carries the repaired text together with
+``dropped_claims`` (Phase 3 drops) and ``dropped_relationship_claims`` (graph
+contract drops, each with its reason), because the drops are only known once
+the last token is in and they are the explanation of the repair. No
+``superseded`` event means nothing was dropped.
+
 The run row is written after the stream finishes, never before: latency,
 token counts and the citation list are only final once the last token has
 been accounted for, and a row written early would leave ``/api/runs/{id}``
@@ -44,9 +56,12 @@ from ragfabric_core.auth.principal import AccessFilter, Principal
 from ragfabric_core.db.session import SessionLocal
 from ragfabric_core.generate.answer import build_answer
 from ragfabric_core.generate.cited import (
+    GRAPH_SYSTEM_PROMPT,
     NO_EVIDENCE_ANSWER,
     SYSTEM_PROMPT,
     apply_agentic_contract,
+    apply_graph_contract,
+    build_graph_prompt,
     build_prompt,
     generate_cited_answer,
     sub_question_evidence_from,
@@ -59,6 +74,7 @@ from ragfabric_core.providers.base import LLMProvider, Message
 from ragfabric_core.strategies.base import (
     RetrievalContext,
     RetrievedChunk,
+    StrategyName,
     StrategyParams,
     StrategyRegistry,
     TraceSpan,
@@ -70,6 +86,7 @@ from ragfabric_server.api.routes.search import (
     _chunk_to_row,
     _cited_llm_calls,
     _generate,
+    _refuse_unapplied_filters,
     _strategy_for,
     _usage,
 )
@@ -241,6 +258,7 @@ def ask(
     # per-request strategy around the shared store/embedder rather than
     # mutating the shared one when a reranker override is present (the
     # rerank override applies to the traditional strategy only).
+    _refuse_unapplied_filters(payload.strategy, payload.document_id, payload.format)
     strategy = _strategy_for(payload.rerank, registry, llm, payload.strategy)
 
     if not payload.stream:
@@ -302,6 +320,10 @@ def ask(
                 # can say which part of the question is already answered while
                 # the tokens are still arriving.
                 "sub_questions": [report.model_dump() for report in result.sub_questions],
+                # Only the graph strategy walks one; null for everything else.
+                "subgraph": result.subgraph.model_dump(mode="json")
+                if result.subgraph is not None
+                else None,
             },
         )
 
@@ -315,6 +337,41 @@ def ask(
             yield _event("token", {"text": text})
             llm_calls = result.llm_calls
             in_tokens = out_tokens = 0
+        elif result.strategy == StrategyName.GRAPH:
+            pieces = []
+            for delta in llm.stream(
+                [
+                    Message(role="system", content=GRAPH_SYSTEM_PROMPT),
+                    Message(
+                        role="user",
+                        content=build_graph_prompt(payload.query, result.chunks, result.subgraph),
+                    ),
+                ],
+                max_tokens=800,
+            ):
+                pieces.append(delta)
+                yield _event("token", {"text": delta})
+            streamed = "".join(pieces)
+            # The stream protocol yields no usage, so zero tokens is the
+            # honest count here, the same as the other streamed branches.
+            in_tokens = out_tokens = 0
+            # Exactly one call, whatever the contract then removes: the graph
+            # answer is edited claim by claim, never regenerated.
+            llm_calls = result.llm_calls + 1
+            checked = apply_graph_contract(streamed, result.chunks, result.subgraph)
+            text = checked.text
+            if text.strip() != streamed.strip():
+                yield _event(
+                    "superseded",
+                    {
+                        "text": text,
+                        "reason": "unsupported claims removed",
+                        "dropped_claims": [c.model_dump() for c in checked.dropped_claims],
+                        "dropped_relationship_claims": [
+                            c.model_dump() for c in checked.dropped_relationship_claims
+                        ],
+                    },
+                )
         else:
             pieces: list[str] = []
             for delta in llm.stream(

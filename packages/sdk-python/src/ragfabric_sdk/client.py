@@ -72,8 +72,9 @@ class Client:
 
         ``strategy`` names the retrieval strategy: ``"traditional"`` (embed the
         question, search the vector index), ``"vectorless"`` (BM25 fused with
-        ts_rank_cd, no embedding call at all) or ``"agentic"`` (decompose the
-        question, retrieve per part, repair or abandon the parts that fail).
+        ts_rank_cd, no embedding call at all), ``"agentic"`` (decompose the
+        question, retrieve per part, repair or abandon the parts that fail) or
+        ``"graph"`` (see below).
         It is spelled out as a named parameter rather than left to ``**params``
         because it changes what the server does, and a caller should be able to
         find it in the signature. The server rejects any other name with a 422.
@@ -81,8 +82,16 @@ class Client:
         With ``"agentic"``, the answer also carries ``sub_questions`` (what was
         and was not answered, and why), ``dropped_claims`` (claims the citation
         contract refused, removed rather than retried), ``dated_sources`` and
-        the agent's ``trace``. Every one of them is empty for the other two
+        the agent's ``trace``. Every one of them is empty for the other
         strategies, which have no parts to report.
+
+        With ``"graph"`` (walk the knowledge graph from the entities the
+        question names), the answer carries ``subgraph`` (the nodes and edges
+        walked, whether the walk was truncated, and why it was empty if it
+        was) and ``dropped_relationship_claims`` (relationship claims the graph
+        citation contract removed, each with its reason). ``subgraph`` is None
+        for every other strategy. A graph request with ``document_id`` or
+        ``format`` is refused with a 422, since the walk cannot apply them.
         """
         res = self._http.post(
             "/api/ask",
@@ -146,7 +155,7 @@ class Client:
         ``mode="hybrid"`` fuses one vector ranking with one lexical ranking, so
         the server refuses any strategy that does not provide that pair with a
         422; use the default ``mode="semantic"`` to search with
-        ``strategy="vectorless"`` or ``strategy="agentic"``.
+        ``strategy="vectorless"``, ``strategy="agentic"`` or ``strategy="graph"``.
         """
         path = "/api/search/hybrid" if mode == "hybrid" else "/api/search/semantic"
         res = self._http.post(

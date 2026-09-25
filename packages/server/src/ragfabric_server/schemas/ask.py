@@ -19,9 +19,9 @@ class AskRequest(BaseModel):
     collection_id: int | None = None
     document_id: int | None = None
     format: str | None = Field(default=None, pattern="^(pdf|docx|pptx|txt|csv|md)$")
-    # Widened in Phase 4 as the vectorless strategy actually shipped, and again
-    # in Phase 5 for the agent. The pattern is still a closed set rather than a
+    # Widened in Phase 4 as the vectorless strategy actually shipped, in Phase
+    # 5 for the agent, and in Phase 6 for the graph. The pattern is still a closed set rather than a
     # free string: a name the server cannot serve must be a 422 from
     # validation, not a KeyError out of the registry surfacing as a 500.
-    strategy: str = Field(default="traditional", pattern="^(traditional|vectorless|agentic)$")
+    strategy: str = Field(default="traditional", pattern="^(traditional|vectorless|agentic|graph)$")
     stream: bool = True

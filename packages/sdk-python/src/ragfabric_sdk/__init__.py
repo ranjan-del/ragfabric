@@ -13,12 +13,15 @@ from ragfabric_sdk.models import (
     AskEvent,
     Citation,
     Document,
+    GraphEdge,
+    GraphNode,
     Highlight,
     Run,
     SearchResult,
     Source,
     SourceDocument,
     Span,
+    Subgraph,
 )
 
 __all__ = [
@@ -31,10 +34,13 @@ __all__ = [
     "AskEvent",
     "Citation",
     "Document",
+    "GraphEdge",
+    "GraphNode",
     "Highlight",
     "Run",
     "SearchResult",
     "Source",
     "SourceDocument",
     "Span",
+    "Subgraph",
 ]

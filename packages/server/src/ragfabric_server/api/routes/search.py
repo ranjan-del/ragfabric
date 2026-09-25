@@ -33,6 +33,7 @@ from ragfabric_core.generate.cited import (
     DroppedClaim,
     generate_agentic_answer,
     generate_cited_answer,
+    generate_graph_answer,
     sub_question_evidence_from,
 )
 from ragfabric_core.models.access import AuditLog
@@ -185,6 +186,11 @@ def _countable_store(strategy: RetrieverStrategy):
     the first search tool the agent was built with and is a measurement on that
     index. Summing them would look more thorough and be less true (ADR 0004).
     """
+    if callable(getattr(strategy, "access_stats", None)):
+        # The graph strategy searches no index: its candidates are the chunks
+        # that source the graph, and it counts them itself with the walk's own
+        # access predicate (graph.traverse.source_chunk_access_stats).
+        return strategy
     for attribute in ("store", "bm25_store"):
         store = getattr(strategy, attribute, None)
         if store is not None and hasattr(store, "access_stats"):
@@ -216,6 +222,33 @@ class Generated(BaseModel):
     llm_calls: int = 0
     dropped_claims: list[DroppedClaim] = Field(default_factory=list)
     dated_sources: list[DatedSubQuestion] = Field(default_factory=list)
+    # Graph path only: claims the graph citation contract refused.
+    dropped_relationship_claims: list[DroppedClaim] = Field(default_factory=list)
+
+
+def _refuse_unapplied_filters(strategy: str, document_id: int | None, fmt: str | None) -> None:
+    """Refuse a filter the named strategy would silently ignore.
+
+    The graph walk applies the caller's access filter and the request's
+    collection scope inside its queries (ADR 0003, ruling R25), but it has no
+    document or format predicate. Serving a graph request with either set
+    would return entities and chunks from documents the caller asked to leave
+    out, so it is a 422, the same way ``/hybrid`` refuses a strategy it cannot
+    serve honestly.
+    """
+    if strategy != StrategyName.GRAPH:
+        return
+    named = [
+        name for name, value in (("document_id", document_id), ("format", fmt)) if value is not None
+    ]
+    if named:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"the graph strategy cannot apply {' or '.join(named)}: its walk is scoped by "
+                f"access and collection_id only; drop the filter or use another strategy"
+            ),
+        )
 
 
 def _generate(query: str, result, llm: LLMProvider) -> Generated:
@@ -227,6 +260,21 @@ def _generate(query: str, result, llm: LLMProvider) -> Generated:
     nothing to regenerate for, because a claim the evidence does not support is
     the model saying more than it was given.
     """
+    if result.strategy == StrategyName.GRAPH:
+        # Generated against the chunks and the walked sub-graph together, and
+        # checked claim by claim: a relationship claim must cite a traversed
+        # edge and a passage that backs it (graph citation contract, rulings
+        # R32 and R33), a chunk claim the Phase 3 contract. One call, no retry.
+        graph = generate_graph_answer(query, result.chunks, result.subgraph, llm)
+        return Generated(
+            text=graph.text,
+            input_tokens=graph.input_tokens,
+            output_tokens=graph.output_tokens,
+            # Exactly one call, or none at all when there were no chunks.
+            llm_calls=1 if graph.generator == "llm" else 0,
+            dropped_claims=graph.dropped_claims,
+            dropped_relationship_claims=graph.dropped_relationship_claims,
+        )
     if result.sub_questions:
         agentic = generate_agentic_answer(
             query,
@@ -253,8 +301,16 @@ def _generate(query: str, result, llm: LLMProvider) -> Generated:
 
 
 def _agent_fields(result, generated: Generated | None = None) -> dict:
-    """The response fields only an agent fills in, empty for everything else."""
+    """The response fields only the agent or the graph fills in, empty for everything else."""
     return {
+        "subgraph": result.subgraph.model_dump(mode="json")
+        if result.subgraph is not None
+        else None,
+        "dropped_relationship_claims": [
+            claim.model_dump() for claim in generated.dropped_relationship_claims
+        ]
+        if generated is not None
+        else [],
         "sub_questions": [report.model_dump() for report in result.sub_questions],
         "dropped_claims": [claim.model_dump() for claim in generated.dropped_claims]
         if generated is not None
@@ -363,6 +419,7 @@ def query(
     embedding_model: str = Depends(get_embedding_model),
 ) -> AnswerResponse:
     """Ask a question and get a cited, grounded answer."""
+    _refuse_unapplied_filters(payload.strategy, payload.document_id, payload.format)
     started = time.perf_counter()
     strategy = _strategy_for(payload.rerank, registry, llm, payload.strategy)
     with start_trace() as tracing:
@@ -468,6 +525,7 @@ def semantic_search(
 ) -> SearchResults:
     """Return the most semantically similar chunks for a query."""
     payload.mode = "semantic"
+    _refuse_unapplied_filters(payload.strategy, payload.document_id, payload.format)
     strategy = _strategy_for(payload.rerank, registry, llm, payload.strategy)
     before, after = _access_stats(
         strategy,

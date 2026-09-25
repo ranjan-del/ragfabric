@@ -33,6 +33,7 @@ class Strategy(StrEnum):
     traditional = "traditional"
     vectorless = "vectorless"
     agentic = "agentic"
+    graph = "graph"
 
 
 def ask(
@@ -55,7 +56,9 @@ def ask(
             "vector index; vectorless ranks with BM25 fused with ts_rank_cd and "
             "never calls an embedding model; agentic splits the question into "
             "parts, retrieves per part, and repairs or abandons the parts it "
-            "cannot answer, reporting which those were."
+            "cannot answer, reporting which those were; graph walks the knowledge "
+            "graph from the entities the question names and prints the relationships "
+            "it walked and any relationship claims the citation contract dropped."
         ),
     ),
     no_stream: bool = typer.Option(
@@ -102,13 +105,21 @@ def ask(
                 typer.echo(answer.answer)
                 typer.echo("")
                 _print_sources([citation.model_dump() for citation in answer.citations])
+                _print_graph(
+                    answer.subgraph.model_dump() if answer.subgraph is not None else None,
+                    [claim.model_dump() for claim in answer.dropped_relationship_claims],
+                )
             return
 
         citations: list[dict] = []
+        subgraph: dict | None = None
+        dropped_relationship_claims: list[dict] = []
         run_id = None
         latency_ms = None
         for event in client.ask_stream(question, **params):
-            if event.event == "token":
+            if event.event == "retrieval":
+                subgraph = event.data.get("subgraph")
+            elif event.event == "token":
                 typer.echo(event.data.get("text", ""), nl=False)
             elif event.event == "superseded":
                 # The caller already saw the rejected tokens printed above,
@@ -124,6 +135,7 @@ def ask(
                 )
                 typer.echo("\n")
                 typer.echo(event.data.get("text", ""), nl=False)
+                dropped_relationship_claims = event.data.get("dropped_relationship_claims", [])
             elif event.event == "citations":
                 citations = event.data.get("citations", [])
             elif event.event == "done":
@@ -131,6 +143,7 @@ def ask(
                 latency_ms = event.data.get("latency_ms")
         typer.echo("")
         _print_sources(citations)
+        _print_graph(subgraph, dropped_relationship_claims)
         if run_id is not None:
             typer.echo(f"run {run_id} in {latency_ms}ms")
     except RagFabricError as exc:
@@ -152,3 +165,33 @@ def _print_sources(citations: list[dict]) -> None:
         name = citation.get("filename") or f"document {citation.get('document_id')}"
         page = f" p{citation['page']}" if citation.get("page") else ""
         typer.echo(f"  {citation['marker']} {name}{page}")
+
+
+def _print_graph(subgraph: dict | None, dropped: list[dict]) -> None:
+    """The relationships the graph strategy walked, and the claims about them it dropped.
+
+    Printed as ``name RELATION name`` in the direction walked, the same reading
+    the answer's ``[E k]`` markers were numbered against. Nothing is printed
+    for a strategy that walks no graph.
+    """
+    if subgraph is not None:
+        names = {node["id"]: node["name"] for node in subgraph.get("nodes", [])}
+        edges = subgraph.get("edges", [])
+        if edges:
+            typer.echo("graph:")
+            for number, edge in enumerate(edges, start=1):
+                start, end = edge["source_id"], edge["target_id"]
+                if edge.get("reversed"):
+                    start, end = end, start
+                typer.echo(
+                    f"  [E {number}] {names.get(start, start)} {edge['walked_as']} "
+                    f"{names.get(end, end)}"
+                )
+        elif subgraph.get("empty_reason"):
+            typer.echo(f"graph: nothing walked ({subgraph['empty_reason']})")
+        if subgraph.get("truncated"):
+            typer.echo("graph: the walk was cut by the node budget")
+    if dropped:
+        typer.echo("dropped relationship claims:")
+        for claim in dropped:
+            typer.echo(f"  {claim['reason']}: {claim['text']}")
