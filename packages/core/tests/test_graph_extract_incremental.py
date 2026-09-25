@@ -256,33 +256,260 @@ def test_re_extraction_removes_the_edges_the_old_text_produced(db):
 
 
 def test_a_contract_violation_on_re_extraction_leaves_the_old_graph_intact(db):
-    """Atomicity: cleanup and re-extraction succeed or fail together.
+    """Atomicity: link removal and re-extraction succeed or fail together.
 
-    If the cleanup ran and then the new extraction hit a contract violation,
-    a non-atomic implementation would have deleted the chunk's real old
-    contributions for nothing. The nested transaction rolls the cleanup back
-    too, and the hash is left unset so the chunk is retried next time.
+    Two chunks share an entity and an edge. If chunk one's link removal ran
+    and the new extraction then hit a contract violation, a non-atomic
+    implementation would have deleted chunk one's real old contributions for
+    nothing, even though the shared edge still has chunk two behind it. The
+    nested transaction rolls the link removal back too, and the hash is left
+    unset so the chunk is retried next time.
     """
-    chunk = _make_chunk(db, text="Ada Lovelace is a mathematician.")
-    payload = {
+    chunk_one = _make_chunk(db, text="Ada Lovelace works on the Analytical Engine.")
+    chunk_two = _make_chunk(db, text="Ada Lovelace also works on the Analytical Engine.")
+    payload_one = {
+        "entities": [
+            {"name": "Ada Lovelace", "entity_type": "person", "confidence": 0.9},
+            {"name": "Analytical Engine", "entity_type": "product", "confidence": 0.9},
+        ],
+        "relationships": [
+            {
+                "source": "Ada Lovelace",
+                "target": "Analytical Engine",
+                "relation_type": "WORKS_ON",
+                "confidence": 0.9,
+            }
+        ],
+    }
+    payload_two = {
+        "entities": [
+            {"name": "Ada Lovelace", "entity_type": "person", "confidence": 0.6},
+            {"name": "Analytical Engine", "entity_type": "product", "confidence": 0.6},
+        ],
+        "relationships": [
+            {
+                "source": "Ada Lovelace",
+                "target": "Analytical Engine",
+                "relation_type": "WORKS_ON",
+                "confidence": 0.6,
+            }
+        ],
+    }
+    extract_chunk(db, chunk_one, _provider(payload_one), floor=FLOOR, model="model-a")
+    extract_chunk(db, chunk_two, _provider(payload_two), floor=FLOOR, model="model-b")
+    old_hash = chunk_one.extraction_hash
+
+    ada = db.execute(select(Entity).where(Entity.normalized_name == "ada lovelace")).scalar_one()
+    ada_id = ada.id
+    edge = db.execute(select(Relationship)).scalar_one()
+    edge_id = edge.id
+    assert ada.confidence == 0.9
+    assert edge.confidence == 0.9
+    assert edge.extraction_model == "model-a"
+
+    chunk_one.text = "Something entirely different now."
+    violating_provider = ScriptedLLMProvider(
+        responses=["not a json object at all"], model="model-c"
+    )
+    report = extract_chunk(db, chunk_one, violating_provider, floor=FLOOR, model="model-c")
+
+    assert report.contract_violation is True
+    assert chunk_one.extraction_hash == old_hash
+
+    db.refresh(ada)
+    db.refresh(edge)
+    assert db.get(Entity, ada_id) is not None
+    assert ada.confidence == 0.9
+    assert db.get(EntitySource, (ada_id, chunk_one.id)) is not None
+
+    # The shared edge, its link to chunk two, and its aggregate confidence
+    # and model all survive the violating re-extraction of chunk one too.
+    assert db.get(Relationship, edge_id) is not None
+    assert edge.confidence == 0.9
+    assert edge.extraction_model == "model-a"
+    assert db.get(RelationshipSource, (edge_id, chunk_one.id)) is not None
+    link_two = db.get(RelationshipSource, (edge_id, chunk_two.id))
+    assert link_two is not None
+    assert link_two.confidence == 0.6
+
+
+def test_a_re_reported_entity_keeps_its_id_and_aliases_across_re_extraction(db):
+    """R23: link removal, not deletion, comes first, so identity survives.
+
+    An entity sourced only by the chunk being re-extracted must not be
+    deleted and recreated under a new id when the new text still reports it:
+    that would silently drop any alias set on it and, once merge history
+    exists, the merge rows an ``ON DELETE CASCADE`` from
+    ``entity_merges.surviving_entity_id`` would take down with it. Removing
+    the chunk's link first, then letting re-extraction's ordinary upsert
+    find the still-existing row by its (normalised name, type) key, is what
+    keeps the id (and anything hung off it) stable.
+    """
+    chunk = _make_chunk(db, text="Ada Lovelace works on the Analytical Engine.")
+    payload_one = {
         "entities": [{"name": "Ada Lovelace", "entity_type": "person", "confidence": 0.9}],
         "relationships": [],
     }
-    extract_chunk(db, chunk, _provider(payload), floor=FLOOR, model="model-a")
-    old_hash = chunk.extraction_hash
+    extract_chunk(db, chunk, _provider(payload_one), floor=FLOOR, model="model-a")
+
     ada = db.execute(select(Entity).where(Entity.normalized_name == "ada lovelace")).scalar_one()
     ada_id = ada.id
+    ada.aliases = ["Countess of Lovelace"]
+    db.flush()
 
-    chunk.text = "Something entirely different now."
-    violating_provider = ScriptedLLMProvider(
-        responses=["not a json object at all"], model="model-b"
+    chunk.text = "Ada Lovelace, also known as the Countess of Lovelace, designed algorithms."
+    payload_two = {
+        "entities": [{"name": "Ada Lovelace", "entity_type": "person", "confidence": 0.7}],
+        "relationships": [],
+    }
+    report = extract_chunk(db, chunk, _provider(payload_two), floor=FLOOR, model="model-b")
+
+    assert report.chunks_skipped == 0
+    ada_after = db.execute(
+        select(Entity).where(Entity.normalized_name == "ada lovelace")
+    ).scalar_one()
+    assert ada_after.id == ada_id
+    assert ada_after.aliases == ["Countess of Lovelace"]
+    assert ada_after.confidence == 0.7
+    assert ada_after.extraction_model == "model-b"
+
+
+def test_re_extraction_does_not_crash_when_an_edges_other_source_outlives_its_endpoint(db):
+    """Regression for the stale-cascade crash: ORM-delete the edge before its endpoint.
+
+    Chunk one and chunk two both sourced an edge (Ada WORKS_ON Engine), but
+    only chunk one ever sourced the "Engine" endpoint. (Built directly here:
+    the extraction contract cannot produce this asymmetry from a single
+    extraction call, since a chunk that reports an edge must also report
+    both its endpoints in that same response; this is the shape a graph is
+    left in after enough independent extractions and re-extractions.)
+    Re-extracting chunk one with text that no longer mentions Engine at all
+    must not raise ``StaleDataError``: the edge has to be deleted through the
+    ORM, explicitly, before its now-orphaned endpoint is, even though the
+    edge still has a source of its own on chunk two.
+    """
+    chunk_one = _make_chunk(db, text="Ada Lovelace works on the Analytical Engine.")
+    chunk_two = _make_chunk(db, text="Ada Lovelace works on something else too.")
+
+    ada = Entity(
+        name="Ada Lovelace",
+        normalized_name="ada lovelace",
+        entity_type="person",
+        confidence=0.9,
+        extraction_model="model-a",
     )
-    report = extract_chunk(db, chunk, violating_provider, floor=FLOOR, model="model-b")
+    engine = Entity(
+        name="Analytical Engine",
+        normalized_name="analytical engine",
+        entity_type="product",
+        confidence=0.9,
+        extraction_model="model-a",
+    )
+    db.add_all([ada, engine])
+    db.flush()
 
-    assert report.contract_violation is True
-    assert chunk.extraction_hash == old_hash
+    edge = Relationship(
+        source_entity_id=ada.id,
+        target_entity_id=engine.id,
+        relation_type="WORKS_ON",
+        confidence=0.9,
+        extraction_model="model-a",
+    )
+    db.add(edge)
+    db.flush()
 
+    db.add_all(
+        [
+            EntitySource(
+                entity_id=ada.id, chunk_id=chunk_one.id, confidence=0.9, extraction_model="model-a"
+            ),
+            EntitySource(
+                entity_id=ada.id, chunk_id=chunk_two.id, confidence=0.7, extraction_model="model-b"
+            ),
+            EntitySource(
+                entity_id=engine.id,
+                chunk_id=chunk_one.id,
+                confidence=0.9,
+                extraction_model="model-a",
+            ),
+            RelationshipSource(
+                relationship_id=edge.id,
+                chunk_id=chunk_one.id,
+                confidence=0.9,
+                extraction_model="model-a",
+            ),
+            RelationshipSource(
+                relationship_id=edge.id,
+                chunk_id=chunk_two.id,
+                confidence=0.7,
+                extraction_model="model-b",
+            ),
+        ]
+    )
+    chunk_one.extraction_hash = "fake-old-hash"
+    db.flush()
+    edge_id = edge.id
+    engine_id = engine.id
+
+    payload = {
+        "entities": [{"name": "Bread Recipe", "entity_type": "document", "confidence": 0.9}],
+        "relationships": [],
+    }
+    report = extract_chunk(db, chunk_one, _provider(payload), floor=FLOOR, model="model-c")
+
+    assert report.contract_violation is False
+    assert db.get(Entity, engine_id) is None
+    assert db.get(Relationship, edge_id) is None
     db.refresh(ada)
-    assert db.get(Entity, ada_id) is not None
-    assert ada.confidence == 0.9
-    assert db.get(EntitySource, (ada_id, chunk.id)) is not None
+    assert ada.confidence == 0.7
+    assert ada.extraction_model == "model-b"
+
+
+def test_a_survivor_whose_remaining_sources_are_all_unmeasured_has_no_confidence(db):
+    """A recomputed confidence is never fabricated (ADR 0004): all-``None`` sources stay ``None``.
+
+    Set up directly: an entity with two sources, neither carrying a measured
+    confidence (as a merge, rather than an extraction call, can leave
+    behind). Re-extracting the chunk that supplies one of them, with new
+    text that drops the entity, must leave the entity's confidence and
+    extraction_model at ``None`` rather than inventing a number from a source
+    that never measured one.
+    """
+    chunk_one = _make_chunk(db, text="Ada Lovelace works on the Analytical Engine.")
+    chunk_two = _make_chunk(db, text="Ada Lovelace works on something else too.")
+
+    ada = Entity(
+        name="Ada Lovelace",
+        normalized_name="ada lovelace",
+        entity_type="person",
+        confidence=None,
+        extraction_model=None,
+    )
+    db.add(ada)
+    db.flush()
+
+    db.add_all(
+        [
+            EntitySource(
+                entity_id=ada.id, chunk_id=chunk_one.id, confidence=None, extraction_model=None
+            ),
+            EntitySource(
+                entity_id=ada.id, chunk_id=chunk_two.id, confidence=None, extraction_model=None
+            ),
+        ]
+    )
+    chunk_one.extraction_hash = "fake-old-hash"
+    db.flush()
+    ada_id = ada.id
+
+    payload = {
+        "entities": [{"name": "Bread Recipe", "entity_type": "document", "confidence": 0.9}],
+        "relationships": [],
+    }
+    report = extract_chunk(db, chunk_one, _provider(payload), floor=FLOOR, model="model-b")
+
+    assert report.contract_violation is False
+    ada_after = db.get(Entity, ada_id)
+    assert ada_after is not None
+    assert ada_after.confidence is None
+    assert ada_after.extraction_model is None
