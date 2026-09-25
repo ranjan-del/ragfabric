@@ -314,3 +314,67 @@ def test_a_trailing_edge_marker_stays_with_its_claim() -> None:
     text = "The Platform Team is a member of Engineering. [E 1] [1]"
 
     assert checked(text).text == text
+
+
+# ---------------------------------------------------------------------------
+# Ruling R33: coverage, distinct name counting, marker-only fragments.
+# ---------------------------------------------------------------------------
+
+
+def test_a_named_entity_no_cited_edge_touches_is_dropped() -> None:
+    """E2 is real and backed, but nothing cited touches the Platform Team.
+
+    Without the coverage rule this sentence would fabricate exactly the
+    relationship the brief uses as its example, riding on a real edge.
+    """
+    result = checked("The Platform Team and Engineering both report to the CTO [E 2] [2].")
+
+    assert result.text == NO_EVIDENCE_ANSWER
+    assert [(d.text, d.reason) for d in result.dropped_relationship_claims] == [
+        (
+            "The Platform Team and Engineering both report to the CTO [E 2] [2].",
+            RelationshipDropReason.UNCOVERED_ENTITY.value,
+        )
+    ]
+
+
+def test_a_path_claim_with_every_hop_cited_and_backed_still_survives() -> None:
+    claim = "The Platform Team is in Engineering, which reports to the CTO [E 1] [E 2] [1] [2]."
+
+    assert checked(claim).text == claim
+
+
+def test_a_leading_marker_only_fragment_is_dropped_and_does_not_block_no_evidence() -> None:
+    result = checked("[E 7]. The Platform Team reports to the CTO [E 2] [2].")
+
+    assert result.text == NO_EVIDENCE_ANSWER
+    assert [(d.text, d.reason) for d in result.dropped_relationship_claims] == [
+        ("[E 7].", RelationshipDropReason.EDGE_NOT_IN_SUBGRAPH.value),
+        (
+            "The Platform Team reports to the CTO [E 2] [2].",
+            RelationshipDropReason.NO_EDGE_CITED.value,
+        ),
+    ]
+
+
+def test_a_leading_chunk_marker_fragment_is_dropped_too() -> None:
+    result = checked("[1]. Engineering reports upward [2].")
+
+    assert result.text == "Engineering reports upward [2]."
+    assert [d.text for d in result.dropped_claims] == ["[1]."]
+
+
+def test_one_mention_of_a_name_two_nodes_share_is_a_chunk_claim() -> None:
+    """An Atlas project and an Atlas person: one mention, one name, not a relationship."""
+    shared = SUBGRAPH.model_copy(
+        update={
+            "nodes": [
+                *SUBGRAPH.nodes,
+                GraphNode(id=5, name="Atlas", entity_type=EntityType.PERSON, depth=2),
+            ]
+        }
+    )
+    claim = "Atlas shipped in May [1]."
+
+    assert not is_relationship_claim(claim, shared)
+    assert apply_graph_contract(claim, CHUNKS, shared).text == claim

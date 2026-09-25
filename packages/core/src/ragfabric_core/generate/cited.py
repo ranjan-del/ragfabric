@@ -32,7 +32,9 @@ from ragfabric_core.generate.contract import (
     assert_citation_contract,
 )
 from ragfabric_core.graph.citations import (
+    RelationshipDropReason,
     edge_marker,
+    edge_markers,
     is_relationship_claim,
     relationship_claim_violation,
     render_edges,
@@ -510,6 +512,11 @@ GRAPH_SYSTEM_PROMPT = (
 )
 
 
+# The recorded reason for a fragment of [n] markers carrying no words: there is
+# no claim for the markers to cite, so it is dropped rather than kept verbatim.
+MARKER_ONLY_REASON = "citation markers with no claim"
+
+
 class GraphAnswer(BaseModel):
     text: str
     model: str
@@ -545,7 +552,9 @@ def _split_graph_claims(answer: str) -> list[str]:
 
     ``split_claims`` already does that for ``[n]``; it does not know ``[E k]``,
     and a trailing "[E 1] [1]" would otherwise stand as a claim of its own and
-    strip the citation off the sentence it belongs to.
+    strip the citation off the sentence it belongs to. A leading fragment has
+    no claim before it to join and stays a piece of its own, which
+    ``apply_graph_contract`` then drops.
     """
     claims: list[str] = []
     for piece in split_claims(answer):
@@ -564,13 +573,30 @@ def apply_graph_contract(
     Separate from the generation call for the same reason as
     ``apply_agentic_contract``: a streaming caller already has the text. An
     answer left with nothing becomes the no-evidence sentence.
+
+    A piece with no words of its own (after ``_split_graph_claims`` has joined
+    every trailing one onto its claim) is never kept: it asserts nothing, so it
+    cannot pass as an answer, and a bare "[E 7]." kept verbatim would be an
+    unchecked citation that also blocks the no-evidence sentence (ruling R33).
+    One that carries a marker is recorded, under the graph reason when it has
+    an edge marker and under a fixed reason otherwise; one with no marker (a
+    stray space or full stop) is discarded without a record.
     """
     kept: list[str] = []
     dropped: list[DroppedClaim] = []
     dropped_relationships: list[DroppedClaim] = []
     for claim in _split_graph_claims(text):
         if not any(char.isalnum() for char in strip_markers(claim)):
-            kept.append(claim)
+            if edge_markers(claim):
+                reason = relationship_claim_violation(claim, subgraph, chunks)
+                dropped_relationships.append(
+                    DroppedClaim(
+                        text=claim.strip(),
+                        reason=(reason or RelationshipDropReason.NO_EDGE_CITED).value,
+                    )
+                )
+            elif strip_markers(claim) != claim:
+                dropped.append(DroppedClaim(text=claim.strip(), reason=MARKER_ONLY_REASON))
             continue
         if is_relationship_claim(claim, subgraph):
             reason = relationship_claim_violation(claim, subgraph, chunks)
