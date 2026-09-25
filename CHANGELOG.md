@@ -38,12 +38,18 @@ recursive CTEs, no Neo4j.
   entity or edge carries only the confidence the model actually reported, never a fabricated
   default, and items below the floor are discarded and counted rather than silently dropped.
   Recorded as ADR 0012. (70c9e0b, e9e499f)
-- Incremental extraction: an unchanged chunk is skipped by its content hash on re-ingest; a changed
-  chunk's stale entities and edges are removed and its survivors' confidence recomputed before the
-  new text is stored. (827c889, fbed886)
+- Incremental extraction: a chunk whose text is unchanged since its last extraction is skipped by
+  its content hash; a changed chunk's stale entities and edges are removed and its survivors'
+  confidence recomputed before the new text is stored. A re-ingest carries each byte-identical
+  chunk's hash and graph links over to its replacement row, so it costs no extraction call and no
+  resolution embedding call for those chunks. (827c889, fbed886, 1e63d70)
 - Entity resolution in three stages, exact normalized-name match, alias match, and an embedding
-  tie-break at `graph_store.similarity_threshold`, with every merge recorded with its evidence and
-  fully reversible; unmerge is globally last-in-first-out. (f20253c, 437c3cd, 298041c, 0416966)
+  tie-break at `graph_store.similarity_threshold`. Each merge of two stored entities is recorded with
+  its evidence and can be undone: unmerge is globally last-in-first-out, and it can restore only
+  part of a merge when chunks changed or were removed since, which `UnmergeResult` reports.
+  Spellings that normalise equal are folded into one entity at extraction time (the unique key)
+  and are not merge records, so there is nothing to undo for them. (f20253c, 437c3cd, 298041c,
+  0416966)
 - Directed, access-checked traversal (`graph/traverse.py`): the access predicate sits inside the
   recursive term itself, applied to both node matching and edge walking, so a path through a chunk
   a caller cannot read never exists to be filtered afterward. Recorded as ADR 0011. (3b90995,
@@ -76,13 +82,44 @@ recursive CTEs, no Neo4j.
   service, and `graph_store.kind: neo4j` is rejected at configuration validation with a message
   citing ADR 0011. Breaking for any configuration that named it. (ef2e483, 1620b7d)
 - **`strategies.graph.max_nodes` no longer exists.** The untyped strategy dictionary is replaced
-  by a typed config with `max_hops` (1 to 4) and `node_budget` (at least 1, default 50); a
+  by a typed config with `max_hops` (1 to 4) and `node_budget` (1 to 1000, default 50); a
   configuration still naming `max_nodes` is rejected as an unknown key. Breaking. (ef2e483)
 - **The `GraphStore` protocol is removed.** `stores/base.GraphStore` (`upsert_entities`,
   `upsert_relationships`, `neighbours`) was written in Phase 1 for the Neo4j design and nothing
   ever implemented it; removed rather than kept as a stub. (0d5ca90)
 
+### Fixed
+Found by the whole-branch review before merge, fixed before release.
+- **A merged entity's name could leak a denied chunk.** After a merge, `Entity.name` and
+  `Entity.aliases` can hold a spelling only a denied document uses, and the traversal returned the
+  stored name and matched on aliases, so a restricted caller saw the denied spelling and could probe
+  for it. `entity_sources.surface_name` (migration 0008, amended) records each chunk's own spelling;
+  a node is named by the caller's best admitted source and a question matches only admitted
+  spellings. (b82df5e)
+- **Edge confidence counted denied sources.** `GraphEdge.confidence` is now the max over the
+  caller's admitted sources, `None` when none measured one. (b82df5e)
+- **An identical re-ingest re-extracted every chunk**, because the replacement rows had no hash.
+  The graph is now carried across the replacement. (1e63d70)
+- **Confidence went stale after a delete.** Deleting a document or a collection, or a re-ingest
+  dropping a chunk, left parents with a confidence only the deleted chunk had reported, and entities
+  and edges with no source at all. They are now recomputed and collected before the delete.
+  (1e63d70)
+- **A graph failure could be erased by job order.** `index_document` reset status and error
+  unconditionally, hiding an earlier `extract_graph` failure; it now leaves that failure in place
+  and only `extract_graph` clears it. (b8b456c)
+- **The SQLite downgrade of 0008 deleted every relationship**, and the upgrade did the same to
+  existing rows: the global foreign-key listener made the batch rebuild's DROP TABLE cascade. The
+  migration environment now switches SQLite foreign keys off around the run and checks
+  `PRAGMA foreign_key_check` before switching them back on. (9415706)
+- `strategies.graph.node_budget` is bounded at 1000 (untuned), and a test pins
+  `ragfabric_core.__version__` to `packages/core/pyproject.toml`. (0902044)
+
 ### Notes
+- **Breaking: Neo4j is removed.** It is gone from Docker Compose, and `graph_store.kind: neo4j` is
+  rejected at configuration validation (see Changed).
+- **Breaking: the `GraphStore` protocol is removed** from `stores/base` (see Changed).
+- **Breaking: `strategies.graph.max_nodes` is replaced by `node_budget`**; a configuration still
+  naming `max_nodes` fails validation (see Changed).
 - **Retrieval quality is still not measured.** Same as agentic and every other strategy, there is
   no accuracy, recall or latency figure for graph retrieval. Phase 8 builds the evaluation
   framework.
@@ -169,7 +206,38 @@ up short chooses a repair move and tries again, stopping honestly when it is not
   `ragfabric.example.yaml` advertised 12, and `max_cost_usd`, `max_latency_ms` and
   `assess_strictness` had no readers at all. All four now bind.
 
+### Fixed
+Found by the whole-branch review before merge, fixed before release.
+- **A merged entity's name could leak a denied chunk.** After a merge, `Entity.name` and
+  `Entity.aliases` can hold a spelling only a denied document uses, and the traversal returned the
+  stored name and matched on aliases, so a restricted caller saw the denied spelling and could probe
+  for it. `entity_sources.surface_name` (migration 0008, amended) records each chunk's own spelling;
+  a node is named by the caller's best admitted source and a question matches only admitted
+  spellings. (b82df5e)
+- **Edge confidence counted denied sources.** `GraphEdge.confidence` is now the max over the
+  caller's admitted sources, `None` when none measured one. (b82df5e)
+- **An identical re-ingest re-extracted every chunk**, because the replacement rows had no hash.
+  The graph is now carried across the replacement. (1e63d70)
+- **Confidence went stale after a delete.** Deleting a document or a collection, or a re-ingest
+  dropping a chunk, left parents with a confidence only the deleted chunk had reported, and entities
+  and edges with no source at all. They are now recomputed and collected before the delete.
+  (1e63d70)
+- **A graph failure could be erased by job order.** `index_document` reset status and error
+  unconditionally, hiding an earlier `extract_graph` failure; it now leaves that failure in place
+  and only `extract_graph` clears it. (b8b456c)
+- **The SQLite downgrade of 0008 deleted every relationship**, and the upgrade did the same to
+  existing rows: the global foreign-key listener made the batch rebuild's DROP TABLE cascade. The
+  migration environment now switches SQLite foreign keys off around the run and checks
+  `PRAGMA foreign_key_check` before switching them back on. (9415706)
+- `strategies.graph.node_budget` is bounded at 1000 (untuned), and a test pins
+  `ragfabric_core.__version__` to `packages/core/pyproject.toml`. (0902044)
+
 ### Notes
+- **Breaking: Neo4j is removed.** It is gone from Docker Compose, and `graph_store.kind: neo4j` is
+  rejected at configuration validation (see Changed).
+- **Breaking: the `GraphStore` protocol is removed** from `stores/base` (see Changed).
+- **Breaking: `strategies.graph.max_nodes` is replaced by `node_budget`**; a configuration still
+  naming `max_nodes` fails validation (see Changed).
 - **Retrieval quality is still not measured.** No accuracy, recall or latency figure exists for any
   strategy in this project. Phase 8 builds the evaluation framework; until then there is no number
   to quote for whether agentic retrieval is better than traditional or vectorless retrieval at
