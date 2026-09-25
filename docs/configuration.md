@@ -43,8 +43,8 @@ vector_store:
 lexical_store:
   kind: postgres_fts          # postgres_fts | bm25
 graph_store:
-  kind: neo4j
-  enabled: false              # true needs the full compose profile
+  kind: postgres               # postgres only: the graph lives in the database (ADR 0011)
+  enabled: false               # true runs one extraction call per changed chunk at ingest
 cache:
   kind: redis                 # redis | memory
 
@@ -142,10 +142,10 @@ number.
 | Profile | Services | Strategies available |
 |---|---|---|
 | `lite` | postgres (pgvector), redis, api, ui | Traditional, Vectorless, Agentic |
-| `full` | lite plus chroma, neo4j | all four |
+| `full` | lite plus chroma | all four, including Graph (the graph lives in postgres, not a service of its own; ADR 0011) |
 | `workers` | lite plus worker | same as lite; needed when `ingestion.indexing: queue` |
 
-`workers` is the only profile that starts the worker; `full` adds chroma and neo4j but does not imply
+`workers` is the only profile that starts the worker; `full` adds chroma but does not imply
 `workers`. The `worker` service runs `ragfabric worker`, draining the Redis queue that
 `ingestion.indexing: queue` schedules ingestion jobs onto, so it requires that setting. In `inline`
 mode (the default) no worker is needed; the API indexes a document as part of the ingest call, and

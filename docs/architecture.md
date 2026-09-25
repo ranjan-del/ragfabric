@@ -21,7 +21,7 @@ flowchart LR
     S --> CORE[core: engine]
     CORE --> I[interfaces]
     I --> P[providers: OpenAI, Anthropic, Ollama]
-    I --> ST[stores: pgvector, Chroma, Postgres FTS, Neo4j, Redis]
+    I --> ST[stores: pgvector, Chroma, Postgres FTS, Redis]
 ```
 
 Dependency direction is one way. `core` never imports from `server`; `server` never imports from an
@@ -117,7 +117,7 @@ four strategies comparable.
 | api_keys | Hashed keys with scopes and rate limits |
 | documents, chunks | Content with page, section, span, document_type, storage_path |
 | chunk_embeddings, chunk_search | pgvector column and `tsvector` column per chunk, fed by ingestion since Phase 2, queried by Traditional RAG since Phase 3 |
-| entities, relationships | Mirror of the graph for the console; Neo4j is the query engine |
+| entities, relationships | The knowledge graph itself; walked directly with recursive CTEs, not mirrored from a separate query engine (ADR 0011) |
 | conversations, messages | Chat history |
 | retrieval_runs, sources | One row per query with metrics; sources returned and sources filtered |
 | evaluation_runs, evaluation_results | Benchmark runs and per question results |
@@ -125,7 +125,8 @@ four strategies comparable.
 
 21 tables in total as of migration 0003. Vector data lives in `chunk_embeddings` (pgvector, or a NumPy
 column on SQLite) or Chroma, lexical data in `chunk_search` (`tsvector`, or a token overlap fallback on
-SQLite) or an in process BM25 index rebuilt from `chunks`, graph data in Neo4j.
+SQLite) or an in process BM25 index rebuilt from `chunks`, graph data in `entities` and
+`relationships`, walked with recursive CTEs (ADR 0011).
 
 `chunks`, `chunk_embeddings` and `chunk_search` each carry their own denormalised `collection_id`,
 which is what lets the access predicate apply inside the store query with no join back to `documents`
@@ -190,7 +191,7 @@ ragfabric_core/
                    (LlmReranker, candidate cap against silent prompt truncation), cross_encoder.py
                    (ragfabric[rerank] extra, lazy model load), registry.py
   runtime.py       get_config, reset_config, get_session_factory
-  stores/          base.py (VectorStore, LexicalStore, GraphStore, Cache), pgvector_store.py,
+  stores/          base.py (VectorStore, LexicalStore, Cache), pgvector_store.py,
                    postgres_fts.py, chroma_store.py (Chroma, access predicate inside the query),
                    memory_cache.py, redis_cache.py, access_sql.py (access_clause), registry.py
   strategies/      base.py (StrategyName, RetrievedChunk, TraceSpan, StrategyParams, Budget,

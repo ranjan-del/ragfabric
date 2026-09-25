@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from ragfabric_core.auth.base import AuthProvider
 from ragfabric_core.auth.principal import AccessFilter, Principal
 from ragfabric_core.connectors.base import Connector, SourceDocument
-from ragfabric_core.stores.base import Cache, GraphStore, LexicalStore, VectorStore
+from ragfabric_core.stores.base import Cache, LexicalStore, VectorStore
 from ragfabric_core.strategies.base import RetrievedChunk
 
 
@@ -28,17 +28,6 @@ class MemLexical:
     def index(self, chunk_ids, texts, payloads): ...
     def search(self, query, top_k, access, filters=None):
         return []
-
-    def delete_document(self, document_id): ...
-
-
-class MemGraph:
-    name = "none"
-
-    def upsert_entities(self, entities): ...
-    def upsert_relationships(self, relationships): ...
-    def neighbours(self, entity_ids, hops, access, max_nodes):
-        return {"nodes": [], "edges": []}
 
     def delete_document(self, document_id): ...
 
@@ -91,7 +80,6 @@ class FolderConnector:
 def test_shapes_are_recognised_at_runtime():
     assert isinstance(MemVector(), VectorStore)
     assert isinstance(MemLexical(), LexicalStore)
-    assert isinstance(MemGraph(), GraphStore)
     assert isinstance(MemCache(), Cache)
     assert isinstance(StaticAuth(), AuthProvider)
     assert isinstance(FolderConnector(), Connector)
@@ -109,7 +97,7 @@ def test_a_store_missing_a_method_is_rejected():
 def test_a_cache_missing_name_is_rejected():
     """Task 16 C6: Cache is runtime_checkable, so a cache implementation that
     never set a ``name`` attribute now fails isinstance, matching every other
-    store interface (VectorStore/LexicalStore/GraphStore all require it).
+    store interface (VectorStore/LexicalStore both require it).
     """
 
     class NamelessCache:

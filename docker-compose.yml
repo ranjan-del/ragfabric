@@ -2,7 +2,12 @@
 # Lite profile (default):   docker compose up --build
 #   postgres (pgvector), redis, api, ui. Enough for Traditional and Vectorless RAG.
 # Full profile:             docker compose --profile full up --build
-#   adds chroma and neo4j for all four strategies. Does NOT start the worker.
+#   adds chroma for all four strategies. Does NOT start the worker.
+#   Graph RAG has no service of its own: the knowledge graph lives in the
+#   postgres service above, walked with recursive CTEs (ADR 0011). A Neo4j
+#   service used to be started here; it is gone because the graph store
+#   decision landed on PostgreSQL, not because graph_store.enabled needs
+#   anything extra running.
 # Workers profile:          docker compose --profile workers up --build
 #   adds the worker; needed when ragfabric.yaml sets ingestion.indexing: queue.
 #   The worker is not needed, and should not be started, on the default inline
@@ -59,7 +64,6 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ragfabric}:${POSTGRES_PASSWORD:-ragfabric}@postgres:5432/${POSTGRES_DB:-ragfabric}
       REDIS_URL: redis://redis:6379/0
       CHROMA_URL: http://chroma:8000
-      NEO4J_URI: bolt://neo4j:7687
       CORS_ORIGINS: http://localhost:4200,http://localhost:80
       RAGFABRIC_CONFIG: /app/ragfabric.yaml
     volumes:
@@ -132,28 +136,8 @@ services:
       timeout: 3s
       retries: 12
 
-  neo4j:
-    # neo4j:2026.08.1-community as of 2026-09-21
-    image: neo4j@sha256:d8f4c156caa3af76499134947deb11d13042e471d9733060449f2a01eb7a248e
-    profiles: ["full"]
-    environment:
-      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-please-change-me-12}
-      NEO4J_server_memory_heap_max__size: 1G
-      NEO4J_server_memory_pagecache_size: 512M
-    ports:
-      - "127.0.0.1:7474:7474"
-      - "127.0.0.1:7687:7687"
-    volumes:
-      - neo4j_data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:7474 >/dev/null || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 18
-
 volumes:
   postgres_data:
   redis_data:
   chroma_data:
-  neo4j_data:
   uploads:
