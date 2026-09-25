@@ -372,3 +372,75 @@ def test_extract_chunks_sums_reports(db):
 
     assert report.entities_stored == 2
     assert report.contract_violation is False
+
+
+def test_a_disabled_entity_type_is_left_out_of_the_prompt_discarded_and_counted(db):
+    from ragfabric_core.graph.contracts import EntityType
+    from ragfabric_core.graph.extract import build_extraction_prompt
+
+    assert "product" not in build_extraction_prompt([EntityType.PERSON])
+    assert "product" in build_extraction_prompt()
+
+    chunk = _make_chunk(db)
+    payload = {
+        "entities": [
+            {"name": "Ada Lovelace", "entity_type": "person", "confidence": 0.9},
+            {"name": "Analytical Engine", "entity_type": "product", "confidence": 0.9},
+        ],
+        "relationships": [
+            {
+                "source": "Ada Lovelace",
+                "target": "Analytical Engine",
+                "relation_type": "WORKS_ON",
+                "confidence": 0.9,
+            }
+        ],
+    }
+    report = extract_chunk(
+        db,
+        chunk,
+        _provider(payload),
+        floor=FLOOR,
+        model="test-extractor",
+        entity_types=[EntityType.PERSON],
+    )
+
+    assert report.entities_stored == 1 and report.entities_discarded == 1
+    # The edge's target was never stored, so the edge is discarded and counted (R9).
+    assert report.relationships_stored == 0 and report.relationships_discarded == 1
+    assert [entity.name for entity in db.execute(select(Entity)).scalars()] == ["Ada Lovelace"]
+
+
+def test_a_disabled_relation_type_is_left_out_of_the_prompt_discarded_and_counted(db):
+    from ragfabric_core.graph.contracts import RelationType
+    from ragfabric_core.graph.extract import build_extraction_prompt
+
+    assert "WORKS_ON" not in build_extraction_prompt(None, [RelationType.MEMBER_OF])
+
+    chunk = _make_chunk(db)
+    payload = {
+        "entities": [
+            {"name": "Ada Lovelace", "entity_type": "person", "confidence": 0.9},
+            {"name": "Analytical Engine", "entity_type": "product", "confidence": 0.9},
+        ],
+        "relationships": [
+            {
+                "source": "Ada Lovelace",
+                "target": "Analytical Engine",
+                "relation_type": "WORKS_ON",
+                "confidence": 0.9,
+            }
+        ],
+    }
+    report = extract_chunk(
+        db,
+        chunk,
+        _provider(payload),
+        floor=FLOOR,
+        model="test-extractor",
+        relation_types=[RelationType.MEMBER_OF],
+    )
+
+    assert report.entities_stored == 2
+    assert report.relationships_stored == 0 and report.relationships_discarded == 1
+    assert db.execute(select(Relationship)).scalars().all() == []

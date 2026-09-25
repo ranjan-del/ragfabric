@@ -3,8 +3,9 @@
 index_document embeds the document's chunks with the configured provider and
 writes the vector and lexical indexes. It marks the document ready only after
 both writes succeed, so a document is never searchable in one index and
-missing from the other. extract_graph is the Phase 6 hook; here it only
-records that the job ran.
+missing from the other. extract_graph builds the document's slice of the
+knowledge graph when ``graph_store.enabled`` is set, and returns without a
+model call when it is not.
 
 Fan-out atomicity (deferred item, Phase 2 review): index_document writes the
 vector store and the lexical store as two separate commits (each store opens
@@ -35,12 +36,18 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ragfabric_core.config_file import GraphStoreConfig
+from ragfabric_core.graph.extract import ExtractionReport, extract_chunks
+from ragfabric_core.graph.resolve import ResolutionReport, resolve_entities
 from ragfabric_core.models.document import Chunk, Document, IngestionRun
-from ragfabric_core.providers.base import EmbeddingProvider
+from ragfabric_core.models.graph import EntitySource
+from ragfabric_core.providers.base import EmbeddingProvider, LLMProvider
 from ragfabric_core.stores.base import LexicalStore, VectorStore
 from ragfabric_core.telemetry.tracing import start_trace, trace
 
@@ -106,8 +113,89 @@ def index_document(
     return len(chunks)
 
 
-def extract_graph(db: Session, document_id: int) -> None:
-    log.info("extract_graph: document %s queued; graph extraction arrives in Phase 6", document_id)
+@dataclass(frozen=True)
+class GraphExtractionOutcome:
+    """What one document's graph pass did: the extraction and resolution reports."""
+
+    extraction: ExtractionReport
+    resolution: ResolutionReport | None
+
+
+def extract_graph(
+    db: Session,
+    document_id: int,
+    *,
+    settings: GraphStoreConfig,
+    llm: LLMProvider | None,
+    embedder: EmbeddingProvider | None,
+) -> GraphExtractionOutcome | None:
+    """Extract the document's entities and edges, resolve them, and commit.
+
+    Disabled (``settings.enabled`` false, the default): log and return
+    ``None`` before touching the document, so a deployment without a graph
+    makes no model call and needs no model provider (``llm`` may be ``None``).
+
+    Enabled: ``extract_chunks`` over the document's chunks with the
+    configured confidence floor, extraction model (``None`` means the
+    provider's own default model) and enabled type lists; then
+    ``resolve_entities`` over the entities those chunks now source, with the
+    embedder and similarity threshold; then one commit. Unchanged chunks are
+    skipped by the extractor's own hash check, so re-running the job for a
+    document costs nothing for text that has not changed.
+    """
+    if not settings.enabled:
+        log.info("extract_graph: graph extraction is disabled; document %s skipped", document_id)
+        return None
+    if llm is None:
+        raise ValueError("graph_store.enabled is true but no LLM provider was supplied")
+    document = db.get(Document, document_id)
+    if document is None:
+        log.warning("extract_graph: document %s no longer exists", document_id)
+        return None
+    chunks = (
+        db.query(Chunk).filter(Chunk.document_id == document_id).order_by(Chunk.chunk_index).all()
+    )
+    extraction = extract_chunks(
+        db,
+        chunks,
+        llm,
+        floor=settings.confidence_floor,
+        model=settings.extraction_model or llm.default_model,
+        entity_types=settings.entity_types,
+        relation_types=settings.relation_types,
+    )
+    touched = sorted(
+        set(
+            db.execute(
+                select(EntitySource.entity_id).where(
+                    EntitySource.chunk_id.in_([chunk.id for chunk in chunks])
+                )
+            ).scalars()
+        )
+    )
+    resolution = None
+    if touched:
+        resolution = resolve_entities(
+            db,
+            embedder,
+            similarity_threshold=settings.similarity_threshold,
+            entity_ids=touched,
+        )
+    db.commit()
+    log.info(
+        "extract_graph: document %s: %s entities and %s relationships stored, "
+        "%s entities and %s relationships discarded, %s chunks unchanged, "
+        "contract violation %s, %s merges",
+        document_id,
+        extraction.entities_stored,
+        extraction.relationships_stored,
+        extraction.entities_discarded,
+        extraction.relationships_discarded,
+        extraction.chunks_skipped,
+        extraction.contract_violation,
+        0 if resolution is None else len(resolution.merges),
+    )
+    return GraphExtractionOutcome(extraction=extraction, resolution=resolution)
 
 
 def reconcile_stuck_indexing(

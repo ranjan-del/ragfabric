@@ -9,8 +9,9 @@ from collections.abc import Callable
 
 from sqlalchemy.orm import Session
 
+from ragfabric_core.config_file import GraphStoreConfig
 from ragfabric_core.models.document import Document
-from ragfabric_core.providers.base import EmbeddingProvider
+from ragfabric_core.providers.base import EmbeddingProvider, LLMProvider
 from ragfabric_core.queue.base import Job, JobQueue
 from ragfabric_core.stores.base import LexicalStore, VectorStore
 from ragfabric_core.workers import handlers
@@ -45,8 +46,22 @@ def install_sigterm_handler(stop: threading.Event) -> None:
 
 
 def default_handlers(
-    *, embedding_provider: EmbeddingProvider, vector_store: VectorStore, lexical_store: LexicalStore
+    *,
+    embedding_provider: EmbeddingProvider,
+    vector_store: VectorStore,
+    lexical_store: LexicalStore,
+    graph_settings: GraphStoreConfig,
+    llm: LLMProvider | None,
 ) -> dict[str, Handler]:
+    """The job handlers, keyed by job kind.
+
+    ``graph_settings`` is required rather than defaulted: a default here would
+    let a caller forget it and silently run every worker with the graph off
+    whatever the config file says. ``llm`` is only needed when the graph is
+    enabled; the embedding provider doubles as the resolver's embedder, so
+    merges compare vectors from the model the deployment already configured.
+    """
+
     def _index(db: Session, job: Job) -> None:
         handlers.index_document(
             db,
@@ -57,7 +72,13 @@ def default_handlers(
         )
 
     def _graph(db: Session, job: Job) -> None:
-        handlers.extract_graph(db, int(job.payload["document_id"]))
+        handlers.extract_graph(
+            db,
+            int(job.payload["document_id"]),
+            settings=graph_settings,
+            llm=llm,
+            embedder=embedding_provider,
+        )
 
     return {"index_document": _index, "extract_graph": _graph}
 

@@ -15,6 +15,8 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ragfabric_core.agent.state import NodeName
+from ragfabric_core.graph.contracts import EntityType, RelationType
+from ragfabric_core.graph.traverse import DEFAULT_NODE_BUDGET, MAX_HOPS_CEILING
 
 ENV_VAR = "RAGFABRIC_CONFIG"
 DEFAULT_FILENAME = "ragfabric.yaml"
@@ -53,9 +55,57 @@ class LexicalStoreConfig(_Strict):
     max_chunks: int = Field(default=50_000, ge=1)
 
 
+def _each_once(values: list) -> list:
+    if len(set(values)) != len(values):
+        raise ValueError("each type may be listed once")
+    return values
+
+
 class GraphStoreConfig(_Strict):
-    kind: Literal["neo4j", "none"] = "neo4j"
+    """Graph extraction at ingest time. Every field is read by the extract_graph handler.
+
+    ``enabled`` defaults to false so a deployment that does not want a graph
+    pays nothing: the handler returns before building a prompt, and no model
+    provider is constructed for it.
+
+    ``kind`` has one value. The graph lives in the relational database and is
+    walked with recursive CTEs (ADR 0011); the Neo4j backend promised in v0.2
+    was never built, and a config that still names it is refused rather than
+    silently served by something else.
+
+    ``confidence_floor`` and ``similarity_threshold`` are untuned: 0.5 and 0.9
+    are starting points, not measured optima, until the Phase 8 evaluation
+    measures extraction precision and merge precision against them.
+
+    ``entity_types`` and ``relation_types`` narrow extraction: a disabled type
+    is removed from the prompt, and anything the model still reports under it
+    is discarded and counted, never stored.
+    """
+
     enabled: bool = False
+    kind: Literal["postgres"] = "postgres"
+    extraction_model: str | None = None
+    confidence_floor: float = Field(default=0.5, ge=0.0, le=1.0)
+    similarity_threshold: float = Field(default=0.9, ge=0.0, le=1.0)
+    entity_types: list[EntityType] = Field(default_factory=lambda: list(EntityType), min_length=1)
+    relation_types: list[RelationType] = Field(
+        default_factory=lambda: list(RelationType), min_length=1
+    )
+
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _neo4j_is_gone(cls, kind: object) -> object:
+        if kind == "neo4j":
+            raise ValueError(
+                "graph_store.kind neo4j is no longer supported: the graph lives in PostgreSQL "
+                "(ADR 0011). Use kind: postgres, or omit the key"
+            )
+        return kind
+
+    @field_validator("entity_types", "relation_types")
+    @classmethod
+    def _no_duplicate_types(cls, values: list) -> list:
+        return _each_once(values)
 
 
 class CacheConfig(_Strict):
@@ -169,6 +219,19 @@ class AgenticConfig(_Strict):
         }
 
 
+class GraphStrategyConfig(_Strict):
+    """Query-time bounds for the graph strategy, both passed to GraphRAGStrategy.
+
+    ``max_hops`` stops at the traversal's own ceiling, because the walk raises
+    above it and a config that validates but fails every query is worse than
+    one that fails at startup. ``node_budget`` caps the reached set handed to
+    generation; the walk's own work is bounded by the hop ceiling, not by it.
+    """
+
+    max_hops: int = Field(default=2, ge=1, le=MAX_HOPS_CEILING)
+    node_budget: int = Field(default=DEFAULT_NODE_BUDGET, ge=1)
+
+
 class StrategiesConfig(_Strict):
     traditional: dict[str, float | int | str | bool] = Field(
         default_factory=lambda: {
@@ -180,9 +243,7 @@ class StrategiesConfig(_Strict):
     )
     vectorless: VectorlessConfig = Field(default_factory=VectorlessConfig)
     agentic: AgenticConfig = Field(default_factory=AgenticConfig)
-    graph: dict[str, float | int | str | bool] = Field(
-        default_factory=lambda: {"max_hops": 2, "max_nodes": 200}
-    )
+    graph: GraphStrategyConfig = Field(default_factory=GraphStrategyConfig)
 
 
 class RouterConfig(_Strict):

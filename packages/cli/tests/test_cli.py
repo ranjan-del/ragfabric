@@ -47,6 +47,43 @@ def test_config_validate_reports_the_agent_settings(tmp_path):
     assert "assess strict" in result.stdout
 
 
+def test_config_validate_reports_the_graph_settings(tmp_path):
+    """Every graph key is echoed, so an operator sees what extraction will use."""
+    p = tmp_path / "ragfabric.yaml"
+    p.write_text(
+        "llm:\n  provider: offline\nembeddings:\n  provider: offline\n  dim: 16\n"
+        "graph_store:\n  enabled: true\n  extraction_model: extractor-x\n"
+        "  confidence_floor: 0.7\n  similarity_threshold: 0.85\n"
+        "  entity_types: [person, team]\n  relation_types: [MEMBER_OF]\n"
+        "strategies:\n  graph:\n    max_hops: 3\n    node_budget: 40\n"
+    )
+    result = runner.invoke(app, ["config", "validate", "--path", str(p)])
+    assert result.exit_code == 0, result.stdout
+    assert "graph_store: postgres (enabled)" in result.stdout
+    assert "extraction_model extractor-x" in result.stdout
+    assert "confidence_floor 0.7" in result.stdout
+    assert "similarity_threshold 0.85" in result.stdout
+    assert "entity_types person team" in result.stdout
+    assert "relation_types MEMBER_OF" in result.stdout
+    assert "graph: max_hops 3, node_budget 40" in result.stdout
+
+
+def test_config_validate_names_the_provider_default_extraction_model(tmp_path):
+    p = tmp_path / "ragfabric.yaml"
+    p.write_text("llm:\n  provider: offline\nembeddings:\n  provider: offline\n  dim: 16\n")
+    result = runner.invoke(app, ["config", "validate", "--path", str(p)])
+    assert result.exit_code == 0, result.stdout
+    assert "graph_store: postgres (disabled)" in result.stdout
+    assert "extraction_model provider default" in result.stdout
+
+
+def test_config_validate_rejects_neo4j(tmp_path):
+    p = tmp_path / "ragfabric.yaml"
+    p.write_text("graph_store:\n  kind: neo4j\n")
+    result = runner.invoke(app, ["config", "validate", "--path", str(p)])
+    assert result.exit_code == 1 and "ADR 0011" in result.stdout
+
+
 def test_config_validate_rejects_an_agent_typo(tmp_path):
     p = tmp_path / "ragfabric.yaml"
     p.write_text("strategies:\n  agentic:\n    max_iteration: 4\n")
