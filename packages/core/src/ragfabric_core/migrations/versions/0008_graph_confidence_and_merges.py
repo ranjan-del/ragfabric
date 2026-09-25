@@ -27,6 +27,14 @@ entity, the merged-away entity's name, type, aliases and source chunk ids
 (kept so an unmerge can restore it), the evidence that justified the merge,
 and the method and model that made the call.
 
+``entities``, ``relationships`` and ``entity_merges`` are declared
+``sqlite_autoincrement`` so SQLite never reuses a deleted row's id (R31): a
+merge record names edges and entities by id, and a reused id would make it
+name a different row. On SQLite the two existing tables are rebuilt by the
+batch operation anyway (it drops a column); on PostgreSQL the option does
+nothing, since a sequence never hands out an id twice. Downgrade rebuilds
+them without it.
+
 Revision ID: 0008_graph_confidence_and_merges
 Revises: 0007_bm25_term_stats
 """
@@ -45,13 +53,17 @@ _CONFIDENCE_RANGE = "confidence IS NULL OR (confidence >= 0 AND confidence <= 1)
 
 
 def upgrade() -> None:
-    with op.batch_alter_table("entities", schema=None) as batch_op:
+    with op.batch_alter_table(
+        "entities", schema=None, table_kwargs={"sqlite_autoincrement": True}
+    ) as batch_op:
         batch_op.add_column(sa.Column("confidence", sa.Float(), nullable=True))
         batch_op.add_column(sa.Column("extraction_model", sa.String(), nullable=True))
         batch_op.drop_column("source_chunk_ids")
         batch_op.create_check_constraint("ck_entity_confidence_range", _CONFIDENCE_RANGE)
 
-    with op.batch_alter_table("relationships", schema=None) as batch_op:
+    with op.batch_alter_table(
+        "relationships", schema=None, table_kwargs={"sqlite_autoincrement": True}
+    ) as batch_op:
         batch_op.add_column(sa.Column("confidence", sa.Float(), nullable=True))
         batch_op.add_column(sa.Column("extraction_model", sa.String(), nullable=True))
         batch_op.drop_column("source_chunk_ids")
@@ -100,6 +112,7 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["surviving_entity_id"], ["entities.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
+        sqlite_autoincrement=True,
     )
     op.create_index(
         "ix_entity_merges_surviving_entity_id", "entity_merges", ["surviving_entity_id"]
@@ -119,7 +132,9 @@ def downgrade() -> None:
     with op.batch_alter_table("chunks", schema=None) as batch_op:
         batch_op.drop_column("extraction_hash")
 
-    with op.batch_alter_table("relationships", schema=None) as batch_op:
+    with op.batch_alter_table(
+        "relationships", schema=None, table_kwargs={"sqlite_autoincrement": False}
+    ) as batch_op:
         batch_op.drop_constraint("ck_relationship_confidence_range", type_="check")
         batch_op.drop_column("extraction_model")
         batch_op.drop_column("confidence")
@@ -127,7 +142,9 @@ def downgrade() -> None:
             sa.Column("source_chunk_ids", sa.JSON(), server_default="[]", nullable=False)
         )
 
-    with op.batch_alter_table("entities", schema=None) as batch_op:
+    with op.batch_alter_table(
+        "entities", schema=None, table_kwargs={"sqlite_autoincrement": False}
+    ) as batch_op:
         batch_op.drop_constraint("ck_entity_confidence_range", type_="check")
         batch_op.drop_column("extraction_model")
         batch_op.drop_column("confidence")

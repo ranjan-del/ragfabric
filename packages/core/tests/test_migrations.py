@@ -205,3 +205,35 @@ def test_0008_downgrade_returns_to_0007(tmp_path):
 
     ccols = {c["name"] for c in sa.inspect(engine).get_columns("chunks")}
     assert "extraction_hash" not in ccols
+
+
+def _declares_autoincrement(engine, table: str) -> bool:
+    with engine.connect() as connection:
+        ddl = connection.execute(
+            sa.text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = :name"),
+            {"name": table},
+        ).scalar_one()
+    return "AUTOINCREMENT" in ddl.upper()
+
+
+def test_0008_makes_graph_ids_never_reused_on_sqlite(tmp_path):
+    """R31(b): a merge record names rows by id, so SQLite must never hand one out twice."""
+    url = f"sqlite:///{tmp_path / 'm.db'}"
+    migrate.upgrade(url, "head")
+    engine = sa.create_engine(url)
+    for table in ("entities", "relationships", "entity_merges"):
+        assert _declares_autoincrement(engine, table), table
+    engine.dispose()
+
+    migrate.downgrade(url, "0007_bm25_term_stats")
+    engine = sa.create_engine(url)
+    for table in ("entities", "relationships"):
+        assert not _declares_autoincrement(engine, table), table
+    engine.dispose()
+
+    # And back up again, so the round trip is repeatable.
+    migrate.upgrade(url, "head")
+    engine = sa.create_engine(url)
+    for table in ("entities", "relationships", "entity_merges"):
+        assert _declares_autoincrement(engine, table), table
+    engine.dispose()
