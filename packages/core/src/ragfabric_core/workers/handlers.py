@@ -5,7 +5,10 @@ writes the vector and lexical indexes. It marks the document ready only after
 both writes succeed, so a document is never searchable in one index and
 missing from the other. extract_graph builds the document's slice of the
 knowledge graph when ``graph_store.enabled`` is set, and returns without a
-model call when it is not.
+model call when it is not. The two jobs may run in either order, so
+index_document leaves an earlier ``extract_graph failed:`` error and its
+failed status in place, and only a later successful extract_graph clears it
+(R44).
 
 Fan-out atomicity (deferred item, Phase 2 review): index_document writes the
 vector store and the lexical store as two separate commits (each store opens
@@ -39,7 +42,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ragfabric_core.config_file import GraphStoreConfig
@@ -56,6 +59,42 @@ log = logging.getLogger(__name__)
 
 def _now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
+
+
+# The prefix a failed extract_graph job records (the worker's ``"<kind> failed:"``
+# and the inline pipeline's GraphExtractionFailed both write it).
+GRAPH_FAILURE_PREFIX = "extract_graph failed:"
+
+
+def _graph_failed(document: Document) -> bool:
+    """Whether the document carries a graph extraction failure (R44).
+
+    A document's index_document and extract_graph jobs can run in either
+    order on a queue. index_document owns ``ready`` for the search indexes,
+    but a graph failure recorded before it runs must survive it: resetting
+    status and error unconditionally made a document with no graph look
+    healthy. Only extract_graph clears its own failure, on its next success.
+    """
+    return document.status == "failed" and (document.error or "").startswith(GRAPH_FAILURE_PREFIX)
+
+
+def _indexed_since_last_ingest(db: Session, document_id: int) -> bool:
+    """Whether an index run finished after the document's latest ingest run.
+
+    Run ids increase in commit order, so an ``index`` row newer than the
+    newest ``ingest`` row means this revision's index_document job has
+    completed. With no ingest row at all, any index row counts.
+    """
+    latest = {
+        phase: run_id
+        for phase, run_id in db.execute(
+            select(IngestionRun.phase, func.max(IngestionRun.id))
+            .where(IngestionRun.document_id == document_id)
+            .group_by(IngestionRun.phase)
+        )
+    }
+    indexed = latest.get("index")
+    return indexed is not None and indexed > latest.get("ingest", 0)
 
 
 def index_document(
@@ -96,8 +135,9 @@ def index_document(
         with trace("lexical_index"):
             lexical_store.index(ids, [c.text for c in chunks], payloads)
     document = db.get(Document, document_id)
-    document.status = "ready"
-    document.error = ""
+    if not _graph_failed(document):
+        document.status = "ready"
+        document.error = ""
     db.add(
         IngestionRun(
             document_id=document_id,
@@ -211,6 +251,13 @@ def extract_graph(
             similarity_threshold=settings.similarity_threshold,
             entity_ids=touched,
         )
+    if _graph_failed(document):
+        # This job's own earlier failure, now fixed (R44). The document is
+        # ready only if its index job has also finished for this revision;
+        # otherwise it goes back to waiting for it, rather than claiming to
+        # be searchable.
+        document.error = ""
+        document.status = "ready" if _indexed_since_last_ingest(db, document_id) else "indexing"
     db.commit()
     outcome = GraphExtractionOutcome(extraction=extraction, resolution=resolution)
     log.info("extract_graph: document %s: %s", document_id, outcome.summary())
