@@ -18,6 +18,27 @@ nothing from that chunk. It is reported, not raised, matching every other
 contract in this codebase: a malformed model response is an ordinary outcome,
 not a bug.
 
+One LLM call per chunk is the dominant cost of this whole strategy, so a
+chunk whose text has not changed since its last extraction is skipped
+entirely: no LLM call, counted in the report rather than silently dropped.
+``Chunk.extraction_hash`` holds the sha256 hex digest of the chunk's text as
+of its last successful extraction; ``None`` means never extracted, which is
+unambiguously "changed". A chunk whose text *has* changed is not simply
+re-extracted on top of the old rows: its previous ``EntitySource`` /
+``RelationshipSource`` links are removed first, any ``Relationship`` or
+``Entity`` left with no source at all is deleted (an orphaned entity cascades
+to any edge still pointing at it, even one another chunk supports), and every
+row that survives has its confidence and extraction_model recomputed from
+its remaining sources (R20). Without this, a corrected or deleted sentence
+would leave its old, now-false entities and edges in the graph forever. That
+cleanup and the re-extraction call happen inside one nested transaction
+(``Session.begin_nested``, a SAVEPOINT): if the new extraction hits a
+contract violation, the cleanup rolls back too, so a bad response never
+trades a real, previously-verified fact for nothing. The hash is written
+only once a chunk's extraction actually completes; a contract violation
+leaves it exactly as it was, so the next pass retries the same chunk instead
+of silently treating it as up to date.
+
 Every stored entity and edge records the chunk it came from
 (``EntitySource`` / ``RelationshipSource``) and the model that produced it, so
 a wrong fact can be traced back to the sentence and the model behind it. Each
@@ -36,11 +57,12 @@ embedding similarity, is Task 5's job, not this one's.
 
 from __future__ import annotations
 
+import hashlib
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from ragfabric_core.graph.contracts import (
@@ -120,6 +142,7 @@ class ExtractionReport:
     entities_discarded: int = 0
     relationships_discarded: int = 0
     contract_violation: bool = False
+    chunks_skipped: int = 0
 
     def __add__(self, other: ExtractionReport) -> ExtractionReport:
         if not isinstance(other, ExtractionReport):
@@ -130,10 +153,66 @@ class ExtractionReport:
             entities_discarded=self.entities_discarded + other.entities_discarded,
             relationships_discarded=self.relationships_discarded + other.relationships_discarded,
             contract_violation=self.contract_violation or other.contract_violation,
+            chunks_skipped=self.chunks_skipped + other.chunks_skipped,
         )
 
 
+def _hash_chunk_text(text: str) -> str:
+    """sha256 hex digest of exactly ``chunk.text``, encoded as UTF-8.
+
+    Nothing else about the chunk (page, position, embedding, section) enters
+    this hash: text is the only field an extraction call reads, so it is the
+    only field whose change should trigger one.
+    """
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def extract_chunk(
+    db: Session,
+    chunk: Chunk,
+    llm: LLMProvider,
+    *,
+    floor: float,
+    model: str,
+) -> ExtractionReport:
+    """Extract ``chunk`` unless its text is unchanged since its last extraction.
+
+    Unchanged means ``chunk.extraction_hash`` equals the hash of the current
+    text (a ``None`` hash, never extracted, is always "changed"): no LLM call
+    is made, and the skip is counted (``chunks_skipped``) rather than silent.
+
+    A changed chunk has its previous contributions removed before
+    re-extracting (see module docstring), atomically with the re-extraction
+    call: a contract violation rolls both back, leaving the old graph intact
+    and the hash untouched so the chunk is retried next time.
+    """
+    chunk_hash = _hash_chunk_text(chunk.text)
+    if chunk.extraction_hash == chunk_hash:
+        return ExtractionReport(chunks_skipped=1)
+
+    is_re_extraction = chunk.extraction_hash is not None
+
+    with db.begin_nested() as nested:
+        if is_re_extraction:
+            _remove_chunk_contributions(db, chunk.id)
+
+        report = _extract_and_store(db, chunk, llm, floor=floor, model=model)
+
+        if report.contract_violation:
+            # The cleanup above already ran inside this savepoint; rolling it
+            # back here undoes it too, so a bad response never costs the
+            # chunk its real, previously-verified contributions. The hash
+            # stays whatever it was before this call.
+            nested.rollback()
+            return report
+
+        chunk.extraction_hash = chunk_hash
+        db.flush()
+
+    return report
+
+
+def _extract_and_store(
     db: Session,
     chunk: Chunk,
     llm: LLMProvider,
@@ -332,6 +411,67 @@ def _upsert_relationships(
     return len(grouped), endpoint_discarded
 
 
+def _remove_chunk_contributions(db: Session, chunk_id: int) -> None:
+    """Undo everything ``chunk_id`` previously contributed to the graph.
+
+    Called before re-extracting a changed chunk, since its existing
+    ``EntitySource`` / ``RelationshipSource`` links describe text that no
+    longer exists. Order: drop this chunk's link rows; delete any
+    ``Relationship`` left with no source at all; delete any ``Entity`` left
+    with no source at all (its FK ``ondelete="CASCADE"`` then removes any
+    ``Relationship`` still pointing at it, even one another chunk supports,
+    because an edge cannot survive the loss of an endpoint); finally
+    recompute confidence/extraction_model on every row that is still there,
+    from whatever sources it has left (R20).
+    """
+    relationship_ids = set(
+        db.execute(
+            select(RelationshipSource.relationship_id).where(
+                RelationshipSource.chunk_id == chunk_id
+            )
+        ).scalars()
+    )
+    entity_ids = set(
+        db.execute(
+            select(EntitySource.entity_id).where(EntitySource.chunk_id == chunk_id)
+        ).scalars()
+    )
+
+    db.execute(delete(RelationshipSource).where(RelationshipSource.chunk_id == chunk_id))
+    db.execute(delete(EntitySource).where(EntitySource.chunk_id == chunk_id))
+    db.flush()
+
+    for relationship_id in relationship_ids:
+        still_sourced = db.execute(
+            select(RelationshipSource.relationship_id).where(
+                RelationshipSource.relationship_id == relationship_id
+            )
+        ).first()
+        if still_sourced is None:
+            relationship = db.get(Relationship, relationship_id)
+            if relationship is not None:
+                db.delete(relationship)
+    db.flush()
+
+    for entity_id in entity_ids:
+        still_sourced = db.execute(
+            select(EntitySource.entity_id).where(EntitySource.entity_id == entity_id)
+        ).first()
+        if still_sourced is None:
+            entity = db.get(Entity, entity_id)
+            if entity is not None:
+                db.delete(entity)  # cascades to any relationship still pointing at it
+    db.flush()
+
+    for relationship_id in relationship_ids:
+        if db.get(Relationship, relationship_id) is not None:
+            _recompute_relationship_confidence(db, relationship_id)
+    for entity_id in entity_ids:
+        if db.get(Entity, entity_id) is not None:
+            _recompute_entity_confidence(db, entity_id)
+    db.flush()
+
+
 def _link_entity_source(
     db: Session, entity_id: int, chunk_id: int, *, confidence: float, extraction_model: str
 ) -> None:
@@ -374,10 +514,10 @@ def _recompute_entity_confidence(db: Session, entity_id: int) -> None:
     """Set ``Entity.confidence``/``extraction_model`` to the max its current sources report.
 
     Recomputed from ``EntitySource`` rows rather than compared incrementally
-    against the old value, so that removing a source or moving one (Task 5
-    merge/unmerge) cannot leave a number behind that no surviving source
-    actually reported (R20). ``None`` iff no surviving source has a measured
-    confidence (ADR 0004: never fabricate a number).
+    against the old value, so that removing a source (Task 4 cleanup) or
+    moving one (Task 5 merge/unmerge) cannot leave a number behind that no
+    surviving source actually reported (R20). ``None`` iff no surviving
+    source has a measured confidence (ADR 0004: never fabricate a number).
     """
     entity = db.get(Entity, entity_id)
     if entity is None:
