@@ -31,12 +31,17 @@ asserts the opposite fact. A stored relation type that is not a
 stops at ``depth = max_hops``. That bounds the work by visible nodes times
 hops, where tracking a path per row would grow as degree to the power of hops.
 Cycles terminate because a revisited ``(node, depth)`` pair adds no row and
-depth is bounded. The minimum depth per node is then taken, and the edges are
-fetched in a second statement: an edge is reported only when the walk could
-have used it, that is, it joins two reached nodes, the node it leaves was
-reached below the hop limit, it is walkable in that direction under the rules
-above, and it has an admitted source chunk and a visible destination.
-``max_hops`` must lie in ``1..MAX_HOPS_CEILING``.
+depth is bounded. The minimum depth per node is then taken, and that is the
+number written onto ``GraphNode.depth`` (ruling R21): a caller must not
+re-derive it from the returned edges, because ``goes_forwards`` below can
+report a node's only walkable edge in the forward reading even though the
+node itself was reached backwards, which makes an edge-direction
+reconstruction wrong for exactly that node. The edges are then fetched in a
+second statement: an edge is reported only when the walk could have used it,
+that is, it joins two reached nodes, the node it leaves was reached below the
+hop limit, it is walkable in that direction under the rules above, and it has
+an admitted source chunk and a visible destination. ``max_hops`` must lie in
+``1..MAX_HOPS_CEILING``.
 
 **Guidance and budget (ruling R16).** ``relation_types`` narrows the walk to
 the types a question implies. It is part of the join condition in the recursive
@@ -311,9 +316,13 @@ def traverse(
     walked (``None`` or empty: all), and at most ``node_budget`` nodes are kept,
     nearest first by (depth, id) with seeds first; ``truncated`` says whether
     any reached node was dropped. Seeds are re-checked for visibility inside the anchor, so
-    passing an id the caller may not see yields no node for it. Each edge
+    passing an id the caller may not see yields no node for it. Every returned
+    ``GraphNode.depth`` is that same minimum hop count (seeds are 0). Each edge
     appears once; when it is walkable in both directions the forward reading is
-    reported. An edge's ``source_chunk_ids`` are its admitted source chunks only.
+    reported, regardless of which direction actually reached the node it leads
+    to, so ``depth`` (not edge direction) is the only reliable measure of how
+    a node was reached. An edge's ``source_chunk_ids`` are its admitted source
+    chunks only.
 
     ``empty_reason`` is set only as far as the ``Subgraph`` contract requires:
     ``NO_ENTITY_MATCHED`` when no seed is visible, ``NO_WALKABLE_EDGES`` when
@@ -344,7 +353,9 @@ def traverse(
         )
 
     nodes = [
-        GraphNode(id=entity_id, name=name, entity_type=EntityType(entity_type))
+        GraphNode(
+            id=entity_id, name=name, entity_type=EntityType(entity_type), depth=depths[entity_id]
+        )
         for entity_id, name, entity_type in db.execute(
             select(Entity.id, Entity.name, Entity.entity_type)
             .where(Entity.id.in_(sorted(depths)))

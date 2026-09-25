@@ -229,13 +229,25 @@ class EmptyReason(StrEnum):
 
 class GraphNode(BaseModel):
     """A node as the caller sees it. No description: a stored description may
-    paraphrase a chunk the caller cannot see."""
+    paraphrase a chunk the caller cannot see.
+
+    ``depth`` is the minimum number of hops from a seed, as the walk itself
+    measured it (``min(depth)`` over every path the recursive query found); a
+    seed is depth 0. It is carried here, on the contract, rather than
+    recomputed by a caller from the returned edges, because an edge walked
+    backwards through an invertible relation can still be reported in the
+    forwards reading (``graph.traverse``'s ``goes_forwards`` preference, when
+    both directions are walkable), which makes a caller-side reconstruction
+    from edge direction silently wrong for exactly the nodes only reachable
+    that way (ruling R21).
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     id: int
     name: str
     entity_type: EntityType
+    depth: int = Field(ge=0)
 
 
 class GraphEdge(BaseModel):
