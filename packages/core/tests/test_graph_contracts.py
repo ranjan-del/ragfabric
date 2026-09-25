@@ -401,8 +401,10 @@ def test_a_blank_question_entity_name_is_a_violation():
 # The sub-graph shape.
 
 
-def _node(node_id: int, name: str = "n", entity_type: EntityType = EntityType.TEAM) -> GraphNode:
-    return GraphNode(id=node_id, name=name, entity_type=entity_type)
+def _node(
+    node_id: int, name: str = "n", entity_type: EntityType = EntityType.TEAM, depth: int = 0
+) -> GraphNode:
+    return GraphNode(id=node_id, name=name, entity_type=entity_type, depth=depth)
 
 
 def _edge(**overrides) -> GraphEdge:
@@ -471,7 +473,7 @@ def test_nodes_and_edges_carry_no_description():
     assert "description" not in GraphNode.model_fields
     assert "description" not in GraphEdge.model_fields
     with pytest.raises(ValidationError):
-        GraphNode(id=1, name="x", entity_type=EntityType.TEAM, description="leak")
+        GraphNode(id=1, name="x", entity_type=EntityType.TEAM, depth=0, description="leak")
 
 
 def test_a_subgraph_with_edges_has_no_empty_reason():
