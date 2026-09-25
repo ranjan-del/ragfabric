@@ -47,8 +47,8 @@ that reaches, and collect the passages along the path.
 |---|---|
 | Extraction | One LLM call per changed chunk, against `graph.contracts.ExtractionResponse`; everything below the confidence floor is discarded and counted |
 | Entity, relationship | `EntityType` and `RelationType` are fixed enums; entity identity is `(normalise(name), entity_type)` |
-| Provenance | `entity_sources` / `relationship_sources`: one row per (entity or relationship, chunk), each with that chunk's own confidence. The single source of truth for both citation and access |
-| Resolution | Three stages (exact, alias, embedding tie-break) merge duplicate entities; every merge is recorded and reversible |
+| Provenance | `entity_sources` / `relationship_sources`: one row per (entity or relationship, chunk), each with that chunk's own confidence; an `entity_sources` row also keeps the spelling that chunk used (`surface_name`). The single source of truth for citation, access and the names a caller sees |
+| Resolution | Three stages (exact, alias, embedding tie-break) merge duplicate entities; every merge between two stored entities is recorded, and unmerge is last-in-first-out and reports whatever it could not restore |
 | Traversal | A recursive CTE from matched, visible nodes outward, access-checked on nodes and edges alike, bounded by a hop ceiling and a node budget |
 | Subgraph | What a traversal returns: nodes with their depth, edges with their walked direction and visible source chunks, `truncated`, and `empty_reason` when there are no edges |
 | Citation contract | An additive check over relationship claims: a claim naming a relationship must cite the edge and a chunk that backs it |
@@ -87,6 +87,24 @@ that removal left with zero sources at all garbage collected, and confidences on
 survives are recomputed. The whole pass, removal, extraction and cleanup, runs inside one savepoint,
 so a contract violation on the new text rolls everything back and leaves the old graph intact, the
 hash untouched, so the next pass retries the same chunk.
+
+**Re-ingesting a document** (`reingest_document`) replaces every chunk row, so the hash alone would
+not help: the new rows have no hash and no links. Before the old rows are deleted, each new chunk
+whose text is identical to an old chunk's (paired in `chunk_index` order when the same text occurs
+more than once) inherits that chunk's `extraction_hash` and has its `EntitySource` and
+`RelationshipSource` rows moved to it unchanged, confidence and spelling included (ruling R41). The
+extraction pass that follows skips it. An old chunk with no identical successor has its links
+removed, whatever they alone supported is garbage collected, and the confidence of everything they
+touched is recomputed from the sources left. What this covers precisely: a chunk whose text is
+byte-identical to one in the previous revision costs no extraction call and no resolution embedding
+call. A change that moves chunk boundaries changes the text of every chunk it touches, and those
+chunks are extracted again. The search indexes are rebuilt for the new chunks either way, since that
+is a different pipeline. Merge records are not rewritten: one that names a replaced chunk's id treats
+that chunk as gone when unmerged, and reports what it could not restore.
+
+**Deleting a document or a collection** removes its chunks' graph links, garbage collects what only
+they sourced and recomputes every survivor's confidence before the rows are deleted (ruling R42), so
+no entity or edge keeps a confidence that only a deleted chunk reported.
 
 ### Entity resolution: recorded, reversible merges (Task 5)
 
@@ -130,6 +148,14 @@ hold everywhere in the walk, not just at the edges of it:
   node it leads to is visible. Both predicates are correlated `EXISTS` subqueries inside the match,
   the anchor of the recursive term, the recursive term itself, and the edge fetch. Nothing is
   filtered after the walk runs (ADR 0003).
+- **Names and confidence follow access too.** An entity's spelling is text from a chunk, so a
+  node's `name` is the `surface_name` of the caller's best admitted source (highest per-source
+  confidence, then lowest chunk id), and a question matches an entity only through the normalised
+  spellings of its admitted sources (ruling R40). The stored `Entity.name` and `Entity.aliases` are
+  resolution's bookkeeping: after a merge they hold spellings from every source, including ones this
+  caller cannot read, so they never reach a caller and are never matched against a question. An
+  edge's `confidence` is likewise the max over its admitted sources (ruling R43), `None` when none
+  of them measured one, never the stored aggregate that also counts denied chunks.
 - **Direction.** Every `RelationType` walks forwards. It walks backwards only when it appears in
   `INVERSES`, under its inverse name, with `reversed=True`; a relation absent from that table
   (`REPORTS_TO`) is never walked backwards. See
@@ -233,15 +259,23 @@ that fails at startup.
 The `extract_graph` ingestion handler (`workers/handlers.py`) does nothing when `graph_store.enabled`
 is false: no LLM call, no provider constructed. When enabled, it extracts the document's chunks,
 then resolves only the entities sourced by chunks that were actually (re)extracted in this run
-(ruling R36), skipping resolution entirely when every chunk was unchanged, so an unmodified re-ingest
-costs nothing on either side.
+(ruling R36), skipping resolution entirely when every chunk was unchanged. Together with the
+re-ingest carry-over above (ruling R41), re-ingesting a document whose chunks are all byte-identical
+to the previous revision's makes no extraction call and no resolution embedding call.
+
+`index_document` and `extract_graph` are separate jobs and a queue may run them in either order, so
+`index_document` leaves an existing `extract_graph failed:` error and its `failed` status in place
+instead of resetting them, and only a later successful `extract_graph` clears its own failure
+(ruling R44): back to `ready` if the document's index job has finished since its last ingest, to
+`indexing` otherwise.
 
 ## API, CLI and SDK surface
 
 - **`POST /api/ask`** and **`POST /api/search/query`** accept `strategy: "graph"`. The response
-  carries `subgraph` (nodes with depth, edges with `walked_as`, `reversed` and `confidence`
-  (`GraphEdgeOut.confidence`, what the extraction model reported for that edge, or `None` when
-  nothing measured it), `truncated`, `empty_reason`; never a stored description, ruling R6) and
+  carries `subgraph` (nodes with the caller's own spelling and depth, edges with `walked_as`,
+  `reversed` and `confidence` (`GraphEdgeOut.confidence`, the highest confidence the extraction
+  model reported for that edge in a chunk this caller may read, or `None` when none of them was
+  measured), `truncated`, `empty_reason`; never a stored description, ruling R6) and
   `dropped_relationship_claims` (each with its `RelationshipDropReason`), alongside the ordinary
   `dropped_claims` from the Phase 3 contract. `Citation.score` is `None` on the graph path, since
   nothing was ranked (ADR 0004).

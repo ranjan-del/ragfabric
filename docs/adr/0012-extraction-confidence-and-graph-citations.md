@@ -53,8 +53,11 @@ a floor with no counter cannot do.
 `extraction_model`, one row per chunk that contributed to that entity or relationship. The parent
 `Entity.confidence` / `Relationship.confidence` is not written once and left alone; it is
 **recomputed as the maximum over the row's current sources** every time a source is added, removed
-(Task 4, a chunk changed) or moved (Task 5, a merge or unmerge). `None` iff no surviving source has
-a measured confidence.
+(Task 4, a chunk changed; or its chunk deleted with its document or collection, or replaced by a
+re-ingest, ruling R42) or moved (Task 5, a merge or unmerge; or a re-ingest carrying it to an
+identical new chunk, ruling R41). `None` iff no surviving source has a measured confidence. What a
+caller is shown is narrower still: an edge's confidence in a traversal result is the maximum over
+the sources that caller may read (ruling R43), never the stored aggregate.
 
 This is not the same guarantee as a floor at write time. R9's original single-max rule goes stale
 the moment the chunk that supplied the maximum is re-extracted or its entity is merged away; keeping
@@ -105,7 +108,8 @@ accepted as correct:
    names B passes, although no edge joins A to C directly.
 3. **A cited edge that joins no two named entities is tolerated, not refused**, provided it
    resolves. Such a marker adds no support and is not treated as a failure.
-4. **Names are matched only on the node's own name.** A chunk that names an endpoint by an alias or
+4. **Names are matched only on the node's own name**, which is the spelling of the caller's best
+   admitted source (ruling R40). A chunk that names an endpoint by another spelling, an alias or
    a pronoun does not count as naming it, so a true claim can be dropped; the rendered sub-graph
    carries no aliases (ADR 0003, ruling R6: no stored description, and no alias, is ever rendered to
    a caller), so there is nothing else to match against.

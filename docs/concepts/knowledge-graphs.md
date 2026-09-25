@@ -27,8 +27,8 @@ one, and that is the honest empty case Task 9 exists to report rather than paper
 |---|---|
 | **Entity** | A thing with an identity: `EntityType` is a fixed enum (person, team, organisation, project, product, document, policy, location). Identity is `(normalise(name), entity_type)`, exactly the pair the unique constraint enforces |
 | **Relationship** | A typed, directed link between two entities: `RelationType` is a fixed enum (`REPORTS_TO`, `MEMBER_OF`, `BELONGS_TO`, `OWNS`, `WORKS_ON`, `LOCATED_IN`, `AUTHORED`, `MENTIONS`, `RELATED_TO`) |
-| **Node** | The graph's representation of an entity in a traversal result (`GraphNode`): id, name, type and the minimum hop depth it was reached at. No description, and no alias: a stored description or alias may be paraphrased from a chunk the caller cannot see, which is exactly the leak ADR 0003 forbids |
-| **Edge** | The graph's representation of a relationship in a traversal result (`GraphEdge`): the stored direction, the name it was walked under, whether that reading is reversed, and only the source chunks the caller may see |
+| **Node** | The graph's representation of an entity in a traversal result (`GraphNode`): id, name, type and the minimum hop depth it was reached at. The name is the spelling used by the best source chunk the caller may see, not the stored entity name, which after a merge can come from a chunk they cannot. No description, and no alias: a stored description or alias may be paraphrased from a chunk the caller cannot see, which is exactly the leak ADR 0003 forbids |
+| **Edge** | The graph's representation of a relationship in a traversal result (`GraphEdge`): the stored direction, the name it was walked under, whether that reading is reversed, only the source chunks the caller may see, and the highest confidence those chunks reported |
 | **Provenance** | `entity_sources` and `relationship_sources`: one row per (entity or relationship, chunk) that named it, each carrying that chunk's own reported confidence. This is the single source of truth for both citation and access; there is no second, denormalised copy to drift out of sync with it |
 
 Both enums are **fixed**, not free text a model can extend. A model that reports a relation type
@@ -134,8 +134,9 @@ over relationship claims specifically. See ADR 0012 for the rules and their stat
 "Ravi Sharma" not merging fragments the graph: a traversal that should connect two facts finds no
 path. "R. Sharma" and a different Sharma merging wrongly fuses two people, and the graph now asserts
 things about someone who does not exist. Neither error can be tuned without measurement, which
-belongs to Phase 8, so what this phase guarantees instead is that every merge is recorded with the
-evidence that justified it and can be undone: see `graph/resolve.py` and `ragfabric graph merges` for
+belongs to Phase 8, so what this phase guarantees instead is that every merge of two stored
+entities is recorded with the evidence that justified it and can be undone, newest first, with
+anything that can no longer be restored reported rather than hidden: see `graph/resolve.py` and `ragfabric graph merges` for
 how, and [graph-rag.md](../graph-rag.md) for what a merge and an unmerge actually move.
 
 None of the above is a quality claim. Whether the floor, the resolution stages or the citation

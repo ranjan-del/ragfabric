@@ -138,8 +138,9 @@ that branch.
       dropped ([ADR 0012](docs/adr/0012-extraction-confidence-and-graph-citations.md))
 - [x] Incremental extraction: an unchanged chunk is skipped by its content hash, and a changed
       chunk's stale entities and edges are cleaned up before the new text is stored
-- [x] Entity resolution in three stages (exact, alias, embedding tie-break), every merge recorded
-      with its evidence and reversible; unmerge is globally last-in, first-out (ruling R30)
+- [x] Entity resolution in three stages (exact, alias, embedding tie-break), each merge of two
+      stored entities recorded with its evidence; unmerge is globally last-in, first-out (ruling
+      R30) and reports whatever it could not restore when chunks changed or were removed (R31)
 - [x] Directed, access-checked traversal (`graph/traverse.py`): the access predicate sits inside the
       recursive term, applied to node matching and to edge walking alike, and a relation type absent
       from `INVERSES` is never walked backwards
