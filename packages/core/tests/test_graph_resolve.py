@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session, sessionmaker
 # process, so SQLite enforces the same foreign keys PostgreSQL does.
 import ragfabric_core.db.session  # noqa: F401
 from ragfabric_core.db.migrate import downgrade, upgrade
-from ragfabric_core.graph.resolve import resolve_entities, unmerge
+from ragfabric_core.graph.resolve import UnmergeBlocked, resolve_entities, unmerge
 from ragfabric_core.models import Base
 from ragfabric_core.models.document import Chunk, Collection, Document
 from ragfabric_core.models.graph import (
@@ -771,54 +771,168 @@ def test_stage_three_does_not_chain_when_the_middle_entity_survives(db):
     assert [entity.id for entity in _entities(db)] == [b.id, c.id]
 
 
-def test_an_out_of_order_unmerge_does_not_leak_aliases(db):
+def _merge_ids(db) -> list[int]:
+    return list(db.execute(select(EntityMerge.id).order_by(EntityMerge.id)).scalars())
+
+
+def _assert_blocked(db, merge_id: int, blocking: list[int]) -> None:
+    """``unmerge`` refuses, names the blockers, and writes nothing."""
+    graph, merges = _snapshot(db), _merge_ids(db)
+    with pytest.raises(UnmergeBlocked) as refused:
+        unmerge(db, merge_id)
+    assert refused.value.merge_id == merge_id
+    assert refused.value.blocking_merge_ids == blocking
+    db.flush()
+    assert _snapshot(db) == graph
+    assert _merge_ids(db) == merges
+
+
+def test_unmerge_is_blocked_while_a_later_merge_folded_its_edge_away(db):
     c1, c2, c3 = _chunks(db, 3)
+    # The reviewer's fold-away probe. M1: Bob absorbs Bobby, whose edge to
+    # Apollo is repointed onto Bob. M2: Robert absorbs Bob, and that edge
+    # folds into Robert's own edge to Apollo. Undoing M1 first would find
+    # its edge gone and bring Bobby back without it.
     robert = _entity(db, "Robert Sharma", "person", {c1: 0.9}, aliases=["Bob Sharma"])
     _entity(db, "Bob Sharma", "person", {c2: 0.7}, aliases=["Bobby"])
-    bobby = _entity(db, "Bobby", "person", {c3: 0.5}, aliases=["B. S."])
+    bobby = _entity(db, "Bobby", "person", {c3: 0.5})
+    apollo = _entity(db, "Apollo", "project", {c1: 0.9, c3: 0.9})
+    _edge(db, bobby, apollo, "WORKS_ON", {c3: 0.8})
+    _edge(db, robert, apollo, "WORKS_ON", {c1: 0.6})
+    before = _snapshot(db)
     report = resolve_entities(db, None, similarity_threshold=THRESHOLD, entity_ids=[bobby.id])
-    inner, outer = report.merges
-    assert robert.aliases == ["Bob Sharma", "Bobby", "B. S."]
+    first, second = report.merges
+    assert (first.merged_id, second.survivor_id) == (bobby.id, robert.id)
 
-    # The older merge first, against the recommended order.
-    restored_bobby = unmerge(db, inner.merge_id)
-    restored_bob = unmerge(db, outer.merge_id)
+    _assert_blocked(db, first.merge_id, [second.merge_id])
 
-    assert db.get(Entity, restored_bobby.restored_entity_id).aliases == ["B. S."]
-    assert db.get(Entity, restored_bob.restored_entity_id).aliases == ["Bobby"]
-    assert robert.aliases == ["Bob Sharma"]
-    assert _entity_sources(db, restored_bobby.restored_entity_id) == {c3: 0.5}
-    assert _entity_sources(db, restored_bob.restored_entity_id) == {c2: 0.7}
+    unmerge(db, second.merge_id)
+    unmerge(db, first.merge_id)
+    assert _snapshot(db) == before
 
 
-def test_an_out_of_order_unmerge_splits_a_later_fold_off_the_edge(db):
+def test_unmerge_is_blocked_while_a_later_merge_shares_its_survivor(db):
     c1, c2, c3 = _chunks(db, 3)
-    robert = _entity(db, "Robert Sharma", "person", {c1: 0.9}, aliases=["Bob Sharma", "Rob"])
-    bob = _entity(db, "Bob Sharma", "person", {c2: 0.7})
-    rob = _entity(db, "Rob", "person", {c3: 0.6})
-    project = _entity(db, "Apollo", "project", {c1: 0.9})
-    edge = _edge(db, bob, project, "WORKS_ON", {c2: 0.8})
-    _edge(db, rob, project, "WORKS_ON", {c3: 0.5})
+    # The reviewer's alias probe. M1: Robert absorbs Bob Sharma, gaining
+    # Bob's alias Quill. M2: Robert absorbs an entity named Quill, which that
+    # alias justified. Undoing M1 first would strip the alias M2 relies on.
+    robert = _entity(db, "Robert Sharma", "person", {c1: 0.9}, aliases=["Bob Sharma"])
+    _entity(db, "Bob Sharma", "person", {c2: 0.7}, aliases=["Quill"])
+    _entity(db, "Quill", "person", {c3: 0.5})
     before = _snapshot(db)
     report = resolve_entities(db, None, similarity_threshold=THRESHOLD)
     first, second = report.merges
-    assert (first.merged_id, second.merged_id) == (bob.id, rob.id)
-    # Bob's edge was repointed to Robert, then Rob's folded into it.
-    assert _edge_sources(db, edge.id) == {c2: 0.8, c3: 0.5}
+    assert first.survivor_id == second.survivor_id == robert.id
+    assert robert.aliases == ["Bob Sharma", "Quill"]
 
-    result = unmerge(db, first.merge_id)
-
-    # Bob's edge goes back to Bob with only his chunk; Rob's report is a
-    # claim about Robert for now, so it is split off, not handed to Bob.
-    assert _edge_sources(db, edge.id) == {c2: 0.8}
-    assert edge.source_entity_id == result.restored_entity_id
-    (split,) = [e for e in _edges(db) if e.source_entity_id == robert.id]
-    assert _edge_sources(db, split.id) == {c3: 0.5}
-    assert split.id in result.shared_relationship_ids
+    _assert_blocked(db, first.merge_id, [second.merge_id])
+    assert robert.aliases == ["Bob Sharma", "Quill"]
 
     unmerge(db, second.merge_id)
-
+    unmerge(db, first.merge_id)
     assert _snapshot(db) == before
+
+
+def test_unmerge_is_blocked_while_a_later_merge_moved_the_far_end_of_its_edge(db):
+    c1, c2, c3 = _chunks(db, 3)
+    # M1 repoints Bob's edge to Apollo onto Robert; M2 then merges Apollo
+    # Program into Apollo, the far end of that edge. M2's survivor is not
+    # M1's, but it touched an entity M1 changed rows for, so it still blocks.
+    robert = _entity(db, "Robert Sharma", "person", {c1: 0.9}, aliases=["Bob Sharma"])
+    bob = _entity(db, "Bob Sharma", "person", {c2: 0.7})
+    apollo = _entity(db, "Apollo", "project", {c2: 0.9}, aliases=["Apollo Program"])
+    program = _entity(db, "Apollo Program", "project", {c3: 0.8})
+    _edge(db, bob, apollo, "WORKS_ON", {c2: 0.8})
+    _edge(db, robert, program, "WORKS_ON", {c3: 0.4})
+    before = _snapshot(db)
+    (first,) = resolve_entities(
+        db, None, similarity_threshold=THRESHOLD, entity_ids=[bob.id]
+    ).merges
+    (second,) = resolve_entities(
+        db, None, similarity_threshold=THRESHOLD, entity_ids=[program.id]
+    ).merges
+    assert (second.survivor_id, second.merged_id) == (apollo.id, program.id)
+    # Robert's edges to Apollo and to Apollo Program folded together.
+    assert len([e for e in _edges(db) if e.relation_type == "WORKS_ON"]) == 1
+
+    _assert_blocked(db, first.merge_id, [second.merge_id])
+
+    unmerge(db, second.merge_id)
+    unmerge(db, first.merge_id)
+    assert _snapshot(db) == before
+
+
+def test_lifo_unmerge_follows_an_edge_a_later_merge_dropped_as_a_self_loop(db):
+    c1, c2, c3 = _chunks(db, 3)
+    # M1: Bob absorbs Bobby, and Bobby's edge to Robert becomes Bob's. M2:
+    # Robert absorbs Bob, so that edge would be Robert to Robert and is
+    # dropped. Undoing M2 recreates it under a new id, and M1 must follow it.
+    robert = _entity(db, "Robert Sharma", "person", {c1: 0.9}, aliases=["Bob Sharma"])
+    _entity(db, "Bob Sharma", "person", {c2: 0.7}, aliases=["Bobby"])
+    bobby = _entity(db, "Bobby", "person", {c3: 0.5})
+    _edge(db, bobby, robert, "REPORTS_TO", {c3: 0.6})
+    before = _snapshot(db)
+    first, second = resolve_entities(
+        db, None, similarity_threshold=THRESHOLD, entity_ids=[bobby.id]
+    ).merges
+    assert _edges(db) == []
+
+    unmerge(db, second.merge_id)
+    result = unmerge(db, first.merge_id)
+
+    assert result.unrestored_relationship_ids == []
+    assert _snapshot(db) == before
+
+
+def test_a_report_added_to_a_moved_edge_after_the_merge_stays_with_the_survivor(db):
+    c1, c2, c3 = _chunks(db, 3)
+    robert = _entity(db, "Robert Sharma", "person", {c1: 0.9}, aliases=["Bob Sharma"])
+    bob = _entity(db, "Bob Sharma", "person", {c2: 0.7})
+    apollo = _entity(db, "Apollo", "project", {c1: 0.9})
+    edge = _edge(db, bob, apollo, "WORKS_ON", {c2: 0.8})
+    (merge,) = resolve_entities(db, None, similarity_threshold=THRESHOLD).merges
+    # A later extraction of c3 reports Robert works on Apollo; the upsert
+    # finds the repointed edge and links c3 to it.
+    db.add(
+        RelationshipSource(
+            relationship_id=edge.id, chunk_id=c3, confidence=0.4, extraction_model="later"
+        )
+    )
+    db.flush()
+
+    result = unmerge(db, merge.merge_id)
+
+    assert edge.source_entity_id == result.restored_entity_id
+    assert _edge_sources(db, edge.id) == {c2: 0.8}
+    (split,) = [e for e in _edges(db) if e.source_entity_id == robert.id]
+    assert split.target_entity_id == apollo.id
+    assert _edge_sources(db, split.id) == {c3: 0.4}
+    assert split.id in result.shared_relationship_ids
+    assert result.unrestored_relationship_ids == []
+
+
+def test_a_recorded_edge_removed_since_the_merge_is_reported_not_silently_lost(db):
+    c1, c2 = _chunks(db, 2)
+    _entity(db, "Robert Sharma", "person", {c1: 0.9}, aliases=["Bob Sharma"])
+    bob = _entity(db, "Bob Sharma", "person", {c2: 0.7})
+    apollo = _entity(db, "Apollo", "project", {c2: 0.9})
+    edge = _edge(db, bob, apollo, "WORKS_ON", {c2: 0.8})
+    edge_id = edge.id
+    (merge,) = resolve_entities(db, None, similarity_threshold=THRESHOLD).merges
+    # Re-extraction since the merge garbage collected the edge.
+    for row in db.execute(
+        select(RelationshipSource).where(RelationshipSource.relationship_id == edge_id)
+    ).scalars():
+        db.delete(row)
+    db.flush()
+    db.delete(edge)
+    db.flush()
+
+    result = unmerge(db, merge.merge_id)
+
+    assert result.unrestored_relationship_ids == [edge_id]
+    assert result.moved_relationship_ids == []
+    assert _edges(db) == []
 
 
 def test_unmerging_an_unknown_merge_raises(db):
