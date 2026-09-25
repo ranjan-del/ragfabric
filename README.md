@@ -117,8 +117,9 @@ query -> analyze -> decide information need -> retrieve (tools) -> evaluate evid
       -> enough? no: rewrite query, retrieve again (bounded) | yes: generate -> verify -> answer
 ```
 
-Built with LangGraph as an explicit state machine: typed state, nodes for each step, conditional edges,
-a hard iteration budget. The agent can call semantic search, lexical search and fetch-full-document as
+A plain Python state machine, not LangGraph ([ADR 0009](docs/adr/0009-plain-state-machine-over-langgraph.md)):
+typed state, a plain function for each node, and branches in the loop that enforce a hard iteration
+budget. The agent can call semantic search, lexical search and fetch-full-document as
 tools, judges whether the evidence answers the question, rewrites the query when it does not, and verifies
 the final answer against the evidence. Every step is recorded in the trace with its calls, tokens and cost.
 
@@ -129,7 +130,7 @@ first class.
 ### Graph RAG
 
 ```
-ingest: chunks -> entity extraction -> relationship extraction -> entity resolution -> Neo4j (with source chunk links)
+ingest: chunks -> entity extraction -> relationship extraction -> entity resolution -> PostgreSQL (recursive CTEs, source chunk links)
 query:  entities in question -> match nodes -> traverse k hops -> collect supporting chunks -> context -> LLM
 ```
 
@@ -196,8 +197,8 @@ flowchart TD
     API --> R[Query Router]
     R --> T[Traditional]
     R --> V[Vectorless]
-    R --> A[Agentic<br/>LangGraph]
-    R --> G[Graph<br/>Neo4j]
+    R --> A[Agentic<br/>Python state machine]
+    R --> G[Graph<br/>PostgreSQL recursive CTEs]
     T & V & A & G --> RR[RetrievalResult]
     RR --> GEN[Generator]
     GEN --> OUT[Answer, citations,<br/>metrics, trace]
@@ -234,7 +235,7 @@ implementations, so swapping is configuration, not code.
 | Reranker | `Reranker` | none, LLM rerank, cross encoder |
 | Vector store | `VectorStore` | PostgreSQL pgvector, Chroma |
 | Lexical store | `LexicalStore` | PostgreSQL full text, in process BM25 |
-| Graph store | `GraphStore` | Neo4j, none |
+| Graph store | none, walked directly in the relational schema | PostgreSQL recursive CTEs, or disabled |
 | Relational DB | SQLAlchemy | PostgreSQL, SQLite for development |
 | Cache and rate limits | `Cache` | Redis, in memory |
 | Auth | `AuthProvider` | Local users with JWT, API keys; OIDC later |
@@ -299,8 +300,8 @@ is generated, never typed. Until v0.5.0 ships it stays empty on purpose.
 | Layer | Choice |
 |---|---|
 | Engine and API | Python 3.13, FastAPI, Pydantic, SQLAlchemy, Alembic |
-| Agents | LangGraph |
-| Stores | PostgreSQL 18 with pgvector, Chroma, Neo4j 2026.08 community, Redis |
+| Agents | Plain Python state machine, no framework (ADR 0009) |
+| Stores | PostgreSQL 18 with pgvector, Chroma, Redis |
 | Frontend | Angular 22, TypeScript 6, Tailwind 4 |
 | Tooling | uv, Node 24, Docker Compose, GitHub Actions, OpenTelemetry |
 
@@ -310,14 +311,15 @@ than hidden behind a single library call.
 ## Installation
 
 Two compose profiles. `lite` is four services (PostgreSQL with pgvector, Redis, API, UI) and is
-enough for Traditional and Vectorless RAG. `full` adds Chroma and Neo4j for all four.
+enough for Traditional and Vectorless RAG. `full` adds Chroma for all four; the knowledge graph
+lives in PostgreSQL, not a service of its own (ADR 0011).
 
 ```bash
 git clone https://github.com/ranjan-del/ragfabric.git
 cd ragfabric
 cp .env.example .env && cp ragfabric.example.yaml ragfabric.yaml
 docker compose up --build                  # lite: PostgreSQL with pgvector, Redis, API, UI
-docker compose --profile full up --build   # adds Chroma and Neo4j
+docker compose --profile full up --build   # adds Chroma
 ```
 
 Then open the UI, sign in with the bootstrap admin from your `.env`, upload documents, and ask.
@@ -332,7 +334,7 @@ llm:        { provider: openai, model: gpt-4.1-mini }
 embeddings: { provider: openai, model: text-embedding-3-small }
 vector_store:  { kind: pgvector }
 lexical_store: { kind: postgres_fts }
-graph_store:   { kind: neo4j, enabled: false }
+graph_store:   { kind: postgres, enabled: false }
 strategies:
   traditional: { top_k: 5, similarity_threshold: 0.25, rerank: none }
   agentic:     { max_iterations: 4 }
@@ -340,8 +342,8 @@ router: { mode: auto, min_confidence: 0.6 }
 limits: { max_cost_per_query_usd: 0.05, max_latency_ms: 20000 }
 ```
 
-Secrets stay in the environment: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DATABASE_URL`, `JWT_SECRET`,
-`NEO4J_PASSWORD`. See `.env.example`. Pricing used for cost estimates lives in `pricing.yaml` and is
+Secrets stay in the environment: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DATABASE_URL`, `JWT_SECRET`.
+See `.env.example`. Pricing used for cost estimates lives in `pricing.yaml` and is
 labelled as an estimate everywhere it is shown.
 
 ## Example queries
@@ -365,7 +367,7 @@ packages/sdk-python      typed client
 packages/sdk-typescript  typed client (@ragfabric/sdk)
 apps/console             admin console (Angular)
 apps/assistant           reference end user UI (Angular), restyle or replace
-docker-compose.yml       lite default, full profile adds Chroma and Neo4j
+docker-compose.yml       lite default, full profile adds Chroma
 deploy/docker            api and ui Dockerfiles, nginx config
 evaluation               corpus, questions.json, runner, latest results
 docs                     concepts, guides, ADRs, design, benchmarks
@@ -464,8 +466,8 @@ See [ROADMAP.md](ROADMAP.md) and [CHANGELOG.md](CHANGELOG.md).
 | Release | Theme |
 |---|---|
 | v0.1.0 | Initial RAG engine: interfaces, providers, ingestion, access control, Traditional and Vectorless RAG, CLI, Python SDK, console |
-| v0.2.0 | Agentic retrieval with LangGraph |
-| v0.3.0 | Graph retrieval with Neo4j |
+| v0.2.0 | Agentic retrieval with a plain Python state machine, not LangGraph |
+| v0.3.0 | Graph retrieval on PostgreSQL recursive CTEs |
 | v0.4.0 | Adaptive router with fallbacks |
 | v0.5.0 | Evaluation framework, dashboards, generated benchmarks |
 | v1.0.0 | Production release: reference UI with Compare and Trace, TypeScript SDK, connectors, hardening, docs site, deployment guides |

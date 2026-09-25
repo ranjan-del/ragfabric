@@ -40,18 +40,6 @@ class LexicalStore(Protocol):
 
 
 @runtime_checkable
-class GraphStore(Protocol):
-    name: str
-
-    def upsert_entities(self, entities: list[dict]) -> None: ...
-    def upsert_relationships(self, relationships: list[dict]) -> None: ...
-    def neighbours(
-        self, entity_ids: list[int], hops: int, access: AccessFilter, max_nodes: int
-    ) -> dict: ...
-    def delete_document(self, document_id: int) -> None: ...
-
-
-@runtime_checkable
 class Cache(Protocol):
     name: str
 

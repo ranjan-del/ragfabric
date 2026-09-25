@@ -8,7 +8,7 @@
 
 | Need | Version | Notes |
 |---|---|---|
-| Docker and Docker Compose | Docker 24+, Compose v2 | Runs PostgreSQL, Redis, and in the full profile Chroma and Neo4j |
+| Docker and Docker Compose | Docker 24+, Compose v2 | Runs PostgreSQL, Redis, and in the full profile Chroma. The knowledge graph lives in PostgreSQL too (ADR 0011), no extra service needed |
 | Python | 3.13 | `uv` is the recommended tool: `uv sync` |
 | Node | 24 | For the Angular apps |
 | Ollama | any recent build | The shipped default, no key needed. Install it separately; RagFabric only calls its API |
@@ -31,7 +31,7 @@ git clone https://github.com/ranjan-del/ragfabric.git
 cd ragfabric
 cp .env.example .env && cp ragfabric.example.yaml ragfabric.yaml
 docker compose --profile lite up -d postgres redis   # PostgreSQL with pgvector, Redis
-docker compose --profile full up --build             # adds Chroma and Neo4j, and the API and UI
+docker compose --profile full up --build             # adds Chroma, and the API and UI
 ```
 
 Backend on `http://localhost:8000` (OpenAPI at `/docs`), frontend on `http://localhost:4200`.

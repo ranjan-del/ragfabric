@@ -30,11 +30,16 @@ Legend: `[x]` merged to main, `[~]` in progress, `[ ]` not started.
 ### Phase 1: Architecture, monorepo, interfaces, Docker, database
 - [x] Monorepo layout: `packages/{core,server,cli}`, `apps/assistant`, `deploy/`, `docs/` (the SDK packages, `apps/console` and `evaluation/` are created by the phases that ship them)
 - [x] `RetrieverStrategy`, `RetrievalResult`, `RetrievedChunk`, `RetrievalContext`
-- [x] `LLMProvider`, `EmbeddingProvider`, `VectorStore`, `LexicalStore`, `GraphStore`, `Cache`, `AuthProvider`, `Connector` interfaces (the `Reranker` interface arrives with Traditional RAG in Phase 3)
+- [x] `LLMProvider`, `EmbeddingProvider`, `VectorStore`, `LexicalStore`, `Cache`, `AuthProvider`, `Connector` interfaces (the `Reranker` interface arrives with Traditional RAG in Phase 3). A `GraphStore`
+      interface was added here for a Neo4j implementation and removed in Phase 6: nothing ever
+      implemented it, and the graph that shipped is written directly against the relational schema
+      it shares with every other store, not behind a swappable interface (ADR 0011)
 - [x] Providers: OpenAI, Anthropic, Ollama, offline test double
 - [x] `ragfabric.yaml` configuration loader, pricing configuration, cost calculator
 - [x] Migration 0002: conversations, messages, retrieval_runs, sources, evaluation_runs, evaluation_results, entities, relationships, groups, grants, api_keys, audit_log
-- [x] Compose profiles: `lite` (Postgres with pgvector, Redis, API, UI) and `full` (adds Chroma, Neo4j)
+- [x] Compose profiles: `lite` (Postgres with pgvector, Redis, API, UI) and `full` (adds Chroma).
+      A `full` profile Neo4j service was added here and removed in Phase 6, once the graph store
+      decision landed on PostgreSQL instead ([ADR 0011](docs/adr/0011-postgres-recursive-cte-over-neo4j.md))
 - [x] Python 3.13 via `uv`, Tailwind in the Angular apps
 
 ### Phase 2: Shared ingestion and access control foundation
@@ -71,8 +76,11 @@ measured it: the framework version was longer, added 38 packages, could not carr
 the tools through its state, and lost the reason the loop stopped. Recorded as
 [ADR 0009](docs/adr/0009-plain-state-machine-over-langgraph.md).
 
-Phase 5 has landed on its own branch and is not yet merged to main; `[x]` below means merged
-into that branch.
+Phase 5 merged to `main` as
+[f8bb012](https://github.com/ranjan-del/ragfabric/commit/f8bb012) (#39). The list below was written
+while Phase 5 was still on its own branch and said `[x]` meant merged into that branch, not main;
+every item that was checked then, plus the four that were still open, are now on `main`, verified
+against it directly rather than left as a stale snapshot.
 
 - [x] Typed `AgentState` with the sub-question ledger: per sub-question status, tool, attempt
       history and abandon reason, plus budget accounting that refuses a call rather than
@@ -93,22 +101,63 @@ into that branch.
 - [x] Every branch driven offline by scripted JSON model doubles, with no network and no database
 - [x] `docs/concepts/agentic-loops.md`, ADR 0009, ADR 0010, and `docs/agentic-rag.md` rewritten
       to describe what shipped
-- [ ] Generation over the pooled evidence, reusing the Phase 3 citation contract, with
-      unsupported claims removed rather than retried
-- [ ] Per sub-question report on `RetrievalResult`, replacing a best effort boolean
-- [ ] `agentic` on `POST /api/ask`, `POST /api/search/query`, `ragfabric ask --strategy` and the
-      Python SDK. The API and CLI still accept `traditional` and `vectorless` only
-- [ ] `strategies.agentic.max_cost_usd`, `max_latency_ms`, `max_llm_calls` and
-      `assess_strictness` read by the loop. They are typed and validated today but not enforced
-- [ ] An end to end run against a local model, with whatever it actually did written down
-- [ ] **Release v0.2.0**
+- [x] Generation over the pooled evidence, reusing the Phase 3 citation contract
+      (`generate/cited.py`'s `apply_agentic_contract`), with unsupported claims removed rather
+      than retried
+- [x] Per sub-question report on `RetrievalResult` (`sub_questions`), replacing a best effort
+      boolean
+- [x] `agentic` on `POST /api/ask`, `POST /api/search/query`, `ragfabric ask --strategy` and the
+      Python SDK
+- [x] `strategies.agentic.max_cost_usd`, `max_latency_ms`, `max_llm_calls` and
+      `assess_strictness` wired from `AgenticConfig` into the strategy build
+      (`strategies/registry_defaults.py`) and read by the loop
+- [x] An end to end run against a local model, written down in
+      `docs/learning/agentic-first-run.md`
+- [ ] **Release v0.2.0** (publishing is gated; `CHANGELOG.md`'s `[0.2.0]` section is still headed
+      `unreleased`)
 
 ## v0.3.0 Graph retrieval
 
-### Phase 6: Graph RAG (Neo4j)
-- [ ] Entity and relationship extraction with source chunk links, entity resolution
-- [ ] Neo4j schema and upserts, mirrored entities and relationships in Postgres
-- [ ] Entity match, k-hop traversal, source chunk retrieval, multi-hop questions
+### Phase 6: Graph RAG (PostgreSQL recursive CTEs, not Neo4j)
+
+Neo4j was named here and is not used. A spike built the identical traversal both ways and measured
+it: PostgreSQL could put the access filter inside the walk itself and Neo4j could not, without
+duplicating the access model or filtering after the fact, which ADR 0003 forbids. Recorded as
+[ADR 0011](docs/adr/0011-postgres-recursive-cte-over-neo4j.md).
+
+Phase 6 has landed on its own branch and is not yet merged to main; `[x]` below means merged into
+that branch.
+
+- [x] `entities` and `relationships` gain nullable `confidence` and `extraction_model`;
+      `entity_sources` / `relationship_sources` link tables (ruling R1) become the single source of
+      truth for provenance and access, replacing the JSON `source_chunk_ids` columns; `entity_merges`
+      records every resolution decision (migration 0008)
+- [x] Extraction contracts (`graph/contracts.py`): fixed `EntityType` and `RelationType` enums, the
+      `INVERSES` direction table, `normalise()`, and the `Subgraph` shape every later task consumes
+- [x] Extraction behind a confidence floor, with discarded items counted rather than silently
+      dropped ([ADR 0012](docs/adr/0012-extraction-confidence-and-graph-citations.md))
+- [x] Incremental extraction: an unchanged chunk is skipped by its content hash, and a changed
+      chunk's stale entities and edges are cleaned up before the new text is stored
+- [x] Entity resolution in three stages (exact, alias, embedding tie-break), every merge recorded
+      with its evidence and reversible; unmerge is globally last-in, first-out (ruling R30)
+- [x] Directed, access-checked traversal (`graph/traverse.py`): the access predicate sits inside the
+      recursive term, applied to node matching and to edge walking alike, and a relation type absent
+      from `INVERSES` is never walked backwards
+- [x] Node budget and relation-type guidance on the walk, with truncation reported rather than
+      silent
+- [x] `GraphRAGStrategy`, registered as `graph`, with the three honest empty cases
+      (`no_graph_coverage`, `no_entity_matched`, `no_walkable_edges`)
+- [x] The graph citation contract: a relationship claim must cite its edge and a chunk that backs it,
+      additive to the unchanged Phase 3 contract
+- [x] Graph extraction wired into ingestion behind typed, strict `graph_store` configuration; every
+      setting read by something
+- [x] `graph` on `POST /api/ask`, `POST /api/search/query`, `ragfabric ask --strategy` and the
+      Python SDK; `POST /api/search/hybrid` continues to refuse it; `ragfabric graph merges
+      list|show|undo` for inspecting and reversing a merge
+- [~] A real extraction run against a local model, with what it actually got right, missed and
+      invented written down (Task 13, landing alongside this document)
+- [x] `docs/concepts/knowledge-graphs.md`, ADR 0011, ADR 0012, and `docs/graph-rag.md` rewritten to
+      describe what shipped; the `GraphStore` protocol removed, nothing having ever implemented it
 - [ ] **Release v0.3.0**
 
 ## v0.4.0 Adaptive router

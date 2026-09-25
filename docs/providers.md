@@ -80,15 +80,17 @@ Interface: Phase 1 (shipped).
 | In process BM25 (`rank_bm25`), rebuilt from the database | v0.1.0 (planned, Phase 4) | |
 | OpenSearch | later | |
 
-## Graph stores (`GraphStore`)
+## Graph store
 
-Interface: Phase 1 (shipped).
+There is no separate graph store interface. A `GraphStore` protocol was added in Phase 1 for a
+planned Neo4j implementation; Phase 6 removed it, because nothing ever implemented it and the graph
+that shipped is written directly against the relational schema it shares with every other store, not
+behind a swappable interface ([ADR 0011](adr/0011-postgres-recursive-cte-over-neo4j.md)).
 
-| Store | Status |
+| Backend | Status |
 |---|---|
-| Neo4j 5 | v0.3.0 (planned, Phase 6) |
-| none | v0.1.0 (Graph RAG disabled) |
-| Memgraph, PostgreSQL adjacency tables | later |
+| PostgreSQL, recursive CTEs (`graph/traverse.py`), behind `graph_store.kind: postgres` | v0.3.0 (Phase 6, shipped on the phase branch) |
+| disabled (`graph_store.enabled: false`, the default) | v0.1.0 onward (Graph RAG makes no call and needs no provider) |
 
 ## Cache (`Cache`)
 

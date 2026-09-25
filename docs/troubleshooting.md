@@ -11,7 +11,7 @@ it before changing anything.
 | Backend exits with "JWT_SECRET is still a placeholder" | `ENVIRONMENT=production` with the default secret | Set a real secret: `python -c "import secrets; print(secrets.token_urlsafe(64))"` |
 | No admin user after first start in production | The shipped bootstrap admin is refused in production by design | Set `FIRST_ADMIN_EMAIL` and `FIRST_ADMIN_PASSWORD` to your own values |
 | `ModuleNotFoundError` on Python 3.14 | Dependencies target 3.12 | `uv venv --python 3.12` |
-| Neo4j healthcheck never passes | Memory limits or password not set | `docker compose logs neo4j`; set `NEO4J_PASSWORD`; give Docker at least 4 GB |
+| `graph_store.kind: neo4j` in `ragfabric.yaml` fails validation | Neo4j was removed as a graph backend in Phase 6; the graph lives in PostgreSQL now | Set `kind: postgres` or drop the key; see [ADR 0011](adr/0011-postgres-recursive-cte-over-neo4j.md) |
 | The `api` or `worker` container exits at startup with `ProviderError: ollama: openai is not installed. Install it with: uv pip install 'ragfabric[openai]'` | Ollama is the shipped default provider and is served through the OpenAI compatible client, so the `openai` extra is required even for an Ollama-only deployment; an image built from an image tag or commit that predates the Dockerfile's scoped `openai` extra install, or a custom Dockerfile that omits it, will not have the extra | Rebuild the image from current `main`; `deploy/docker/api.Dockerfile` installs the `openai` extra with a scoped `uv sync --frozen --no-dev --inexact --package ragfabric-core --extra openai` step after the workspace sync. If you maintain your own Dockerfile, add the same extra install |
 
 ## Ingestion

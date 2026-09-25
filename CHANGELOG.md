@@ -10,7 +10,7 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 |---|---|---|
 | v0.1.0 | Initial RAG engine | Monorepo, interfaces, providers, ingestion, access control, Traditional and Vectorless RAG, CLI, Python SDK, console v1 |
 | v0.2.0 | Agentic retrieval | Bounded agent loop with a repair policy, budgets and traces |
-| v0.3.0 | Graph retrieval | Neo4j knowledge graph build and Graph RAG strategy |
+| v0.3.0 | Graph retrieval | Knowledge graph build on PostgreSQL recursive CTEs (ADR 0011) and Graph RAG strategy |
 | v0.4.0 | Adaptive router | AUTO and MANUAL modes, RouterDecision, fallbacks |
 | v0.5.0 | Evaluation framework | Corpus, question set, metrics, `make eval`, dashboards, generated benchmarks |
 | v1.0.0 | Production release | Reference UI with Compare and Trace, TypeScript SDK, connectors, hardening, docs site, deployment guides |
