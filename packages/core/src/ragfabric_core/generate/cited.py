@@ -31,6 +31,14 @@ from ragfabric_core.generate.contract import (
     CitationViolation,
     assert_citation_contract,
 )
+from ragfabric_core.graph.citations import (
+    edge_marker,
+    is_relationship_claim,
+    relationship_claim_violation,
+    render_edges,
+    strip_markers,
+)
+from ragfabric_core.graph.contracts import Subgraph
 from ragfabric_core.providers.base import LLMProvider, Message
 from ragfabric_core.strategies.base import RetrievedChunk, SubQuestionReport
 
@@ -467,4 +475,160 @@ def generate_agentic_answer(
         generator="llm",
         dropped_claims=checked.dropped_claims,
         dated_sources=checked.dated_sources,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Generation over a traversed sub-graph.
+#
+# The same shape as the agentic path above, for the same reasons: one call, no
+# retry, and every claim the contracts refuse is removed and recorded rather
+# than regenerated. What is new is a second contract. A claim that relates two
+# sub-graph entities, or cites an [E k] edge marker, is a relationship claim
+# and must satisfy ``graph.citations`` (its edge is in the traversed sub-graph,
+# joins two entities the claim names, and is supported by a cited source chunk
+# naming both endpoints). A relationship claim that passes must then also pass
+# the Phase 3 contract, unchanged, because its [n] markers and any quotation
+# are still claims about chunk text. Every other claim goes through the Phase 3
+# contract alone, exactly as on the agentic path.
+#
+# The two kinds of drop are kept in separate lists so a caller can tell "the
+# chunk does not say that" from "no walked edge supports that", which are
+# different failures with different fixes.
+# ---------------------------------------------------------------------------
+
+GRAPH_SYSTEM_PROMPT = (
+    "You answer strictly from the numbered passages and relationships provided. "
+    "Cite every claim with the passage number in square brackets, for example [1]. "
+    "Every relationship you state between two entities must cite the relationship "
+    f"number, for example {edge_marker(1)}, and a passage listed as its source, "
+    f"for example {edge_marker(1)} [1]. "
+    "Do not state a relationship that is not listed. "
+    "Quote verbatim only, inside double quotation marks; paraphrase everything else. "
+    "If the passages do not answer the question, reply exactly: "
+    f"{NO_EVIDENCE_ANSWER}"
+)
+
+
+class GraphAnswer(BaseModel):
+    text: str
+    model: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    latency_ms: int = 0
+    generator: Literal["llm", "extractive"] = "llm"
+    # Refused by the Phase 3 contract (chunk text, markers, quotes).
+    dropped_claims: list[DroppedClaim] = Field(default_factory=list)
+    # Refused by the graph citation contract; reason is a RelationshipDropReason value.
+    dropped_relationship_claims: list[DroppedClaim] = Field(default_factory=list)
+
+
+class GraphContractResult(BaseModel):
+    """The answer after both contracts have been applied claim by claim."""
+
+    text: str
+    dropped_claims: list[DroppedClaim] = Field(default_factory=list)
+    dropped_relationship_claims: list[DroppedClaim] = Field(default_factory=list)
+
+
+def build_graph_prompt(query: str, chunks: list[RetrievedChunk], subgraph: Subgraph | None) -> str:
+    """The Phase 3 passage prompt, followed by the numbered relationships walked."""
+    prompt = build_prompt(query, chunks)
+    edges = render_edges(subgraph, chunks)
+    if edges:
+        prompt += f"\n\nRelationships:\n{edges}"
+    return prompt
+
+
+def _split_graph_claims(answer: str) -> list[str]:
+    """``split_claims``, then a trailing fragment of markers only rejoins its claim.
+
+    ``split_claims`` already does that for ``[n]``; it does not know ``[E k]``,
+    and a trailing "[E 1] [1]" would otherwise stand as a claim of its own and
+    strip the citation off the sentence it belongs to.
+    """
+    claims: list[str] = []
+    for piece in split_claims(answer):
+        if claims and not any(char.isalnum() for char in strip_markers(piece)):
+            claims[-1] += piece
+        else:
+            claims.append(piece)
+    return claims
+
+
+def apply_graph_contract(
+    text: str, chunks: list[RetrievedChunk], subgraph: Subgraph | None
+) -> GraphContractResult:
+    """Drop what either contract refuses, claim by claim, and record why.
+
+    Separate from the generation call for the same reason as
+    ``apply_agentic_contract``: a streaming caller already has the text. An
+    answer left with nothing becomes the no-evidence sentence.
+    """
+    kept: list[str] = []
+    dropped: list[DroppedClaim] = []
+    dropped_relationships: list[DroppedClaim] = []
+    for claim in _split_graph_claims(text):
+        if not any(char.isalnum() for char in strip_markers(claim)):
+            kept.append(claim)
+            continue
+        if is_relationship_claim(claim, subgraph):
+            reason = relationship_claim_violation(claim, subgraph, chunks)
+            if reason is not None:
+                dropped_relationships.append(DroppedClaim(text=claim.strip(), reason=reason.value))
+                continue
+        try:
+            assert_citation_contract(claim, chunks)
+        except CitationViolation as exc:
+            dropped.append(DroppedClaim(text=claim.strip(), reason=exc.reason))
+            continue
+        kept.append(claim)
+    answer = "".join(kept).strip() or NO_EVIDENCE_ANSWER
+    return GraphContractResult(
+        text=answer, dropped_claims=dropped, dropped_relationship_claims=dropped_relationships
+    )
+
+
+def generate_graph_answer(
+    query: str,
+    chunks: list[RetrievedChunk],
+    subgraph: Subgraph | None,
+    llm: LLMProvider,
+    *,
+    model: str | None = None,
+    max_tokens: int = 800,
+) -> GraphAnswer:
+    """Answer from the graph strategy's chunks and sub-graph, dropping what is unsupported.
+
+    One model call, always, and none when there are no chunks: a relationship
+    claim needs a source chunk to cite, so a sub-graph with no chunks cannot
+    support any answer, and the counts on that path are exactly zero.
+    """
+    started = time.perf_counter()
+    if not chunks:
+        return GraphAnswer(
+            text=NO_EVIDENCE_ANSWER,
+            model="none",
+            generator="extractive",
+            latency_ms=int((time.perf_counter() - started) * 1000),
+        )
+
+    completion = llm.complete(
+        [
+            Message(role="system", content=GRAPH_SYSTEM_PROMPT),
+            Message(role="user", content=build_graph_prompt(query, chunks, subgraph)),
+        ],
+        model=model,
+        max_tokens=max_tokens,
+    )
+    checked = apply_graph_contract(completion.text, chunks, subgraph)
+    return GraphAnswer(
+        text=checked.text,
+        model=completion.model,
+        input_tokens=completion.input_tokens,
+        output_tokens=completion.output_tokens,
+        latency_ms=int((time.perf_counter() - started) * 1000),
+        generator="llm",
+        dropped_claims=checked.dropped_claims,
+        dropped_relationship_claims=checked.dropped_relationship_claims,
     )
