@@ -8,6 +8,7 @@ that every merge is justified by recorded evidence and can be undone, with the
 separated entity getting back exactly what its own chunks said about it.
 """
 
+import json
 import math
 import os
 
@@ -19,6 +20,7 @@ from sqlalchemy.orm import Session, sessionmaker
 # process, so SQLite enforces the same foreign keys PostgreSQL does.
 import ragfabric_core.db.session  # noqa: F401
 from ragfabric_core.db.migrate import downgrade, upgrade
+from ragfabric_core.graph.extract import extract_chunk
 from ragfabric_core.graph.resolve import UnmergeBlocked, resolve_entities, unmerge
 from ragfabric_core.models import Base
 from ragfabric_core.models.document import Chunk, Collection, Document
@@ -30,6 +32,7 @@ from ragfabric_core.models.graph import (
     RelationshipSource,
 )
 from ragfabric_core.providers.base import EmbeddingResult
+from ragfabric_core.providers.offline import ScriptedLLMProvider
 
 URL = os.environ.get("RAGFABRIC_TEST_DATABASE_URL", "")
 THRESHOLD = 0.9
@@ -1013,3 +1016,318 @@ def test_a_recorded_edge_removed_since_the_merge_is_reported_not_silently_lost(d
 def test_unmerging_an_unknown_merge_raises(db):
     with pytest.raises(LookupError):
         unmerge(db, 987654)
+
+
+# R31: an id is not an identity, and ownership follows the text there now.
+
+
+def _extract(db, chunk_id: int, text: str, entities: list, relationships: list) -> None:
+    """Run the real extraction path on one chunk with a scripted model response."""
+    chunk = db.get(Chunk, chunk_id)
+    chunk.text = text
+    provider = ScriptedLLMProvider(
+        responses=[json.dumps({"entities": entities, "relationships": relationships})],
+        model="test-extractor",
+    )
+    extract_chunk(db, chunk, provider, floor=0.5, model="test-extractor")
+
+
+def _person(name: str, confidence: float) -> dict:
+    return {"name": name, "entity_type": "person", "confidence": confidence}
+
+
+def _bob_works_on_apollo(db) -> tuple[list[int], Entity, Relationship, int]:
+    """Robert (alias Bob Sharma) from c1; Bob works on Apollo from c2; Bob merged into Robert.
+
+    The Bob to Apollo edge is the only edge, so on SQLite without
+    AUTOINCREMENT the next edge inserted after it is deleted takes its id.
+    """
+    chunk_ids = _chunks(db, 3)
+    c1, c2, _ = chunk_ids
+    _extract(db, c1, "Robert Sharma leads.", [_person("Robert Sharma", 0.9)], [])
+    _extract(
+        db,
+        c2,
+        "Bob Sharma works on Apollo.",
+        [
+            _person("Bob Sharma", 0.7),
+            {"name": "Apollo", "entity_type": "project", "confidence": 0.9},
+        ],
+        [
+            {
+                "source": "Bob Sharma",
+                "target": "Apollo",
+                "relation_type": "WORKS_ON",
+                "confidence": 0.8,
+            }
+        ],
+    )
+    robert = db.execute(select(Entity).where(Entity.name == "Robert Sharma")).scalar_one()
+    robert.aliases = ["Bob Sharma"]
+    db.flush()
+    (edge,) = _edges(db)
+    (merge,) = resolve_entities(db, None, similarity_threshold=THRESHOLD).merges
+    assert merge.survivor_id == robert.id
+    assert edge.source_entity_id == robert.id
+    return chunk_ids, robert, edge, merge.merge_id
+
+
+def test_a_merge_records_each_edges_far_end_and_each_chunks_text_hash(db):
+    (c1, c2, _), _, edge, merge_id = _bob_works_on_apollo(db)
+    restore = db.get(EntityMerge, merge_id).evidence["restore"]
+    assert restore["chunk_hashes"] == {str(c2): db.get(Chunk, c2).extraction_hash}
+    assert restore["chunk_hashes"][str(c2)] is not None
+    assert restore["relationships"][0]["far_end_id"] == edge.target_entity_id
+
+
+def test_an_edge_that_took_a_recorded_edges_id_is_not_moved(db):
+    # Probe 1. c2 is re-extracted to nothing, so extraction garbage collects
+    # the recorded edge. A new chunk then adds Robert REPORTS_TO Ann, which
+    # SQLite used to give the freed id. The unmerge must not take it for
+    # Bob's WORKS_ON edge, and must report that edge as lost.
+    (c1, c2, c4), robert, edge, merge_id = _bob_works_on_apollo(db)
+    edge_id = edge.id
+    _extract(db, c2, "Nothing to see here.", [], [])
+    assert db.get(Relationship, edge_id) is None
+    _extract(
+        db,
+        c4,
+        "Robert Sharma reports to Ann Rao.",
+        [_person("Robert Sharma", 0.9), _person("Ann Rao", 0.8)],
+        [
+            {
+                "source": "Robert Sharma",
+                "target": "Ann Rao",
+                "relation_type": "REPORTS_TO",
+                "confidence": 0.85,
+            }
+        ],
+    )
+    # On SQLite before R31(b) this new edge took the freed id; the unmerge
+    # below must be right either way (R31(a)).
+    assert len(_edges(db)) == 1
+    before = _snapshot(db)
+
+    result = unmerge(db, merge_id)
+
+    assert result.moved_relationship_ids == []
+    assert result.unrestored_relationship_ids == [edge_id]
+    assert result.changed_chunk_ids == [c2]
+    assert result.restored_without_sources is True
+    # Robert's REPORTS_TO edge is untouched and not split.
+    graph = _snapshot(db)
+    assert graph["edges"] == before["edges"]
+    assert (
+        graph["entities"][("Robert Sharma", "person")]
+        == before["entities"][("Robert Sharma", "person")]
+    )
+    assert _entity_sources(db, result.restored_entity_id) == {}
+
+
+def test_a_chunk_re_extracted_under_the_survivors_name_stays_with_the_survivor(db):
+    # Probe 2. c2 now says Robert works on Apollo; extraction keeps the edge
+    # id and links c2 to it again. That is Robert's claim from today's text,
+    # so the unmerge must leave it, and Robert's c2 source, with Robert.
+    (c1, c2, _), robert, edge, merge_id = _bob_works_on_apollo(db)
+    _extract(
+        db,
+        c2,
+        "Robert Sharma works on Apollo.",
+        [
+            _person("Robert Sharma", 0.85),
+            {"name": "Apollo", "entity_type": "project", "confidence": 0.9},
+        ],
+        [
+            {
+                "source": "Robert Sharma",
+                "target": "Apollo",
+                "relation_type": "WORKS_ON",
+                "confidence": 0.95,
+            }
+        ],
+    )
+    assert edge.source_entity_id == robert.id
+    assert _edge_sources(db, edge.id) == {c2: 0.95}
+    before = _snapshot(db)
+
+    result = unmerge(db, merge_id)
+
+    assert result.moved_relationship_ids == []
+    assert result.unrestored_relationship_ids == [edge.id]
+    assert result.changed_chunk_ids == [c2]
+    assert result.restored_without_sources is True
+    assert edge.source_entity_id == robert.id
+    assert _edge_sources(db, edge.id) == {c2: 0.95}
+    assert _entity_sources(db, robert.id) == {c1: 0.9, c2: 0.85}
+    assert _entity_sources(db, result.restored_entity_id) == {}
+    graph = _snapshot(db)
+    assert graph["edges"] == before["edges"]
+    assert (
+        graph["entities"][("Robert Sharma", "person")]
+        == before["entities"][("Robert Sharma", "person")]
+    )
+
+
+def test_an_unchanged_chunk_still_moves_back_beside_a_changed_one(db):
+    # Bob came from c2 and c3; only c3 was re-extracted since the merge. c2
+    # and its edge go back to Bob, c3's new report stays with Robert.
+    c1, c2, c3 = _chunks(db, 3)
+    _extract(db, c1, "Robert Sharma leads.", [_person("Robert Sharma", 0.9)], [])
+    works_on = {
+        "source": "Bob Sharma",
+        "target": "Apollo",
+        "relation_type": "WORKS_ON",
+        "confidence": 0.8,
+    }
+    apollo = {"name": "Apollo", "entity_type": "project", "confidence": 0.9}
+    _extract(
+        db, c2, "Bob Sharma works on Apollo.", [_person("Bob Sharma", 0.7), apollo], [works_on]
+    )
+    _extract(db, c3, "Bob Sharma again.", [_person("Bob Sharma", 0.6), apollo], [works_on])
+    robert = db.execute(select(Entity).where(Entity.name == "Robert Sharma")).scalar_one()
+    robert.aliases = ["Bob Sharma"]
+    db.flush()
+    (edge,) = _edges(db)
+    (merge,) = resolve_entities(db, None, similarity_threshold=THRESHOLD).merges
+    _extract(
+        db,
+        c3,
+        "Robert Sharma works on Apollo too.",
+        [_person("Robert Sharma", 0.65), apollo],
+        [{**works_on, "source": "Robert Sharma", "confidence": 0.75}],
+    )
+
+    result = unmerge(db, merge.merge_id)
+
+    assert result.changed_chunk_ids == [c3]
+    assert result.restored_without_sources is False
+    assert _entity_sources(db, result.restored_entity_id) == {c2: 0.7}
+    assert _entity_sources(db, robert.id) == {c1: 0.9, c3: 0.65}
+    assert result.moved_relationship_ids == [edge.id]
+    assert edge.source_entity_id == result.restored_entity_id
+    assert _edge_sources(db, edge.id) == {c2: 0.8}
+    (split,) = result.shared_relationship_ids
+    assert db.get(Relationship, split).source_entity_id == robert.id
+    assert _edge_sources(db, split) == {c3: 0.75}
+
+
+@pytest.mark.parametrize("change", ["relation_type", "far_end", "sources"])
+def test_an_edge_that_is_no_longer_the_recorded_edge_is_not_taken(db, change):
+    # R31(a) on its own, independent of id reuse: the recorded edge keeps its
+    # id but is no longer the same edge. Nothing is taken from it.
+    c1, c2, c3 = _chunks(db, 3)
+    _entity(db, "Robert Sharma", "person", {c1: 0.9}, aliases=["Bob Sharma"])
+    bob = _entity(db, "Bob Sharma", "person", {c2: 0.7})
+    apollo = _entity(db, "Apollo", "project", {c2: 0.9})
+    other = _entity(db, "Hermes", "project", {c3: 0.9})
+    edge = _edge(db, bob, apollo, "WORKS_ON", {c2: 0.8})
+    (merge,) = resolve_entities(db, None, similarity_threshold=THRESHOLD).merges
+    if change == "relation_type":
+        edge.relation_type = "OWNS"
+    elif change == "far_end":
+        edge.target_entity_id = other.id
+    else:
+        db.delete(db.get(RelationshipSource, (edge.id, c2)))
+        db.add(RelationshipSource(relationship_id=edge.id, chunk_id=c3, confidence=0.5))
+    db.flush()
+    before = _edge_sources(db, edge.id), edge.source_entity_id, edge.target_entity_id
+
+    result = unmerge(db, merge.merge_id)
+
+    assert result.unrestored_relationship_ids == [edge.id]
+    assert result.moved_relationship_ids == []
+    assert result.shared_relationship_ids == []
+    assert (_edge_sources(db, edge.id), edge.source_entity_id, edge.target_entity_id) == before
+    assert len(_edges(db)) == 1
+    # The entity itself still comes back with its unchanged chunk.
+    assert _entity_sources(db, result.restored_entity_id) == {c2: 0.7}
+
+
+def test_a_record_follows_only_a_recreated_edge_that_matches_it(db):
+    # R31(a) for _retarget_records: an older record's entry follows a new id
+    # only when the edge there is the edge it recorded.
+    from ragfabric_core.graph.resolve import _retarget_records
+
+    c1, c2 = _chunks(db, 2)
+    robert = _entity(db, "Robert Sharma", "person", {c1: 0.9}, aliases=["Bob Sharma"])
+    bob = _entity(db, "Bob Sharma", "person", {c2: 0.7})
+    apollo = _entity(db, "Apollo", "project", {c2: 0.9})
+    edge = _edge(db, bob, apollo, "WORKS_ON", {c2: 0.8})
+    (merge,) = resolve_entities(db, None, similarity_threshold=THRESHOLD).merges
+
+    def recorded_id() -> int:
+        db.flush()
+        db.expire_all()
+        return db.get(EntityMerge, merge.merge_id).evidence["restore"]["relationships"][0][
+            "relationship_id"
+        ]
+
+    wrong_type = _edge(db, robert, apollo, "OWNS", {c2: 0.8})
+    _retarget_records(db, 0, edge.id, wrong_type.id)
+    assert recorded_id() == edge.id
+
+    wrong_chunk = _edge(db, robert, apollo, "WORKS_ON", {c1: 0.8})
+    _retarget_records(db, 0, edge.id, wrong_chunk.id)
+    assert recorded_id() == edge.id
+
+    same = _edge(db, robert, apollo, "WORKS_ON", {c2: 0.8})
+    _retarget_records(db, 0, edge.id, same.id)
+    assert recorded_id() == same.id
+
+
+def test_graph_and_merge_ids_are_never_reused(db):
+    # R31(b): SQLite's default rowid hands the highest freed id to the next
+    # insert; AUTOINCREMENT (and PostgreSQL's sequences) never do.
+    (c1,) = _chunks(db, 1)
+    a = _entity(db, "A", "person", {c1: 0.9})
+    b = _entity(db, "B", "person", {c1: 0.9})
+    edge = _edge(db, a, b, "RELATED_TO", {c1: 0.9})
+    record = EntityMerge(
+        surviving_entity_id=a.id,
+        merged_name="X",
+        merged_entity_type="person",
+        evidence={"stage": "test"},
+        method="exact",
+    )
+    db.add(record)
+    db.flush()
+    freed = (b.id, edge.id, record.id)
+    db.delete(db.get(RelationshipSource, (edge.id, c1)))
+    db.flush()
+    for row in (record, edge):
+        db.delete(row)
+        db.flush()
+    db.delete(db.get(EntitySource, (b.id, c1)))
+    db.flush()
+    db.delete(b)
+    db.flush()
+
+    c = _entity(db, "C", "person", {c1: 0.9})
+    new_edge = _edge(db, a, c, "RELATED_TO", {c1: 0.9})
+    new_record = EntityMerge(
+        surviving_entity_id=a.id,
+        merged_name="Y",
+        merged_entity_type="person",
+        evidence={"stage": "test"},
+        method="exact",
+    )
+    db.add(new_record)
+    db.flush()
+
+    assert (c.id, new_edge.id, new_record.id) > freed
+    assert c.id > freed[0] and new_edge.id > freed[1] and new_record.id > freed[2]
+
+
+def test_unmerge_refuses_when_re_extraction_recreated_the_merged_name(db):
+    # Documented ValueError: a re-extraction after the merge named Bob again
+    # and the upsert created a fresh Bob row, so the unique key is taken.
+    (c1, c2, c4), _, _, merge_id = _bob_works_on_apollo(db)
+    _extract(db, c4, "Bob Sharma is back.", [_person("Bob Sharma", 0.6)], [])
+    graph = _snapshot(db)
+
+    with pytest.raises(ValueError, match="already holds"):
+        unmerge(db, merge_id)
+
+    db.flush()
+    assert _snapshot(db) == graph
+    assert db.get(EntityMerge, merge_id) is not None

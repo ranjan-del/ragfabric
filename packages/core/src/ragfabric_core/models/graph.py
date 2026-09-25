@@ -24,6 +24,12 @@ surviving entity, the merged-away entity's name, type, aliases and source
 chunk ids (kept so an unmerge can restore it), the evidence that justified
 the merge, and the method and model that made the call. A merge without its
 evidence cannot be inspected or trusted, so ``evidence`` is required.
+
+``entities``, ``relationships`` and ``entity_merges`` never reuse an id
+(``sqlite_autoincrement``; PostgreSQL sequences already do not). A merge
+record names edges and entities by id, and SQLite's default rowid would hand
+a deleted row's id to the next insert, so a record could silently name a
+different row (R31).
 """
 
 from datetime import datetime
@@ -51,6 +57,7 @@ class Entity(Base):
     __table_args__ = (
         UniqueConstraint("normalized_name", "entity_type", name="uq_entity_name_type"),
         CheckConstraint(_CONFIDENCE_RANGE, name="ck_entity_confidence_range"),
+        {"sqlite_autoincrement": True},
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -68,7 +75,10 @@ class Entity(Base):
 
 class Relationship(Base):
     __tablename__ = "relationships"
-    __table_args__ = (CheckConstraint(_CONFIDENCE_RANGE, name="ck_relationship_confidence_range"),)
+    __table_args__ = (
+        CheckConstraint(_CONFIDENCE_RANGE, name="ck_relationship_confidence_range"),
+        {"sqlite_autoincrement": True},
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source_entity_id: Mapped[int] = mapped_column(
@@ -139,6 +149,7 @@ class RelationshipSource(Base):
 
 class EntityMerge(Base):
     __tablename__ = "entity_merges"
+    __table_args__ = {"sqlite_autoincrement": True}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     surviving_entity_id: Mapped[int] = mapped_column(

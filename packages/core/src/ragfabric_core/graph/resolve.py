@@ -68,8 +68,10 @@ embedding model for an ``embedding`` merge, ``None`` otherwise) and
   merge moved (R26: each ``repointed`` or ``folded``, with which endpoints
   were the merged entity's, its per-chunk reports, and for a fold the kept
   edge's own reports on the chunks both carried, before the fold overwrote
-  them), the ``dropped_self_loops`` (with their reports) and the
-  ``repointed_merge_ids``.
+  them, and the endpoint that was not the merged entity, ``far_end_id``), the
+  ``dropped_self_loops`` (with their reports), the ``repointed_merge_ids``
+  and the ``chunk_hashes``: every recorded chunk's ``extraction_hash`` as of
+  the merge (R31).
 
 **An unmerge** recreates the entity (under a new id) with its name, type,
 aliases and description, and moves back exactly the ``EntitySource`` rows for
@@ -82,9 +84,31 @@ dropped self-loops whose chunks still exist are recreated. The aliases the
 merge added are removed from the survivor, the merge records it had absorbed
 are handed back, confidences are recomputed and the ``EntityMerge`` row is
 deleted. With no change in between, merge then unmerge gives back the same
-graph apart from the restored entity's and recreated edges' ids. Where the
-graph did change since (a chunk re-extracted or deleted, an edge gone), the
-current graph wins: nothing is brought back that no current row supports.
+graph apart from the restored entity's and recreated edges' ids.
+
+Where the graph did change since, **the current graph wins** (R31), and
+ownership follows the text that is there now, never an id alone:
+
+- A recorded edge counts as still there only if the edge now carrying its
+  id has the recorded relation type, its merged side points at the survivor,
+  its other end is the recorded far end, and at least one recorded chunk is
+  still one of its sources. Otherwise nothing is recreated or taken, and the
+  edge is reported in ``unrestored_relationship_ids``.
+- A chunk whose ``extraction_hash`` changed since the merge was re-extracted,
+  and whatever its new text reported (under the survivor's name, since the
+  merged name now resolves to the survivor) is the survivor's claim. Its
+  rows stay with the survivor, and it is reported in ``changed_chunk_ids``.
+  An edge left with no unchanged recorded chunk stays too, and is reported
+  as unrestored.
+- A restored entity that gets no ``EntitySource`` back is still recreated
+  and is reported as ``restored_without_sources``.
+- An entity that already holds the merged entity's name and type (a
+  re-extraction created it) makes the unmerge raise ``ValueError``.
+
+Entity, relationship and merge ids are never reused, on either dialect
+(``sqlite_autoincrement``, R31), so a recorded id can only name the row it was
+recorded for or none.
+
 **Unmerge is globally last-in, first-out** (R30): only the most recent merge
 still in place can be undone. ``unmerge`` raises ``UnmergeBlocked``, before
 writing anything, while any live merge has a higher id, and lists every one of
@@ -94,17 +118,16 @@ the entities a merge touched were tried and were bypassable: an unmerge
 recreates an entity under a new id, so a record of "which entities this merge
 touched" goes stale, and a later merge on the recreated entity escaped the
 check. The id order is a total order that no unmerge can change: a new merge
-row always gets an id above every live one (a PostgreSQL sequence; SQLite
-takes the current maximum plus one). Undone in that order, every merge gives
-back the graph it started from. Recorded edges that nothing current supports any more are
-listed in ``UnmergeResult.unrestored_relationship_ids`` rather than dropped
-silently.
+row always gets an id above every live one (a PostgreSQL sequence; on SQLite
+an ``AUTOINCREMENT`` key that never hands out a freed id). Undone in that
+order, every merge gives back the graph it started from.
 
 Public API (called by ingestion in Task 11 and the CLI in Task 12)::
 
     resolve_entities(db, embedder, *, similarity_threshold, entity_ids=None,
                      batch_size=64) -> ResolutionReport
-    unmerge(db, merge_id) -> UnmergeResult     # raises UnmergeBlocked, LookupError
+    unmerge(db, merge_id) -> UnmergeResult     # raises UnmergeBlocked, LookupError,
+                                               # ValueError on a name clash
 
 ``embedder`` may be ``None``, which skips stage 3 (0 embedding calls).
 ``entity_ids`` restricts resolution to pairs that involve at least one listed
@@ -192,10 +215,20 @@ class UnmergeResult:
     ``restored_relationship_ids`` are edges recreated from the record:
     folded-away edges on the restored entity, and the self-loops the merge
     had dropped. ``unrestored_relationship_ids`` are the original ids of
-    recorded edges that could not be restored because nothing current
-    supports them any more (the edge, or every chunk it came from, was
-    removed since, for example by re-extraction); nothing is recreated for
-    them, and they are listed so the loss is never silent.
+    recorded edges that were not restored: the edge is gone, or the edge now
+    carrying the recorded id is not the recorded edge (a different relation
+    type, far end or set of chunks, R31), or every chunk it came from was
+    deleted or re-extracted since. Nothing is recreated or taken for them,
+    and they are listed so the loss is never silent.
+
+    ``changed_chunk_ids`` are the chunks the merge recorded whose text has
+    changed since (a different ``extraction_hash``, R31). Their current
+    ``EntitySource`` and ``RelationshipSource`` rows came from the new text,
+    which named the survivor, so they stay with the survivor.
+    ``restored_without_sources`` is true when the restored entity came back
+    with no ``EntitySource`` row at all (every chunk that named it was
+    changed or deleted since the merge): it exists, but no caller can see it
+    until a chunk names it again.
     """
 
     restored_entity_id: int
@@ -204,6 +237,8 @@ class UnmergeResult:
     shared_relationship_ids: list[int]
     restored_relationship_ids: list[int]
     unrestored_relationship_ids: list[int]
+    changed_chunk_ids: list[int]
+    restored_without_sources: bool
 
 
 def resolve_entities(
@@ -550,10 +585,16 @@ def _merge_entities(
                 Relationship.id != relationship.id,
             )
         ).scalar_one_or_none()
+        merged_source = relationship.source_entity_id == merged.id
         entry: dict[str, Any] = {
             "original_id": relationship.id,
-            "merged_source": relationship.source_entity_id == merged.id,
+            "merged_source": merged_source,
             "merged_target": relationship.target_entity_id == merged.id,
+            # The endpoint that was not the merged entity: part of what makes
+            # this edge the same edge at unmerge time (R31).
+            "far_end_id": relationship.target_entity_id
+            if merged_source
+            else relationship.source_entity_id,
             "relation_type": relationship.relation_type,
             "description": relationship.description,
             "weight": relationship.weight,
@@ -621,6 +662,18 @@ def _merge_entities(
     for earlier in absorbed:
         earlier.surviving_entity_id = survivor.id
 
+    # R31: the text each moved claim came from, as of the merge. An unmerge
+    # hands a chunk back only if its text is still the text that was merged.
+    recorded_chunk_ids = set(merged_chunk_ids)
+    for item in [*moved_relationships, *dropped_self_loops]:
+        recorded_chunk_ids.update(source["chunk_id"] for source in item["sources"])
+    chunk_hashes = {
+        str(chunk_id): extraction_hash
+        for chunk_id, extraction_hash in db.execute(
+            select(Chunk.id, Chunk.extraction_hash).where(Chunk.id.in_(sorted(recorded_chunk_ids)))
+        ).all()
+    }
+
     evidence = {
         **evidence,
         "restore": {
@@ -631,6 +684,7 @@ def _merge_entities(
             "relationships": moved_relationships,
             "dropped_self_loops": dropped_self_loops,
             "repointed_merge_ids": [earlier.id for earlier in absorbed],
+            "chunk_hashes": chunk_hashes,
         },
     }
     record = EntityMerge(
@@ -679,7 +733,17 @@ def _delete_relationship(
 
 
 def unmerge(db: Session, merge_id: int) -> UnmergeResult:
-    """Reverse one recorded merge. See the module docstring for exactly what moves back."""
+    """Reverse one recorded merge. See the module docstring for exactly what moves back.
+
+    Raises ``LookupError`` for an unknown ``merge_id`` and ``UnmergeBlocked``
+    while a newer merge is still in place (R30). Raises ``ValueError``, before
+    anything is written, when an entity already holds the merged entity's
+    ``(normalized_name, entity_type)``: typically a re-extraction since the
+    merge reported the merged name again and the upsert created a new row for
+    it. The unique constraint allows only one such entity, so the unmerge
+    refuses rather than guess which of the two the chunks meant; merging that
+    new entity into the survivor first (a resolution pass does) clears it.
+    """
     record = db.get(EntityMerge, merge_id)
     if record is None:
         raise LookupError(f"no entity merge with id {merge_id}")
@@ -704,6 +768,8 @@ def unmerge(db: Session, merge_id: int) -> UnmergeResult:
             f"cannot unmerge {merge_id}: entity {clash[0]} already holds "
             f"({normalized_name!r}, {record.merged_entity_type!r})"
         )
+    unchanged, changed_chunks = _chunk_states(db, restore.get("chunk_hashes", {}))
+
     restored = Entity(
         name=record.merged_name,
         normalized_name=normalized_name,
@@ -714,7 +780,10 @@ def unmerge(db: Session, merge_id: int) -> UnmergeResult:
     db.add(restored)
     db.flush()
 
-    merged_chunks = set(record.merged_source_chunk_ids)
+    # R31: a chunk whose text changed since the merge stays with the
+    # survivor; its current rows are what the new text says about the
+    # survivor, not the merged entity's old claim.
+    merged_chunks = set(record.merged_source_chunk_ids) & unchanged
     shared = {item["chunk_id"]: item for item in restore.get("shared_sources", [])}
     for source in _entity_sources(db, survivor.id):
         if source.chunk_id not in merged_chunks:
@@ -742,39 +811,39 @@ def unmerge(db: Session, merge_id: int) -> UnmergeResult:
             source.confidence = item["survivor_confidence"]
             source.extraction_model = item["survivor_extraction_model"]
     db.flush()
+    without_sources = not _entity_sources(db, restored.id)
 
     moved: list[int] = []
     shared_edges: list[int] = []
     restored_edges: list[int] = []
     unrestored: list[int] = []
+    recreated: list[tuple[int, int]] = []
     # R26: only the relationships this merge moved are candidates; the
     # survivor's own edges never are.
     for entry in restore.get("relationships", []):
         if entry["kind"] == "repointed":
-            outcome = _restore_repointed(db, entry, survivor.id, restored.id)
+            outcome = _restore_repointed(db, entry, survivor.id, restored.id, unchanged)
             if outcome is None:
                 unrestored.append(entry["original_id"])
             else:
                 moved.append(outcome[0])
                 shared_edges.extend(outcome[1:])
         else:
-            outcome = _restore_folded(db, entry, survivor.id, restored.id)
+            outcome = _restore_folded(db, entry, survivor.id, restored.id, unchanged)
             if outcome is None:
                 unrestored.append(entry["original_id"])
             else:
                 if outcome[0] is not None:
                     shared_edges.append(outcome[0])
                 restored_edges.append(outcome[1])
-                _retarget_records(db, record.id, entry["original_id"], outcome[1])
+                recreated.append((entry["original_id"], outcome[1]))
     db.flush()
 
     loops_created, loops_lost = _restore_self_loops(
-        db, restore.get("dropped_self_loops", []), survivor.id, restored.id
+        db, restore.get("dropped_self_loops", []), survivor.id, restored.id, unchanged
     )
-    for original_id, new_id in loops_created:
-        _retarget_records(db, record.id, original_id, new_id)
-    loops_created = [new_id for _, new_id in loops_created]
-    restored_edges += loops_created
+    recreated += loops_created
+    restored_edges += [new_id for _, new_id in loops_created]
     unrestored += loops_lost
 
     appended = restore.get("aliases_appended", [])
@@ -785,6 +854,14 @@ def unmerge(db: Session, merge_id: int) -> UnmergeResult:
         earlier = db.get(EntityMerge, earlier_id)
         if earlier is not None and earlier.surviving_entity_id == survivor.id:
             earlier.surviving_entity_id = restored.id
+
+    # Earlier records now see the graph as it was before this merge: the
+    # merged entity under its new id, and the edges recreated under theirs.
+    # Retargeting runs last, so its identity check sees every endpoint and
+    # survivor in their final place.
+    _remap_far_ends(db, record.id, record.evidence["merged"]["id"], restored.id)
+    for original_id, new_id in recreated:
+        _retarget_records(db, record.id, original_id, new_id)
 
     db.delete(record)
     db.flush()
@@ -802,6 +879,8 @@ def unmerge(db: Session, merge_id: int) -> UnmergeResult:
         shared_relationship_ids=shared_edges,
         restored_relationship_ids=restored_edges,
         unrestored_relationship_ids=unrestored,
+        changed_chunk_ids=changed_chunks,
+        restored_without_sources=without_sources,
     )
 
 
@@ -814,6 +893,29 @@ def _later_merges(db: Session, merge_id: int) -> list[int]:
     )
 
 
+def _chunk_states(db: Session, chunk_hashes: dict[str, Any]) -> tuple[set[int], list[int]]:
+    """Split the merge's recorded chunks by whether their text changed since (R31).
+
+    Returns ``(unchanged chunk ids, changed chunk ids)``. Unchanged means the
+    chunk still exists and its ``extraction_hash`` equals the one recorded at
+    merge time; changed means it exists with a different hash (it was
+    re-extracted). A chunk deleted since is in neither: it has no rows left.
+    """
+    recorded = {int(chunk_id): value for chunk_id, value in chunk_hashes.items()}
+    current = (
+        dict(
+            db.execute(
+                select(Chunk.id, Chunk.extraction_hash).where(Chunk.id.in_(list(recorded)))
+            ).all()
+        )
+        if recorded
+        else {}
+    )
+    unchanged = {chunk_id for chunk_id in current if current[chunk_id] == recorded[chunk_id]}
+    changed = sorted(chunk_id for chunk_id in current if current[chunk_id] != recorded[chunk_id])
+    return unchanged, changed
+
+
 def _without(values: Any, removed: list[str]) -> list:
     """``values`` with the last occurrence of each of ``removed`` taken out."""
     result = list(values) if isinstance(values, list) else []
@@ -823,36 +925,57 @@ def _without(values: Any, removed: list[str]) -> list:
     return result
 
 
-def _other_side(relationship: Relationship, entry: dict[str, Any], survivor_id: int) -> bool:
-    """Whether the edge's merged-side endpoints still point at the survivor."""
-    return (not entry["merged_source"] or relationship.source_entity_id == survivor_id) and (
-        not entry["merged_target"] or relationship.target_entity_id == survivor_id
-    )
+def _is_recorded_edge(
+    db: Session, relationship: Relationship | None, entry: dict[str, Any], survivor_id: int
+) -> bool:
+    """Whether ``relationship`` is still the edge ``entry`` recorded (R31).
+
+    An id alone is not an identity: the edge must still have the recorded
+    relation type, its merged side must point at the survivor, its other end
+    must be the recorded far end, and at least one chunk the record lists
+    must still be one of its sources. Anything else is a different edge that
+    happens to carry the id, and nothing is taken from it.
+    """
+    if relationship is None or relationship.relation_type != entry["relation_type"]:
+        return False
+    if entry["merged_source"]:
+        merged_end, far_end = relationship.source_entity_id, relationship.target_entity_id
+    else:
+        merged_end, far_end = relationship.target_entity_id, relationship.source_entity_id
+    if merged_end != survivor_id or far_end != entry["far_end_id"]:
+        return False
+    recorded = {source["chunk_id"] for source in entry["sources"]}
+    return any(source.chunk_id in recorded for source in _relationship_sources(db, relationship.id))
 
 
 def _restore_repointed(
-    db: Session, entry: dict[str, Any], survivor_id: int, restored_id: int
+    db: Session,
+    entry: dict[str, Any],
+    survivor_id: int,
+    restored_id: int,
+    unchanged: set[int],
 ) -> tuple[int, ...] | None:
     """Point a repointed edge's merged-side endpoints back at the restored entity.
 
-    Returns ``(moved edge id, *split-off edge ids)``, or ``None`` when the edge
-    no longer exists or no longer points at the survivor (it was deleted or
-    moved since, and the current graph wins). A source row for a chunk the
-    record does not list was added after the merge by a later extraction that
-    found the edge under the survivor's name (a later merge would have
-    blocked this unmerge, R30). It is a claim about the
-    survivor, so it is split off onto a survivor-side edge rather than handed
-    to the restored entity.
+    Returns ``(moved edge id, *split-off edge ids)``, or ``None`` when the
+    recorded edge is no longer there (``_is_recorded_edge``) or none of its
+    recorded chunks is unchanged since the merge (R31); the edge is then left
+    exactly as it is and the caller reports it as unrestored. A source row
+    that is not a recorded, unchanged chunk is a claim about the survivor: a
+    later extraction found the edge under the survivor's name and linked a
+    new chunk to it, or re-extracted a recorded chunk whose new text still
+    reports it (a later merge would have blocked this unmerge, R30). Such rows
+    are split off onto a survivor-side edge rather than handed to the
+    restored entity.
     """
     relationship = db.get(Relationship, entry["relationship_id"])
-    if relationship is None or not _other_side(relationship, entry, survivor_id):
+    if not _is_recorded_edge(db, relationship, entry, survivor_id):
         return None
-    recorded = {source["chunk_id"] for source in entry["sources"]}
-    foreign = [
-        source
-        for source in _relationship_sources(db, relationship.id)
-        if source.chunk_id not in recorded
-    ]
+    recorded = {source["chunk_id"] for source in entry["sources"]} & unchanged
+    current = _relationship_sources(db, relationship.id)
+    if not any(source.chunk_id in recorded for source in current):
+        return None
+    foreign = [source for source in current if source.chunk_id not in recorded]
     split: list[int] = []
     if foreign:
         survivor_side = Relationship(
@@ -884,6 +1007,41 @@ def _restore_repointed(
     return (relationship.id, *split)
 
 
+def _edit_other_records(db: Session, record_id: int, edit: Any) -> None:
+    """Apply ``edit(entry) -> bool`` to every other live merge's recorded edges.
+
+    Each record's evidence is copied, never edited in place: an in-place edit
+    would also change the value SQLAlchemy compares against, and the update
+    would be lost.
+    """
+    for other in db.execute(select(EntityMerge).where(EntityMerge.id != record_id)).scalars():
+        restore = copy.deepcopy(other.evidence.get("restore", {}))
+        entries = restore.get("relationships", [])
+        changed = False
+        for entry in entries:
+            changed = edit(other, entry) or changed
+        if changed:
+            other.evidence = {**other.evidence, "restore": {**restore, "relationships": entries}}
+
+
+def _remap_far_ends(db: Session, record_id: int, old_entity_id: int, new_entity_id: int) -> None:
+    """Point earlier merges' recorded far ends at the entity this unmerge recreated.
+
+    An earlier merge may have recorded an edge whose far end was the entity a
+    newer merge then merged away. Undoing the newer merge brings that entity
+    back under a new id, and the earlier record's far end must follow it, or
+    its identity check (R31) would reject the very edge it recorded.
+    """
+
+    def edit(_other: EntityMerge, entry: dict[str, Any]) -> bool:
+        if entry["far_end_id"] != old_entity_id:
+            return False
+        entry["far_end_id"] = new_entity_id
+        return True
+
+    _edit_other_records(db, record_id, edit)
+
+
 def _retarget_records(db: Session, record_id: int, old_id: int, new_id: int) -> None:
     """Point earlier merges' recorded edges at an edge this unmerge recreated.
 
@@ -891,41 +1049,52 @@ def _retarget_records(db: Session, record_id: int, old_id: int, new_id: int) -> 
     repointed an edge (or folded one into it) that a newer merge then folded
     away or dropped as a self-loop. Undoing the newer merge recreates that
     edge under a new id, and the older merge's record must follow it, or its
-    own unmerge would find nothing to restore.
+    own unmerge would find nothing to restore. An entry follows only when the
+    recreated edge passes the same identity check an unmerge applies (R31):
+    matching the old id is not enough.
     """
-    for other in db.execute(select(EntityMerge).where(EntityMerge.id != record_id)).scalars():
-        # Copied, never edited in place: an in-place edit would also change
-        # the value SQLAlchemy compares against, and the update would be lost.
-        restore = copy.deepcopy(other.evidence.get("restore", {}))
-        entries = restore.get("relationships", [])
-        changed = False
-        for entry in entries:
-            if entry["relationship_id"] == old_id:
-                entry["relationship_id"] = new_id
-                changed = True
-        if changed:
-            other.evidence = {**other.evidence, "restore": {**restore, "relationships": entries}}
+    relationship = db.get(Relationship, new_id)
+
+    def edit(other: EntityMerge, entry: dict[str, Any]) -> bool:
+        if entry["relationship_id"] != old_id:
+            return False
+        if not _is_recorded_edge(db, relationship, entry, other.surviving_entity_id):
+            return False
+        entry["relationship_id"] = new_id
+        return True
+
+    _edit_other_records(db, record_id, edit)
 
 
 def _restore_folded(
-    db: Session, entry: dict[str, Any], survivor_id: int, restored_id: int
+    db: Session,
+    entry: dict[str, Any],
+    survivor_id: int,
+    restored_id: int,
+    unchanged: set[int],
 ) -> tuple[int | None, int] | None:
     """Split a folded edge back out of the survivor's edge it was folded into.
 
     The survivor's edge gets back exactly its own reports (the recorded
     ``kept_sources``; rows for chunks only the folded edge had are removed),
     and the folded edge is recreated on the restored entity with its recorded
-    reports, for every chunk the survivor's edge still carries (a chunk
-    re-extracted or deleted since is not brought back). Returns ``(kept edge
-    id, recreated edge id)``, or ``None`` when the kept edge is gone or no
-    longer points at the survivor.
+    reports, for every recorded chunk the survivor's edge still carries and
+    whose text is unchanged since the merge (a chunk re-extracted or deleted
+    since is not brought back; a re-extracted one keeps its current row on the
+    survivor's edge). Returns ``(kept edge id, recreated edge id)``, or
+    ``None`` when the kept edge is no longer the recorded edge
+    (``_is_recorded_edge``) or no recorded chunk is left to restore.
     """
     kept = db.get(Relationship, entry["relationship_id"])
-    if kept is None or not _other_side(kept, entry, survivor_id):
+    if not _is_recorded_edge(db, kept, entry, survivor_id):
         return None
     current = {source.chunk_id: source for source in _relationship_sources(db, kept.id)}
     own = {source["chunk_id"]: source for source in entry["kept_sources"]}
-    carried = [source for source in entry["sources"] if source["chunk_id"] in current]
+    carried = [
+        source
+        for source in entry["sources"]
+        if source["chunk_id"] in current and source["chunk_id"] in unchanged
+    ]
     if not carried:
         return None
 
@@ -964,23 +1133,24 @@ def _restore_folded(
 
 
 def _restore_self_loops(
-    db: Session, loops: list[dict[str, Any]], survivor_id: int, restored_id: int
+    db: Session,
+    loops: list[dict[str, Any]],
+    survivor_id: int,
+    restored_id: int,
+    unchanged: set[int],
 ) -> tuple[list[tuple[int, int]], list[int]]:
     """Recreate the edges between the two entities the merge dropped as self-loops.
 
-    A source chunk deleted since the merge is not restored; an edge left with
-    none is not recreated, since nothing current supports it. Returns
-    ``([(original id, recreated id)], original ids of the loops not recreated)``.
+    Only sources whose chunk still exists with the text it had at the merge
+    are restored (R31); an edge left with none is not recreated, since
+    nothing current supports it. Returns ``([(original id, recreated id)],
+    original ids of the loops not recreated)``.
     """
-    wanted = {source["chunk_id"] for loop in loops for source in loop["sources"]}
-    existing = (
-        set(db.execute(select(Chunk.id).where(Chunk.id.in_(wanted))).scalars()) if wanted else set()
-    )
     side = {"survivor": survivor_id, "merged": restored_id}
     created: list[tuple[int, int]] = []
     lost: list[int] = []
     for loop in loops:
-        sources = [source for source in loop["sources"] if source["chunk_id"] in existing]
+        sources = [source for source in loop["sources"] if source["chunk_id"] in unchanged]
         if not sources:
             lost.append(loop["original_id"])
             continue
