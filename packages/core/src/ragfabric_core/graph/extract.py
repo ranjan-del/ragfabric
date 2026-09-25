@@ -24,16 +24,27 @@ entirely: no LLM call, counted in the report rather than silently dropped.
 ``Chunk.extraction_hash`` holds the sha256 hex digest of the chunk's text as
 of its last successful extraction; ``None`` means never extracted, which is
 unambiguously "changed". A chunk whose text *has* changed is not simply
-re-extracted on top of the old rows: its previous ``EntitySource`` /
-``RelationshipSource`` links are removed first, any ``Relationship`` or
-``Entity`` left with no source at all is deleted (an orphaned entity cascades
-to any edge still pointing at it, even one another chunk supports), and every
-row that survives has its confidence and extraction_model recomputed from
-its remaining sources (R20). Without this, a corrected or deleted sentence
-would leave its old, now-false entities and edges in the graph forever. That
-cleanup and the re-extraction call happen inside one nested transaction
+re-extracted on top of the old rows, but the order matters (R23). Its
+previous ``EntitySource`` / ``RelationshipSource`` links are removed
+*first*, before the re-extraction call, not after: this way, an entity or
+edge the new text still reports is found by the ordinary upsert path's
+lookup and simply gains a fresh link, keeping its id, aliases and merge
+history, instead of being deleted and recreated under a new id. Only once
+re-extraction has run is what is left with no source at all garbage
+collected: a ``Relationship`` with zero sources of its own, or one that
+still has a source elsewhere but now touches an entity about to be deleted,
+is removed through the ORM explicitly, never left to the database's ON
+DELETE CASCADE (the session's identity map would not learn the row was
+gone, and the next thing that tried to update it would raise
+``StaleDataError``); only after that is the orphaned ``Entity`` itself
+deleted. Every row that survives this pass has its confidence and
+extraction_model recomputed from its remaining sources (R20). Without this,
+a corrected or deleted sentence would leave its old, now-false entities and
+edges in the graph forever, and an entity the new text still names would
+needlessly lose its identity. The link removal, the re-extraction call, and
+the garbage collection afterward all happen inside one nested transaction
 (``Session.begin_nested``, a SAVEPOINT): if the new extraction hits a
-contract violation, the cleanup rolls back too, so a bad response never
+contract violation, everything rolls back together, so a bad response never
 trades a real, previously-verified fact for nothing. The hash is written
 only once a chunk's extraction actually completes; a contract violation
 leaves it exactly as it was, so the next pass retries the same chunk instead
@@ -62,7 +73,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from ragfabric_core.graph.contracts import (
@@ -162,7 +173,10 @@ def _hash_chunk_text(text: str) -> str:
 
     Nothing else about the chunk (page, position, embedding, section) enters
     this hash: text is the only field an extraction call reads, so it is the
-    only field whose change should trigger one.
+    only field whose change should trigger one. Changing the extractor
+    model, the prompt, or the confidence floor between runs does not, by
+    itself, trigger re-extraction of a chunk whose text is unchanged; only a
+    change to the text itself does.
     """
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -181,10 +195,11 @@ def extract_chunk(
     text (a ``None`` hash, never extracted, is always "changed"): no LLM call
     is made, and the skip is counted (``chunks_skipped``) rather than silent.
 
-    A changed chunk has its previous contributions removed before
-    re-extracting (see module docstring), atomically with the re-extraction
-    call: a contract violation rolls both back, leaving the old graph intact
-    and the hash untouched so the chunk is retried next time.
+    A changed chunk has its previous links removed before re-extracting, and
+    whatever that leaves with no source at all garbage collected afterward
+    (see module docstring and R23), all atomically with the re-extraction
+    call: a contract violation rolls everything back, leaving the old graph
+    intact and the hash untouched so the chunk is retried next time.
     """
     chunk_hash = _hash_chunk_text(chunk.text)
     if chunk.extraction_hash == chunk_hash:
@@ -193,18 +208,23 @@ def extract_chunk(
     is_re_extraction = chunk.extraction_hash is not None
 
     with db.begin_nested() as nested:
+        removed_entity_ids: set[int] = set()
+        removed_relationship_ids: set[int] = set()
         if is_re_extraction:
-            _remove_chunk_contributions(db, chunk.id)
+            removed_entity_ids, removed_relationship_ids = _remove_chunk_links(db, chunk.id)
 
         report = _extract_and_store(db, chunk, llm, floor=floor, model=model)
 
         if report.contract_violation:
-            # The cleanup above already ran inside this savepoint; rolling it
-            # back here undoes it too, so a bad response never costs the
-            # chunk its real, previously-verified contributions. The hash
-            # stays whatever it was before this call.
+            # The link removal above already ran inside this savepoint;
+            # rolling it back here undoes it too, so a bad response never
+            # costs the chunk its real, previously-verified contributions.
+            # The hash stays whatever it was before this call.
             nested.rollback()
             return report
+
+        if is_re_extraction:
+            _garbage_collect_and_recompute(db, removed_entity_ids, removed_relationship_ids)
 
         chunk.extraction_hash = chunk_hash
         db.flush()
@@ -411,18 +431,20 @@ def _upsert_relationships(
     return len(grouped), endpoint_discarded
 
 
-def _remove_chunk_contributions(db: Session, chunk_id: int) -> None:
-    """Undo everything ``chunk_id`` previously contributed to the graph.
+def _remove_chunk_links(db: Session, chunk_id: int) -> tuple[set[int], set[int]]:
+    """Remove ``chunk_id``'s ``EntitySource``/``RelationshipSource`` rows.
 
-    Called before re-extracting a changed chunk, since its existing
-    ``EntitySource`` / ``RelationshipSource`` links describe text that no
-    longer exists. Order: drop this chunk's link rows; delete any
-    ``Relationship`` left with no source at all; delete any ``Entity`` left
-    with no source at all (its FK ``ondelete="CASCADE"`` then removes any
-    ``Relationship`` still pointing at it, even one another chunk supports,
-    because an edge cannot survive the loss of an endpoint); finally
-    recompute confidence/extraction_model on every row that is still there,
-    from whatever sources it has left (R20).
+    Called before re-extracting a changed chunk (R23), instead of deleting
+    the entities and relationships those links pointed at outright: the
+    re-extraction call that follows still finds an entity or edge the new
+    text reports, through the ordinary upsert path's lookup by
+    ``(normalized_name, entity_type)`` or ``(source, target, relation_type)``,
+    and simply adds it a fresh link, keeping its id, aliases and merge
+    history rather than losing them to a delete-and-recreate.
+
+    Returns the entity and relationship ids that lost a link here, which are
+    exactly the ids whose source count could have changed; the caller checks
+    these, once re-extraction has run, for which ended up with none at all.
     """
     relationship_ids = set(
         db.execute(
@@ -441,34 +463,82 @@ def _remove_chunk_contributions(db: Session, chunk_id: int) -> None:
     db.execute(delete(EntitySource).where(EntitySource.chunk_id == chunk_id))
     db.flush()
 
-    for relationship_id in relationship_ids:
-        still_sourced = db.execute(
+    return entity_ids, relationship_ids
+
+
+def _garbage_collect_and_recompute(
+    db: Session,
+    candidate_entity_ids: set[int],
+    candidate_relationship_ids: set[int],
+) -> None:
+    """Delete what is left with no source at all, then recompute the rest (R23).
+
+    Called once, after the re-extraction call that followed
+    ``_remove_chunk_links``: an entity or relationship the new text still
+    reports was already found and kept by the ordinary upsert path, so only
+    what genuinely has zero sources left needs cleaning up here.
+    ``candidate_entity_ids`` / ``candidate_relationship_ids`` are exactly the
+    ids ``_remove_chunk_links`` returned; nothing else's source set could
+    have moved.
+
+    A relationship that still has a source on another chunk, but now touches
+    an entity that is about to be deleted, is removed through the ORM here
+    too, before the entity is, exactly like a relationship with no source at
+    all: leaving it to the database's ``ON DELETE CASCADE`` would remove the
+    row underneath the session without telling it, and the stale
+    ``Relationship`` object left behind in the identity map is what turns
+    the recompute below into a ``StaleDataError`` on its next flush.
+    """
+    doomed_entity_ids = {
+        entity_id
+        for entity_id in candidate_entity_ids
+        if db.execute(
+            select(EntitySource.entity_id).where(EntitySource.entity_id == entity_id)
+        ).first()
+        is None
+    }
+
+    orphan_relationship_ids = {
+        relationship_id
+        for relationship_id in candidate_relationship_ids
+        if db.execute(
             select(RelationshipSource.relationship_id).where(
                 RelationshipSource.relationship_id == relationship_id
             )
         ).first()
-        if still_sourced is None:
-            relationship = db.get(Relationship, relationship_id)
-            if relationship is not None:
-                db.delete(relationship)
+        is None
+    }
+
+    touching_doomed_entity_ids: set[int] = set()
+    if doomed_entity_ids:
+        touching_doomed_entity_ids = set(
+            db.execute(
+                select(Relationship.id).where(
+                    or_(
+                        Relationship.source_entity_id.in_(doomed_entity_ids),
+                        Relationship.target_entity_id.in_(doomed_entity_ids),
+                    )
+                )
+            ).scalars()
+        )
+
+    doomed_relationship_ids = orphan_relationship_ids | touching_doomed_entity_ids
+    for relationship_id in doomed_relationship_ids:
+        relationship = db.get(Relationship, relationship_id)
+        if relationship is not None:
+            db.delete(relationship)
     db.flush()
 
-    for entity_id in entity_ids:
-        still_sourced = db.execute(
-            select(EntitySource.entity_id).where(EntitySource.entity_id == entity_id)
-        ).first()
-        if still_sourced is None:
-            entity = db.get(Entity, entity_id)
-            if entity is not None:
-                db.delete(entity)  # cascades to any relationship still pointing at it
+    for entity_id in doomed_entity_ids:
+        entity = db.get(Entity, entity_id)
+        if entity is not None:
+            db.delete(entity)
     db.flush()
 
-    for relationship_id in relationship_ids:
-        if db.get(Relationship, relationship_id) is not None:
-            _recompute_relationship_confidence(db, relationship_id)
-    for entity_id in entity_ids:
-        if db.get(Entity, entity_id) is not None:
-            _recompute_entity_confidence(db, entity_id)
+    for relationship_id in candidate_relationship_ids - doomed_relationship_ids:
+        _recompute_relationship_confidence(db, relationship_id)
+    for entity_id in candidate_entity_ids - doomed_entity_ids:
+        _recompute_entity_confidence(db, entity_id)
     db.flush()
 
 
