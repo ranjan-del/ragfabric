@@ -14,6 +14,7 @@ import typer
 from pydantic import ValidationError
 
 from ragfabric_cli.commands import access as access_commands
+from ragfabric_cli.commands import graph as graph_commands
 from ragfabric_cli.commands import ingest as ingest_commands
 from ragfabric_cli.commands import users as users_commands
 from ragfabric_cli.commands.ask import ask as ask_command
@@ -37,6 +38,7 @@ app.add_typer(users_commands.app, name="users")
 app.add_typer(access_commands.groups_app, name="groups")
 app.add_typer(access_commands.grants_app, name="grants")
 app.add_typer(access_commands.keys_app, name="keys")
+app.add_typer(graph_commands.graph_app, name="graph")
 app.command("ingest")(ingest_commands.ingest)
 app.command("worker")(worker_command)
 app.command("reindex")(reindex_command)

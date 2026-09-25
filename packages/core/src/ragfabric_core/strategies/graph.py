@@ -79,11 +79,16 @@ result: the ``check_coverage`` span records whether coverage held, and the
 ``extract_question`` and ``traverse`` spans record their own outcome, so the
 trace alone tells which of the three happened without inspecting ``subgraph``.
 
-**Ordering (ruling R18, depth per ruling R21).** A chunk carries no score: a
-traversal is not a similarity search and ADR 0004 forbids inventing one.
-Chunks are ordered by the minimum hop depth of whichever node or edge sourced
-them, then by chunk id, and that depth is recorded in
-``metadata["graph_depth"]``. Node depth is read straight from
+**Ordering (ruling R18, depth per ruling R21, edge sources per R37).** A chunk
+carries no score: a traversal is not a similarity search and ADR 0004 forbids
+inventing one. Chunks are ordered by the minimum hop depth of whichever node
+or edge sourced them, then with an edge's source chunks ahead of chunks that
+only source a node, then by chunk id, and that depth is recorded in
+``metadata["graph_depth"]``. The edge-first tie-break exists for the top_k
+cut: a relationship claim survives the graph citation contract only by citing
+a passage that backs its edge, so that passage is the last thing at its depth
+to be cut. When the cap still removes it, the prompt shows the edge with
+"none provided" as its source passages, which is the honest fallback. Node depth is read straight from
 ``GraphNode.depth``, which ``traverse`` fills from the walk's own minimum
 depth, never re-derived here from edge direction: a node reached only
 backwards through an invertible relation can still have its sole edge
@@ -100,6 +105,7 @@ from collections.abc import Callable
 
 from sqlalchemy.orm import Session
 
+from ragfabric_core.auth.principal import AccessFilter
 from ragfabric_core.graph.contracts import (
     ContractViolation,
     EmptyReason,
@@ -113,6 +119,7 @@ from ragfabric_core.graph.traverse import (
     DEFAULT_NODE_BUDGET,
     has_visible_entities,
     match_entities,
+    source_chunk_access_stats,
     traverse,
     visible_entity_chunks,
 )
@@ -182,6 +189,21 @@ class GraphRAGStrategy:
     def node_budget(self) -> int:
         """The node budget this strategy was built with (read only)."""
         return self._node_budget
+
+    def access_stats(self, filters: dict, access: AccessFilter) -> tuple[int, int]:
+        """Candidate chunks before and after the access filter, for the audit row.
+
+        The same signature the stores expose, so a route counts the graph path
+        the way it counts the others. Only ``collection_id`` is read from
+        ``filters``, because it is the only request filter this strategy applies
+        (as ``ctx.collection_ids``); counting under a filter the walk ignores
+        would measure a universe it never searched.
+        """
+        collection_id = (filters or {}).get("collection_id")
+        with self._sf() as db:
+            return source_chunk_access_stats(
+                db, access, [collection_id] if collection_id is not None else None
+            )
 
     def retrieve(self, query: str, ctx: RetrievalContext) -> RetrievalResult:
         started = time.perf_counter()
@@ -312,7 +334,19 @@ class GraphRAGStrategy:
             span("fetch_chunks", mark, requested=len(depth_by_chunk), returned=len(fetched))
             for chunk in fetched:
                 chunk.metadata["graph_depth"] = depth_by_chunk[chunk.chunk_id]
-            chunks = sorted(fetched, key=lambda c: (c.metadata["graph_depth"], c.chunk_id))
+            edge_sources = {cid for edge in subgraph.edges for cid in edge.source_chunk_ids}
+            # Within one depth an edge's source goes before a node-only chunk
+            # (ruling R37): the top_k cut below then removes a node's own
+            # passage before it removes the only passage a relationship claim
+            # about that edge could cite.
+            chunks = sorted(
+                fetched,
+                key=lambda c: (
+                    c.metadata["graph_depth"],
+                    c.chunk_id not in edge_sources,
+                    c.chunk_id,
+                ),
+            )
 
         top_k = ctx.params.top_k
         return RetrievalResult(

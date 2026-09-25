@@ -444,3 +444,22 @@ def test_a_question_nothing_answers_produces_no_citations_at_all():
     assert llm.select_support(question, chunks) == []
     # And the answer says so rather than quoting something unrelated.
     assert "don't have enough information" in llm.extractive_answer(question, chunks)
+
+
+def test_an_unscored_chunk_is_reported_unscored_not_as_zero():
+    """A graph chunk has no similarity score (ruling R18); ``None`` must survive.
+
+    Relevance cannot be measured, so confidence rests on coverage and support
+    alone, and the citation reports no score rather than a 0.0 nobody measured.
+    """
+    text = "The Platform Team is a member of Engineering."
+    query = "platform team engineering"
+    unscored = [{"chunk_id": 1, "document_id": 1, "text": text, "score": None}]
+    zero = [{"chunk_id": 1, "document_id": 1, "text": text, "score": 0.0}]
+
+    result = build_answer(query, unscored, answer_text="It is [1].")
+
+    assert result["citations"][0]["score"] is None
+    # Full coverage and no other chunks: (0.5 * 1 + 0.1 * 0) / 0.6.
+    assert result["confidence"] == round(0.5 / 0.6, 4)
+    assert _confidence(query, zero) == 0.5

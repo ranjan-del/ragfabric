@@ -31,7 +31,7 @@ class SearchRequest(BaseModel):
     # KeyError inside the registry, which would surface as a 500.
     # /api/search/hybrid rejects anything but "traditional": see
     # api/routes/search.py:hybrid_search for why.
-    strategy: Literal["traditional", "vectorless", "agentic"] = "traditional"
+    strategy: Literal["traditional", "vectorless", "agentic", "graph"] = "traditional"
 
 
 class SearchResultItem(BaseModel):
@@ -95,7 +95,9 @@ class Citation(BaseModel):
     document_id: int | None = None
     filename: str | None = None
     page: int | None = None
-    score: float
+    # None when the strategy measured no score: the graph strategy's chunks
+    # come from a traversal, not a similarity search (ruling R18).
+    score: float | None = None
     snippet: str
     # Whether the answer text actually carries this marker. Retrieval returns
     # top_k chunks but the answer may only lean on some of them.
@@ -169,6 +171,54 @@ class TraceSpanOut(BaseModel):
     attributes: dict[str, str | int | float | bool | None] = {}
 
 
+class GraphNodeOut(BaseModel):
+    """Mirrors ``ragfabric_core.graph.contracts.GraphNode``.
+
+    Names and types only, never the stored description (ruling R6): a
+    description may be paraphrased from a chunk this caller cannot see.
+    ``depth`` is the walk's own minimum hop count from a seed.
+    """
+
+    id: int
+    name: str
+    entity_type: str
+    depth: int
+
+
+class GraphEdgeOut(BaseModel):
+    """Mirrors ``ragfabric_core.graph.contracts.GraphEdge``, one edge the walk kept.
+
+    ``walked_as`` is the relation as walked: the stored ``relation_type``
+    forwards, or its inverse name when ``reversed``. ``source_chunk_ids`` lists
+    only chunks this caller may see (ruling R10); some may fall outside the
+    top_k passages the answer was generated from. ``confidence`` is what the
+    extraction model reported, or None when nothing measured it (ADR 0004).
+    """
+
+    id: int
+    source_id: int
+    target_id: int
+    relation_type: str
+    walked_as: str
+    reversed: bool
+    confidence: float | None = None
+    source_chunk_ids: list[int]
+
+
+class SubgraphOut(BaseModel):
+    """Mirrors ``ragfabric_core.graph.contracts.Subgraph``: what the graph strategy walked.
+
+    ``truncated`` is True when the node budget cut the walk. ``empty_reason``
+    says why nothing was walked (``no_graph_coverage``, ``no_entity_matched``
+    or ``no_walkable_edges``) and is None when edges were kept.
+    """
+
+    nodes: list[GraphNodeOut]
+    edges: list[GraphEdgeOut]
+    truncated: bool
+    empty_reason: str | None = None
+
+
 class AnswerResponse(BaseModel):
     question: str
     answer: str
@@ -189,3 +239,11 @@ class AnswerResponse(BaseModel):
     dropped_claims: list[DroppedClaimOut] = []
     dated_sources: list[DatedSubQuestionOut] = []
     trace: list[TraceSpanOut] = []
+    # Only the graph strategy fills these in. ``subgraph`` is None for every
+    # other strategy, and for a graph request whose question call came back
+    # unusable, since no walk ran. ``dropped_relationship_claims`` are claims
+    # the graph citation contract refused, each with its
+    # ``RelationshipDropReason``; ``dropped_claims`` above keeps the Phase 3
+    # contract's drops on the graph path too.
+    subgraph: SubgraphOut | None = None
+    dropped_relationship_claims: list[DroppedClaimOut] = []

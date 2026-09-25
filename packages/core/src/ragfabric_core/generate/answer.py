@@ -113,6 +113,12 @@ def _confidence(query: str, retrieved: list[dict]) -> float:
 
     The weights are a judgement call, not a calibration against labelled data.
     Read the number as a ranked heuristic, not a probability.
+
+    A top chunk with no score (the graph strategy's, since a traversal
+    measures no similarity, ruling R18) has no ``relevance`` to measure. It is
+    left out and the other two weights are rescaled to sum to one, rather than
+    counting the missing cosine as zero, which would report "measured as
+    irrelevant" for a number nobody measured (ADR 0004).
     """
     if not retrieved:
         return 0.0
@@ -125,10 +131,14 @@ def _confidence(query: str, retrieved: list[dict]) -> float:
     top_tokens = set(content_tokens(top.get("text", "")))
     coverage = len(query_tokens & top_tokens) / len(query_tokens)
 
-    cosine = max(0.0, float(top.get("score", 0.0)))
-    n = len(query_tokens)
-    best_possible = math.sqrt(n / max(n, len(top_tokens) or n))
-    relevance = min(1.0, cosine / best_possible) if best_possible > 0 else 0.0
+    top_score = top.get("score", 0.0)
+    if top_score is None:
+        relevance = None
+    else:
+        cosine = max(0.0, float(top_score))
+        n = len(query_tokens)
+        best_possible = math.sqrt(n / max(n, len(top_tokens) or n))
+        relevance = min(1.0, cosine / best_possible) if best_possible > 0 else 0.0
 
     others = retrieved[1:]
     if others:
@@ -142,7 +152,10 @@ def _confidence(query: str, retrieved: list[dict]) -> float:
     else:
         support = 0.0
 
-    score = 0.5 * coverage + 0.4 * relevance + 0.1 * support
+    if relevance is None:
+        score = (0.5 * coverage + 0.1 * support) / 0.6
+    else:
+        score = 0.5 * coverage + 0.4 * relevance + 0.1 * support
     return round(max(0.0, min(1.0, score)), 4)
 
 
@@ -222,7 +235,11 @@ def _build_citations(
                 "document_id": chunk.get("document_id"),
                 "filename": chunk.get("filename"),
                 "page": chunk.get("page"),
-                "score": round(float(chunk.get("score", 0.0)), 4),
+                # None when the retriever measured no score (the graph
+                # strategy's chunks), never a 0.0 standing in for it.
+                "score": None
+                if chunk.get("score", 0.0) is None
+                else round(float(chunk.get("score", 0.0)), 4),
                 "snippet": snippet,
                 # True when the answer text carries this marker, so the UI can
                 # separate "the answer is built on this" from "also retrieved".

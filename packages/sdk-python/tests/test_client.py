@@ -467,3 +467,81 @@ def test_an_answer_from_a_server_without_the_agent_fields_still_parses():
     assert answer.dropped_claims == []
     assert answer.dated_sources == []
     assert answer.trace == []
+    assert answer.subgraph is None
+    assert answer.dropped_relationship_claims == []
+
+
+def test_ask_sends_the_graph_strategy_and_parses_the_subgraph():
+    def handler(request):
+        assert json.loads(request.content)["strategy"] == "graph"
+        return httpx.Response(
+            200,
+            json={
+                "question": "q",
+                "answer": "The Platform Team is a member of Engineering [E 1] [1].",
+                "confidence": 0.8,
+                "citations": [],
+                "highlights": [],
+                "subgraph": {
+                    "nodes": [
+                        {"id": 1, "name": "Platform Team", "entity_type": "team", "depth": 0},
+                        {"id": 2, "name": "Engineering", "entity_type": "organisation", "depth": 1},
+                    ],
+                    "edges": [
+                        {
+                            "id": 5,
+                            "source_id": 1,
+                            "target_id": 2,
+                            "relation_type": "MEMBER_OF",
+                            "walked_as": "MEMBER_OF",
+                            "reversed": False,
+                            "confidence": None,
+                            "source_chunk_ids": [9],
+                        }
+                    ],
+                    "truncated": True,
+                    "empty_reason": None,
+                },
+                "dropped_relationship_claims": [
+                    {
+                        "text": "Engineering reports to the Board [E 99] [1].",
+                        "reason": "edge_not_in_subgraph",
+                    }
+                ],
+            },
+        )
+
+    answer = client_with(handler).ask("q", strategy="graph")
+
+    assert [node.name for node in answer.subgraph.nodes] == ["Platform Team", "Engineering"]
+    assert answer.subgraph.nodes[1].depth == 1
+    [edge] = answer.subgraph.edges
+    assert (edge.walked_as, edge.reversed, edge.confidence) == ("MEMBER_OF", False, None)
+    assert edge.source_chunk_ids == [9]
+    assert answer.subgraph.truncated is True
+    assert answer.subgraph.empty_reason is None
+    assert answer.dropped_relationship_claims[0].reason == "edge_not_in_subgraph"
+
+
+def test_an_empty_subgraph_reports_why():
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "question": "q",
+                "answer": "I could not find an answer to that in the documents provided.",
+                "confidence": 0.0,
+                "citations": [],
+                "highlights": [],
+                "subgraph": {
+                    "nodes": [],
+                    "edges": [],
+                    "truncated": False,
+                    "empty_reason": "no_graph_coverage",
+                },
+            },
+        )
+
+    answer = client_with(handler).ask("q", strategy="graph")
+
+    assert answer.subgraph.empty_reason == "no_graph_coverage"

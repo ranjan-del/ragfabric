@@ -39,7 +39,9 @@ class Citation(BaseModel):
     document_id: int | None = None
     filename: str | None = None
     page: int | None = None
-    score: float
+    # None for the graph strategy, whose chunks come from a traversal and
+    # carry no similarity score.
+    score: float | None = None
     snippet: str
     used: bool = False
     highlights: list[Highlight] = Field(default_factory=list)
@@ -116,6 +118,51 @@ class DatedSubQuestion(BaseModel):
     sources: list[DatedSource] = Field(default_factory=list)
 
 
+class GraphNode(BaseModel):
+    """Mirrors ``schemas.search.GraphNodeOut``: an entity the graph walk reached.
+
+    Names and types only; the server never sends a stored description.
+    ``entity_type`` stays a plain string so a type added on the server does not
+    make this client reject the response.
+    """
+
+    id: int
+    name: str
+    entity_type: str
+    depth: int
+
+
+class GraphEdge(BaseModel):
+    """Mirrors ``schemas.search.GraphEdgeOut``: an edge the walk kept.
+
+    ``walked_as`` is the relation as walked (the inverse name when
+    ``reversed``). ``confidence`` is None when nothing measured it.
+    """
+
+    id: int
+    source_id: int
+    target_id: int
+    relation_type: str
+    walked_as: str
+    reversed: bool
+    confidence: float | None = None
+    source_chunk_ids: list[int] = Field(default_factory=list)
+
+
+class Subgraph(BaseModel):
+    """Mirrors ``schemas.search.SubgraphOut``: what the graph strategy walked.
+
+    ``empty_reason`` is ``no_graph_coverage``, ``no_entity_matched`` or
+    ``no_walkable_edges`` when nothing was walked, and None otherwise.
+    ``truncated`` is True when the server's node budget cut the walk.
+    """
+
+    nodes: list[GraphNode] = Field(default_factory=list)
+    edges: list[GraphEdge] = Field(default_factory=list)
+    truncated: bool = False
+    empty_reason: str | None = None
+
+
 class Answer(BaseModel):
     """Mirrors ``schemas.search.AnswerResponse``, returned by both
     ``POST /api/ask`` (non streaming) and ``POST /api/search/query``."""
@@ -138,6 +185,12 @@ class Answer(BaseModel):
     dropped_claims: list[DroppedClaim] = Field(default_factory=list)
     dated_sources: list[DatedSubQuestion] = Field(default_factory=list)
     trace: list[dict] = Field(default_factory=list)
+    # Only the graph strategy fills these in; optional and empty by default so
+    # a server older than Phase 6 parses unchanged. ``dropped_relationship_claims``
+    # are relationship claims the graph citation contract removed, with the
+    # rule that removed each one as ``reason``.
+    subgraph: Subgraph | None = None
+    dropped_relationship_claims: list[DroppedClaim] = Field(default_factory=list)
 
 
 class SearchResult(BaseModel):
@@ -216,7 +269,10 @@ class AskEvent(BaseModel):
 
     ``event`` is one of ``retrieval``, ``token``, ``superseded``,
     ``citations`` or ``done``, in that order (``superseded`` only appears
-    when the streamed answer failed the citation contract). ``data`` is the
+    when the streamed answer failed the citation contract). With the graph
+    strategy, ``retrieval`` carries ``subgraph`` (a ``Subgraph`` as a dict),
+    and ``superseded`` carries ``dropped_claims`` and
+    ``dropped_relationship_claims`` alongside the repaired ``text``. ``data`` is the
     event's raw JSON payload, kept untyped because each event name carries a
     different shape and this class is a thin parsing result, not a schema.
     """
