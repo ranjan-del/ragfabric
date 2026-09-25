@@ -136,7 +136,9 @@ def _seed(entities: dict[str, tuple[str, list[int]]], edges: list[tuple]) -> dic
             entity = Entity(name=name, normalized_name=normalise(name), entity_type=entity_type)
             db.add(entity)
             db.flush()
-            db.add_all(EntitySource(entity_id=entity.id, chunk_id=c) for c in chunks)
+            db.add_all(
+                EntitySource(entity_id=entity.id, chunk_id=c, surface_name=name) for c in chunks
+            )
             ids[name] = entity.id
         for source, relation, target, chunks in edges:
             edge = Relationship(
@@ -147,7 +149,10 @@ def _seed(entities: dict[str, tuple[str, list[int]]], edges: list[tuple]) -> dic
             )
             db.add(edge)
             db.flush()
-            db.add_all(RelationshipSource(relationship_id=edge.id, chunk_id=c) for c in chunks)
+            db.add_all(
+                RelationshipSource(relationship_id=edge.id, chunk_id=c, confidence=0.8)
+                for c in chunks
+            )
         db.commit()
     return ids
 
@@ -548,3 +553,214 @@ def test_the_audit_row_counts_the_graph_chunks_the_filter_removed(
     assert audit.strategy == "graph"
     # Two chunks source the graph; the secret one is filtered for this caller.
     assert audit.sources_filtered == 1
+
+
+def test_a_denied_documents_entities_and_chunks_never_reach_the_query_response(
+    client, restricted_token, split_graph
+):
+    r = client.post(
+        "/api/search/query",
+        json={"query": QUESTION, "strategy": "graph", "top_k": 10},
+        headers=auth(restricted_token),
+    )
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    secret_chunk = split_graph["secret_chunk"]
+    node_ids = {node["id"] for node in body["subgraph"]["nodes"]}
+    assert split_graph["ids"]["Nightjar"] not in node_ids
+    assert all(edge["relation_type"] != "WORKS_ON" for edge in body["subgraph"]["edges"])
+    assert all(secret_chunk not in edge["source_chunk_ids"] for edge in body["subgraph"]["edges"])
+    assert all(c["chunk_id"] != secret_chunk for c in body["citations"])
+    assert all(c["document_id"] != split_graph["secret_document"] for c in body["citations"])
+    assert "Nightjar" not in r.text
+    assert "confidential acquisition" not in r.text
+    # Not vacuous: the restricted caller still walked the open side of the graph.
+    assert split_graph["ids"]["Platform Team"] in node_ids
+    assert split_graph["ids"]["Engineering"] in node_ids
+
+
+def test_a_denied_documents_chunks_never_reach_the_semantic_response(
+    client, admin_token, restricted_token, split_graph
+):
+    def semantic(token: str):
+        r = client.post(
+            "/api/search/semantic",
+            json={"query": QUESTION, "strategy": "graph", "top_k": 10},
+            headers=auth(token),
+        )
+        assert r.status_code == 200, r.text
+        return r
+
+    # Not vacuous: the same request by someone allowed the secret collection
+    # returns the secret chunk, so its absence below is the access filter.
+    control = semantic(admin_token).json()
+    assert split_graph["secret_chunk"] in {item["chunk_id"] for item in control["results"]}
+
+    r = semantic(restricted_token)
+    results = r.json()["results"]
+    assert split_graph["secret_chunk"] not in {item["chunk_id"] for item in results}
+    assert all(item["document_id"] != split_graph["secret_document"] for item in results)
+    assert "confidential acquisition" not in r.text
+    assert split_graph["open_chunk"] in {item["chunk_id"] for item in results}
+
+
+# ---------------------------------------------------------------------------
+# R40: an entity's spelling is chunk text, so it follows access too
+# ---------------------------------------------------------------------------
+
+HR_TEXT = "Ravi Sharma is on a performance plan."
+PUBLIC_TEXT = "R. Sharma is a member of the Platform Team."
+
+
+class _MentionLLM(_QuestionLLM):
+    """Answers every question call with a mention of one person."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__()
+        self.name_asked = name
+
+    def complete(self, messages: list[Message], **kwargs) -> Completion:
+        self.calls += 1
+        text = json.dumps(
+            {
+                "entities": [{"name": self.name_asked, "entity_type": "person"}],
+                "implied_relation_types": [],
+            }
+        )
+        return Completion(
+            text=text,
+            model=self.default_model,
+            provider="question",
+            input_tokens=3,
+            output_tokens=5,
+            latency_ms=0,
+            finish_reason="stop",
+        )
+
+
+class _RecordingAnswerLLM(_GraphAnswerLLM):
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    def _text(self, messages: list[Message]) -> str:
+        self.prompts.append("\n".join(m.content for m in messages))
+        return super()._text(messages)
+
+
+@pytest.fixture()
+def merged_person(client, admin_token, restricted_token) -> dict:
+    """The post-merge state of the review probe.
+
+    One person entity whose stored name, "Ravi Sharma", came from an HR chunk
+    only admins may read (0.95), and whose other source is a public chunk that
+    spells it "R. Sharma" (0.7) and states the MEMBER_OF edge.
+    """
+    admin = auth(admin_token)
+    hr = client.post("/api/collections", json={"name": "hr"}, headers=admin).json()
+    hr_document = _upload(client, admin_token, "hr.txt", HR_TEXT, hr["id"])
+    public_document = _upload(client, restricted_token, "talk.txt", PUBLIC_TEXT)
+    [hr_chunk] = _chunk_ids(hr_document)
+    [public_chunk] = _chunk_ids(public_document)
+    with SessionLocal() as db:
+        person = Entity(
+            name="Ravi Sharma",
+            normalized_name=normalise("Ravi Sharma"),
+            entity_type="person",
+            aliases=["R. Sharma"],
+            confidence=0.95,
+        )
+        team = Entity(
+            name="Platform Team",
+            normalized_name=normalise("Platform Team"),
+            entity_type="team",
+            confidence=0.9,
+        )
+        db.add_all([person, team])
+        db.flush()
+        db.add_all(
+            [
+                EntitySource(
+                    entity_id=person.id,
+                    chunk_id=hr_chunk,
+                    confidence=0.95,
+                    surface_name="Ravi Sharma",
+                ),
+                EntitySource(
+                    entity_id=person.id,
+                    chunk_id=public_chunk,
+                    confidence=0.7,
+                    surface_name="R. Sharma",
+                ),
+                EntitySource(
+                    entity_id=team.id,
+                    chunk_id=public_chunk,
+                    confidence=0.9,
+                    surface_name="Platform Team",
+                ),
+            ]
+        )
+        edge = Relationship(
+            source_entity_id=person.id,
+            target_entity_id=team.id,
+            relation_type="MEMBER_OF",
+            confidence=0.8,
+        )
+        db.add(edge)
+        db.flush()
+        db.add(RelationshipSource(relationship_id=edge.id, chunk_id=public_chunk, confidence=0.8))
+        db.commit()
+        ids = {"person": person.id, "team": team.id}
+    group = client.post("/api/admin/groups", json={"name": "hr-only"}, headers=admin).json()
+    client.post(
+        "/api/admin/grants",
+        json={"group_id": group["id"], "collection_id": hr["id"], "permission": "read"},
+        headers=admin,
+    )
+    return {"ids": ids, "hr_chunk": hr_chunk, "public_chunk": public_chunk}
+
+
+def _ask_about(client, token: str, name: str) -> tuple[dict, str, list[str]]:
+    answers = _RecordingAnswerLLM()
+    app.dependency_overrides[get_llm_provider] = lambda: answers
+    client.app.state.strategy_registry.register(
+        GraphRAGStrategy(llm=_MentionLLM(name), session_factory=SessionLocal)
+    )
+    try:
+        r = _ask(client, token, query=f"who is {name}", top_k=10)
+    finally:
+        app.dependency_overrides.pop(get_llm_provider, None)
+    assert r.status_code == 200, r.text
+    return r.json(), r.text, answers.prompts
+
+
+def test_a_restricted_caller_sees_the_spelling_of_the_chunk_they_may_read(
+    client, restricted_token, merged_person
+):
+    body, raw, prompts = _ask_about(client, restricted_token, "R. Sharma")
+
+    names = {node["id"]: node["name"] for node in body["subgraph"]["nodes"]}
+    assert names[merged_person["ids"]["person"]] == "R. Sharma"
+    assert "Ravi Sharma" not in raw
+    assert prompts, "the answer model was called"
+    assert all("Ravi Sharma" not in prompt for prompt in prompts)
+    assert "performance plan" not in raw
+    # The prompt renders the edge under the spelling the caller may read.
+    assert any("R. Sharma MEMBER_OF Platform Team" in prompt for prompt in prompts)
+
+
+def test_a_restricted_caller_cannot_match_the_denied_spelling(
+    client, restricted_token, merged_person
+):
+    body, _, prompts = _ask_about(client, restricted_token, "Ravi Sharma")
+
+    assert body["subgraph"]["nodes"] == []
+    assert body["subgraph"]["empty_reason"] == "no_entity_matched"
+    assert all("Ravi Sharma" not in prompt for prompt in prompts)
+
+
+def test_an_admin_sees_the_higher_confidence_spelling(client, admin_token, merged_person):
+    body, _, _ = _ask_about(client, admin_token, "Ravi Sharma")
+
+    names = {node["id"]: node["name"] for node in body["subgraph"]["nodes"]}
+    assert names[merged_person["ids"]["person"]] == "Ravi Sharma"

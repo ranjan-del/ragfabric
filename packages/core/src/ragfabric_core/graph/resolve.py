@@ -43,8 +43,9 @@ beats one without; then the higher confidence; then more ``EntitySource``
 rows; then the lower id.
 
 **A merge** (R24, R26, R27) moves the merged-away entity's ``EntitySource`` rows onto
-the survivor with their per-chunk confidence (a chunk that sourced both keeps
-the higher of the two reports on the survivor's row), repoints its
+the survivor with their per-chunk confidence and surface spelling (a chunk
+that sourced both keeps the higher of the two reports, and that report's
+spelling, on the survivor's row), repoints its
 relationships to the survivor, folds any edge that now duplicates another
 (same source, target and relation type) by moving its ``RelationshipSource``
 rows, drops any edge that would become a self-loop, adds the merged name and
@@ -81,7 +82,8 @@ embedding model for an ``embedding`` merge, ``None`` otherwise) and
 
 **An unmerge** recreates the entity (under a new id) with its name, type,
 aliases and description, and moves back exactly the ``EntitySource`` rows for
-``merged_source_chunk_ids`` (a shared chunk gets both original reports back).
+``merged_source_chunk_ids``, each with its own surface spelling (a shared
+chunk gets both original reports and spellings back).
 Only the relationships the merge recorded are candidates (R26); the
 survivor's own edges never are. A repointed edge points back at the restored
 entity; a folded edge is recreated on it with its recorded reports, and the
@@ -528,23 +530,28 @@ def _merge_entities(
                     chunk_id=source.chunk_id,
                     confidence=source.confidence,
                     extraction_model=source.extraction_model,
+                    surface_name=source.surface_name,
                 )
             )
         else:
             # One chunk named both: the survivor's row keeps the higher
-            # report, and both are kept for the unmerge.
+            # report, with the spelling that report used (R40), and both
+            # are kept for the unmerge.
             shared_sources.append(
                 {
                     "chunk_id": source.chunk_id,
                     "survivor_confidence": existing.confidence,
                     "survivor_extraction_model": existing.extraction_model,
+                    "survivor_surface_name": existing.surface_name,
                     "merged_confidence": source.confidence,
                     "merged_extraction_model": source.extraction_model,
+                    "merged_surface_name": source.surface_name,
                 }
             )
             if _higher(source.confidence, existing.confidence):
                 existing.confidence = source.confidence
                 existing.extraction_model = source.extraction_model
+                existing.surface_name = source.surface_name
         db.delete(source)
     db.flush()
 
@@ -641,7 +648,9 @@ def _merge_entities(
     db.flush()
 
     # The merged name and the merged entity's own aliases stay matchable on
-    # the survivor (R27); exactly what was added is recorded for the unmerge.
+    # the survivor by resolution's alias stage (R27); exactly what was added
+    # is recorded for the unmerge. Queries never read aliases: a question
+    # matches only the spellings of sources the caller may read (R40).
     # The merged name is kept as its own surface spelling even when it
     # normalises to the survivor's name (an exact merge); one of the merged
     # entity's aliases is only worth adding when it matches nothing the
@@ -802,6 +811,7 @@ def unmerge(db: Session, merge_id: int) -> UnmergeResult:
                     chunk_id=source.chunk_id,
                     confidence=source.confidence,
                     extraction_model=source.extraction_model,
+                    surface_name=source.surface_name,
                 )
             )
             db.delete(source)
@@ -812,10 +822,12 @@ def unmerge(db: Session, merge_id: int) -> UnmergeResult:
                     chunk_id=source.chunk_id,
                     confidence=item["merged_confidence"],
                     extraction_model=item["merged_extraction_model"],
+                    surface_name=item["merged_surface_name"],
                 )
             )
             source.confidence = item["survivor_confidence"]
             source.extraction_model = item["survivor_extraction_model"]
+            source.surface_name = item["survivor_surface_name"]
     db.flush()
     without_sources = not _entity_sources(db, restored.id)
 

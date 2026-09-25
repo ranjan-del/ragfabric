@@ -74,7 +74,11 @@ class Graph:
         *,
         chunks: tuple[int, ...] | None = None,
         aliases: object = None,
+        spellings: dict[int, str] | None = None,
+        confidences: dict[int, float | None] | None = None,
     ) -> int:
+        """Store an entity; each source chunk reports ``name`` unless ``spellings``
+        gives that chunk's own spelling, at ``confidences`` (default unmeasured)."""
         row = Entity(
             name=name,
             normalized_name=name.casefold(),
@@ -83,8 +87,17 @@ class Graph:
         )
         self.db.add(row)
         self.db.flush()
+        spellings = spellings or {}
+        confidences = confidences or {}
         for chunk_id in chunks if chunks is not None else (self.open_chunk,):
-            self.db.add(EntitySource(entity_id=row.id, chunk_id=chunk_id))
+            self.db.add(
+                EntitySource(
+                    entity_id=row.id,
+                    chunk_id=chunk_id,
+                    surface_name=spellings.get(chunk_id, name),
+                    confidence=confidences.get(chunk_id),
+                )
+            )
         self.db.flush()
         self.ids[name] = row.id
         return row.id
@@ -97,18 +110,28 @@ class Graph:
         *,
         chunks: tuple[int, ...] | None = None,
         confidence: float | None = 0.9,
+        per_source: dict[int, float | None] | None = None,
     ) -> int:
+        """Store an edge; every source reports ``confidence`` unless ``per_source`` says
+        otherwise, and the parent row carries the max of what its sources report."""
         value = relation.value if isinstance(relation, RelationType) else relation
+        sources = per_source or {
+            chunk_id: confidence
+            for chunk_id in (chunks if chunks is not None else (self.open_chunk,))
+        }
+        measured = [value for value in sources.values() if value is not None]
         row = Relationship(
             source_entity_id=self.ids[source],
             target_entity_id=self.ids[target],
             relation_type=value,
-            confidence=confidence,
+            confidence=max(measured) if measured else None,
         )
         self.db.add(row)
         self.db.flush()
-        for chunk_id in chunks if chunks is not None else (self.open_chunk,):
-            self.db.add(RelationshipSource(relationship_id=row.id, chunk_id=chunk_id))
+        for chunk_id, reported in sources.items():
+            self.db.add(
+                RelationshipSource(relationship_id=row.id, chunk_id=chunk_id, confidence=reported)
+            )
         self.db.flush()
         return row.id
 
@@ -518,6 +541,40 @@ def test_edges_report_names_types_and_confidence(graph):
     assert result.empty_reason is None
 
 
+def test_edge_confidence_comes_only_from_admitted_sources(graph):
+    """R43: the stored ``Relationship.confidence`` is the max over every source,
+    denied ones included. Reporting it to a restricted caller would leak that a
+    higher-confidence chunk they cannot read exists."""
+    graph.entity("ada")
+    graph.entity("grace")
+    graph.edge(
+        "ada",
+        RelationType.REPORTS_TO,
+        "grace",
+        per_source={graph.secret_chunk: 0.95, graph.open_chunk: 0.6},
+    )
+
+    [seen] = traverse(graph.db, [graph.ids["ada"]], ALL, max_hops=1).edges
+    assert seen.confidence == 0.95
+    [hidden] = traverse(graph.db, [graph.ids["ada"]], graph.restricted, max_hops=1).edges
+    assert hidden.confidence == 0.6
+    assert hidden.source_chunk_ids == [graph.open_chunk]
+
+
+def test_edge_confidence_is_none_when_no_admitted_source_measured_one(graph):
+    graph.entity("ada")
+    graph.entity("grace")
+    graph.edge(
+        "ada",
+        RelationType.REPORTS_TO,
+        "grace",
+        per_source={graph.secret_chunk: 0.95, graph.open_chunk: None},
+    )
+
+    [hidden] = traverse(graph.db, [graph.ids["ada"]], graph.restricted, max_hops=1).edges
+    assert hidden.confidence is None
+
+
 def test_no_seeds_is_no_entity_matched(graph):
     result = traverse(graph.db, [], ALL, max_hops=2)
     assert result.nodes == [] and result.edges == []
@@ -529,8 +586,14 @@ def test_no_seeds_is_no_entity_matched(graph):
 # ---------------------------------------------------------------------------
 
 
-def test_a_mention_matches_by_normalised_name_alias_and_type(graph):
-    graph.entity("platform team", EntityType.TEAM, aliases=["Plat Team", "PT"])
+def test_a_mention_matches_by_normalised_surface_name_and_type(graph):
+    graph.entity(
+        "platform team",
+        EntityType.TEAM,
+        chunks=(graph.open_chunk, graph.open_chunk_2),
+        spellings={graph.open_chunk: "Platform Team", graph.open_chunk_2: "Plat Team"},
+        aliases=["PT"],
+    )
     graph.entity("platform team", EntityType.PROJECT)
     team = graph.db.query(Entity).filter_by(entity_type="team").one().id
     project = graph.db.query(Entity).filter_by(entity_type="project").one().id
@@ -543,27 +606,81 @@ def test_a_mention_matches_by_normalised_name_alias_and_type(graph):
     ) == [team]
     assert match_entities(graph.db, [EntityMention(name="plat team")], ALL) == [team]
     assert (
-        match_entities(graph.db, [EntityMention(name="pt", entity_type=EntityType.PERSON)], ALL)
+        match_entities(
+            graph.db, [EntityMention(name="plat team", entity_type=EntityType.PERSON)], ALL
+        )
         == []
     )
     assert match_entities(graph.db, [], ALL) == []
 
 
-def test_a_denied_entity_does_not_match_by_alias(graph):
-    graph.entity("platform team", EntityType.TEAM, chunks=(graph.secret_chunk,), aliases=["PT"])
+def test_an_alias_no_source_spells_is_not_matched(graph):
+    """R40: aliases are resolution's record of merged spellings, possibly from denied
+    chunks, so a question never matches one; only a source's own spelling counts."""
+    graph.entity("platform team", EntityType.TEAM, aliases=["PT"])
+    assert match_entities(graph.db, [EntityMention(name="PT")], ALL) == []
+    assert match_entities(graph.db, [EntityMention(name="platform team")], ALL) == [
+        graph.ids["platform team"]
+    ]
+
+
+def test_a_spelling_only_a_denied_chunk_uses_does_not_match(graph):
+    graph.entity(
+        "platform team",
+        EntityType.TEAM,
+        chunks=(graph.open_chunk, graph.secret_chunk),
+        spellings={graph.secret_chunk: "PT"},
+    )
+    entity = graph.ids["platform team"]
+    assert match_entities(graph.db, [EntityMention(name="PT")], ALL) == [entity]
     assert match_entities(graph.db, [EntityMention(name="PT")], graph.restricted) == []
-    assert len(match_entities(graph.db, [EntityMention(name="PT")], ALL)) == 1
+    assert match_entities(graph.db, [EntityMention(name="platform team")], graph.restricted) == [
+        entity
+    ]
 
 
-def test_a_malformed_aliases_value_on_another_entity_does_not_break_matching(graph):
+def test_a_malformed_aliases_value_does_not_break_matching(graph):
     graph.entity("platform team", EntityType.TEAM, aliases=["PT"])
     graph.entity("broken object", EntityType.TEAM, aliases={"not": "a list"})
     graph.entity("broken scalar", EntityType.TEAM, aliases="PT")
     graph.entity("mixed", EntityType.TEAM, aliases=[7, None, "Mixed Up"])
     graph.db.commit()
 
-    assert match_entities(graph.db, [EntityMention(name="pt")], ALL) == [graph.ids["platform team"]]
-    assert match_entities(graph.db, [EntityMention(name="mixed up")], ALL) == [graph.ids["mixed"]]
+    assert match_entities(graph.db, [EntityMention(name="platform team")], ALL) == [
+        graph.ids["platform team"]
+    ]
+    assert match_entities(graph.db, [EntityMention(name="mixed")], ALL) == [graph.ids["mixed"]]
+
+
+def test_a_node_is_named_by_its_best_admitted_source(graph):
+    """Highest per-source confidence wins, a measured one beats ``None``, and a tie
+    goes to the lowest chunk id; a denied source's spelling is never a candidate."""
+    graph.entity(
+        "ada",
+        chunks=(graph.open_chunk, graph.open_chunk_2, graph.secret_chunk, graph.other_open_chunk),
+        spellings={
+            graph.open_chunk: "Ada L.",
+            graph.open_chunk_2: "A. Lovelace",
+            graph.secret_chunk: "Augusta Ada King",
+            graph.other_open_chunk: "Countess",
+        },
+        confidences={
+            graph.open_chunk: 0.6,
+            graph.open_chunk_2: 0.6,
+            graph.secret_chunk: 0.99,
+            graph.other_open_chunk: None,
+        },
+    )
+    ada = graph.ids["ada"]
+
+    def name(access) -> str:
+        [node] = traverse(graph.db, [ada], access, max_hops=1).nodes
+        return node.name
+
+    assert name(ALL) == "Augusta Ada King"
+    assert name(graph.restricted) == "Ada L."  # 0.6 tie: the lower chunk id
+    only_unmeasured = AccessFilter(document_ids=frozenset({graph.other_open_document}))
+    assert name(only_unmeasured) == "Countess"
 
 
 # ---------------------------------------------------------------------------

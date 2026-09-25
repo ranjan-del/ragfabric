@@ -17,7 +17,9 @@ link row also carries the confidence and extraction model that one chunk's
 extraction call reported (R20), so the parent row's own confidence can be
 recomputed as the max over its current sources whenever a source is added,
 removed or moved, rather than drifting once the chunk that supplied the
-number is re-extracted or merged away.
+number is re-extracted or merged away. An ``EntitySource`` row also records
+the ``surface_name`` that chunk used for the entity (R40), because the name a
+caller sees must come from a chunk that caller may read.
 
 ``EntityMerge`` records every entity resolution decision (Task 5): the
 surviving entity, the merged-away entity's name, type, aliases and source
@@ -112,6 +114,15 @@ class EntitySource(Base):
     surviving source) whenever a source is added, removed (Task 4 cleanup) or
     moved (Task 5 merge/unmerge), so the parent row never carries a number no
     current source supports.
+
+    ``surface_name`` (R40) is the spelling *that chunk's* extraction reported
+    for the entity. A name is text from a chunk, exactly like a description,
+    so what a caller sees is the spelling of the best source they may read
+    (``GraphNode.name``), and a question matches only admitted sources'
+    spellings. ``Entity.name`` and ``Entity.aliases`` are resolution's own
+    bookkeeping and never reach a caller. It moves with the row on merge and
+    unmerge, and is required: every source row was written by an extraction
+    that named the entity.
     """
 
     __tablename__ = "entity_sources"
@@ -127,6 +138,7 @@ class EntitySource(Base):
     )
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     extraction_model: Mapped[str | None] = mapped_column(String, nullable=True)
+    surface_name: Mapped[str] = mapped_column(String, nullable=False)
 
 
 class RelationshipSource(Base):

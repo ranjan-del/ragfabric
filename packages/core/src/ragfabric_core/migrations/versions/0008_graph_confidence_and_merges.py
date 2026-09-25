@@ -21,6 +21,10 @@ as empty JSON lists. Each link row also carries its own ``confidence`` and
 parent row's aggregate confidence can be recomputed as the max over its
 current sources instead of going stale the moment a contributing chunk is
 re-extracted or merged away. Same CHECK constraint as the parent rows.
+``entity_sources`` also carries ``surface_name`` (R40), the spelling that
+chunk's extraction reported, because the name a caller sees must come from a
+chunk that caller may read. It is NOT NULL and needs no backfill: the table is
+created here, and nothing had been released with it.
 
 ``entity_merges`` records every entity resolution decision: the surviving
 entity, the merged-away entity's name, type, aliases and source chunk ids
@@ -78,6 +82,7 @@ def upgrade() -> None:
         sa.Column("chunk_id", sa.Integer(), nullable=False),
         sa.Column("confidence", sa.Float(), nullable=True),
         sa.Column("extraction_model", sa.String(), nullable=True),
+        sa.Column("surface_name", sa.String(), nullable=False),
         sa.ForeignKeyConstraint(["entity_id"], ["entities.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["chunk_id"], ["chunks.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("entity_id", "chunk_id"),

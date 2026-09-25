@@ -426,6 +426,7 @@ def _upsert_entities(
             chunk.id,
             confidence=representative.confidence,
             extraction_model=extraction_model,
+            surface_name=representative.name,
         )
         _recompute_entity_confidence(db, entity_id)
         entity_ids[key] = entity_id
@@ -613,9 +614,20 @@ def _garbage_collect_and_recompute(
 
 
 def _link_entity_source(
-    db: Session, entity_id: int, chunk_id: int, *, confidence: float, extraction_model: str
+    db: Session,
+    entity_id: int,
+    chunk_id: int,
+    *,
+    confidence: float,
+    extraction_model: str,
+    surface_name: str,
 ) -> None:
-    """Add or refresh the (entity, chunk) provenance row with what this chunk reported."""
+    """Add or refresh the (entity, chunk) provenance row with what this chunk reported.
+
+    ``surface_name`` is the spelling this chunk's extraction used (R40), which
+    may differ from ``Entity.name`` whenever two spellings normalise equal or
+    a later merge folded another spelling in.
+    """
     link = db.get(EntitySource, (entity_id, chunk_id))
     if link is None:
         db.add(
@@ -624,11 +636,13 @@ def _link_entity_source(
                 chunk_id=chunk_id,
                 confidence=confidence,
                 extraction_model=extraction_model,
+                surface_name=surface_name,
             )
         )
     else:
         link.confidence = confidence
         link.extraction_model = extraction_model
+        link.surface_name = surface_name
 
 
 def _link_relationship_source(
