@@ -16,7 +16,9 @@ and nothing here replaces or loosens it.
 same as ``[E 1]``.
 
 **What makes a claim a relationship claim.** It names two or more distinct
-sub-graph nodes, or it carries an ``[E k]`` marker. Names are matched on the
+sub-graph node names, or it carries an ``[E k]`` marker. Distinct names are
+counted, not node ids: an Atlas project and an Atlas person share one name, so
+"Atlas shipped in May" is one mention and stays a chunk claim (ruling R33). Names are matched on the
 ``normalise()`` form of both the claim and the node name, as whole words or
 phrases: "Atlas" is not named by "Atlassian". Longer names win over names
 nested inside them ("Platform Team" is one name, not also "Platform"), so an
@@ -36,10 +38,17 @@ first failure is the recorded reason:
    has at least one cited ``[n]`` chunk among its ``source_chunk_ids``.
 4. ``chunk_does_not_name_endpoints``  and at least one such chunk's text names
    both of that edge's endpoints (normalised, whole words).
+5. ``uncovered_entity``  every entity the claim names is an endpoint of at
+   least one of those cited, chunk-backed edges (ruling R33). For a name two
+   nodes share, one of them being an endpoint is enough.
 
 Requiring every edge between named entities to be supported, rather than just
 one of them, is what makes a path claim ("A is in B, which reports to C")
-need a source chunk per hop.
+need a source chunk per hop. Rule 5 is what stops a claim from riding a real
+edge to assert a fabricated one: "the Platform Team and Engineering both
+report to the CTO", citing only the backed Engineering to CTO edge, is dropped
+because no cited edge touches the Platform Team. "A reports to C, through B"
+with backed A-B and B-C edges still passes: every entity it names is touched.
 
 Known looseness #1, recorded rather than hidden: **direction and paraphrase
 faithfulness are not checked.** A claim that cites a supported ``OWNS`` edge
@@ -48,11 +57,13 @@ nothing to do with the edge's relation. Deciding either needs a semantic
 reading of the sentence, which cannot be asserted (ADR 0004); Phase 8 measures
 it.
 
-Known looseness #2: a claim naming three entities is satisfied by edges
-between some of them. "A reports to C, through B" citing supported A-B and B-C
-edges passes, although no edge joins A to C, because deciding which pairs a
-sentence relates is the same semantic reading. A claim naming exactly the two
-ends of a path with no edge between them is caught (rule 2).
+Known looseness #2: rule 5 checks that every named entity is touched by a
+backed edge, not which pairs the sentence relates. With backed A-B and B-C
+edges cited, "A reports to C" in a sentence that also names B passes, although
+no edge joins A to C: reading which pairs a sentence asserts, and in which
+direction, is the semantic judgement looseness #1 leaves to Phase 8. A claim
+naming only the two ends of a path is caught (rule 2), and a claim naming an
+entity no cited edge touches is caught (rule 5).
 
 Known looseness #3: a cited edge that joins no two named entities is
 tolerated, not refused, provided it resolves (rule 1). Such a marker adds no
@@ -89,6 +100,7 @@ class RelationshipDropReason(StrEnum):
     NO_EDGE_CITED = "no_edge_cited"
     CHUNK_NOT_EDGE_SOURCE = "chunk_not_edge_source"
     CHUNK_DOES_NOT_NAME_ENDPOINTS = "chunk_does_not_name_endpoints"
+    UNCOVERED_ENTITY = "uncovered_entity"
 
 
 def edge_marker(k: int) -> str:
@@ -111,12 +123,14 @@ def strip_markers(text: str) -> str:
     return _ANY_MARKER_RE.sub(" ", text)
 
 
-def _names_in(text: str, nodes: list[GraphNode]) -> set[int]:
-    """Ids of the nodes whose normalised name appears in ``text`` as a whole phrase.
+def _mentions(text: str, nodes: list[GraphNode]) -> list[set[int]]:
+    """One entry per distinct node name ``text`` mentions: the ids carrying that name.
 
-    Longest names are matched first and claim their span, so a name nested
-    inside a longer one that was already matched there is not counted again.
-    A node whose name normalises to nothing is never matched.
+    Names are the normalised form, matched as whole phrases. Longest names are
+    matched first and claim their span, so a name nested inside a longer one
+    that was already matched there is not counted again. A name mentioned
+    twice is one entry, and a name two nodes share is one entry holding both
+    ids. A node whose name normalises to nothing is never matched.
     """
     haystack = normalise(strip_markers(text))
     by_name: dict[str, list[int]] = {}
@@ -126,16 +140,24 @@ def _names_in(text: str, nodes: list[GraphNode]) -> set[int]:
             by_name.setdefault(key, []).append(node.id)
 
     taken: list[tuple[int, int]] = []
-    found: set[int] = set()
+    found: list[set[int]] = []
     for name in sorted(by_name, key=len, reverse=True):
         pattern = re.compile(rf"(?<!\w){re.escape(name)}(?!\w)")
+        matched = False
         for match in pattern.finditer(haystack):
             start, end = match.span()
             if any(start < t_end and t_start < end for t_start, t_end in taken):
                 continue
             taken.append((start, end))
-            found.update(by_name[name])
+            matched = True
+        if matched:
+            found.append(set(by_name[name]))
     return found
+
+
+def _names_in(text: str, nodes: list[GraphNode]) -> set[int]:
+    """Ids of the nodes whose normalised name ``text`` mentions."""
+    return set().union(*_mentions(text, nodes))
 
 
 def named_node_ids(claim: str, subgraph: Subgraph | None) -> set[int]:
@@ -146,10 +168,12 @@ def named_node_ids(claim: str, subgraph: Subgraph | None) -> set[int]:
 
 
 def is_relationship_claim(claim: str, subgraph: Subgraph | None) -> bool:
-    """True iff the claim names two or more sub-graph nodes or carries an ``[E k]`` marker."""
+    """True iff the claim names two or more distinct sub-graph node names or carries ``[E k]``."""
     if edge_markers(claim):
         return True
-    return len(named_node_ids(claim, subgraph)) >= 2
+    if subgraph is None:
+        return False
+    return len(_mentions(claim, subgraph.nodes)) >= 2
 
 
 def _chunk_names_endpoints(chunk: RetrievedChunk, edge: GraphEdge, subgraph: Subgraph) -> bool:
@@ -185,6 +209,12 @@ def relationship_claim_violation(
             return RelationshipDropReason.CHUNK_NOT_EDGE_SOURCE
         if not any(_chunk_names_endpoints(c, cited_edge, subgraph) for c in sources):
             return RelationshipDropReason.CHUNK_DOES_NOT_NAME_ENDPOINTS
+
+    # Every edge in ``joining`` is now cited and chunk-backed, so its endpoints
+    # are exactly the entities the claim's evidence covers.
+    covered = {node_id for e in joining for node_id in (e.source_id, e.target_id)}
+    if any(not (ids & covered) for ids in _mentions(claim, subgraph.nodes)):
+        return RelationshipDropReason.UNCOVERED_ENTITY
     return None
 
 
