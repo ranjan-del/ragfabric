@@ -85,13 +85,18 @@ deleted. With no change in between, merge then unmerge gives back the same
 graph apart from the restored entity's and recreated edges' ids. Where the
 graph did change since (a chunk re-extracted or deleted, an edge gone), the
 current graph wins: nothing is brought back that no current row supports.
-**Unmerge is strictly last-in, first-out on the entities a merge touched**
-(R28): its survivor, and the far end of every edge it moved. ``unmerge``
-raises ``UnmergeBlocked`` naming the blocking merge ids, before writing
-anything, while any later merge still in place has one of those entities as
-its survivor or as the entity it merged away. Undo those first, newest first,
-then retry. Undone in that order, every merge in a chain gives back the graph
-it started from. Recorded edges that nothing current supports any more are
+**Unmerge is globally last-in, first-out** (R30): only the most recent merge
+still in place can be undone. ``unmerge`` raises ``UnmergeBlocked``, before
+writing anything, while any live merge has a higher id, and lists every one of
+them; undo those first, newest first, then retry. This blocks even merges of
+completely unrelated entities, and that is the intended cost. Rules scoped to
+the entities a merge touched were tried and were bypassable: an unmerge
+recreates an entity under a new id, so a record of "which entities this merge
+touched" goes stale, and a later merge on the recreated entity escaped the
+check. The id order is a total order that no unmerge can change: a new merge
+row always gets an id above every live one (a PostgreSQL sequence; SQLite
+takes the current maximum plus one). Undone in that order, every merge gives
+back the graph it started from. Recorded edges that nothing current supports any more are
 listed in ``UnmergeResult.unrestored_relationship_ids`` rather than dropped
 silently.
 
@@ -159,16 +164,17 @@ class ResolutionReport:
 
 
 class UnmergeBlocked(Exception):
-    """An unmerge refused because newer merges touch the same entities (R28).
+    """An unmerge refused because newer merges are still in place (R30).
 
-    Unmerge is strictly last-in, first-out: undo ``blocking_merge_ids``
-    (newest first) and then retry. Raised before anything is written.
+    Unmerge is globally last-in, first-out: ``blocking_merge_ids`` are every
+    live merge with a higher id, oldest first. Undo them newest first, then
+    retry. Raised before anything is written.
     """
 
     def __init__(self, merge_id: int, blocking_merge_ids: list[int]) -> None:
         super().__init__(
-            f"cannot unmerge {merge_id} while later merges {blocking_merge_ids} touch the "
-            "same entities; unmerge those first, newest first"
+            f"cannot unmerge {merge_id} while later merges {blocking_merge_ids} are in "
+            "place; unmerge those first, newest first"
         )
         self.merge_id = merge_id
         self.blocking_merge_ids = blocking_merge_ids
@@ -504,14 +510,7 @@ def _merge_entities(
     touched_relationship_ids: set[int] = set()
     dropped_self_loops: list[dict[str, Any]] = []
     moved_relationships: list[dict[str, Any]] = []
-    # Every live entity this merge changes rows for: the survivor, and the far
-    # end of each edge it moves. A later merge involving any of them blocks
-    # this merge's unmerge (R28).
-    touched_entity_ids: set[int] = {survivor.id}
     for relationship in _touching(db, merged.id):
-        touched_entity_ids.update(
-            {relationship.source_entity_id, relationship.target_entity_id} - {merged.id}
-        )
         new_source = (
             survivor.id
             if relationship.source_entity_id == merged.id
@@ -632,7 +631,6 @@ def _merge_entities(
             "relationships": moved_relationships,
             "dropped_self_loops": dropped_self_loops,
             "repointed_merge_ids": [earlier.id for earlier in absorbed],
-            "touched_entity_ids": sorted(touched_entity_ids),
         },
     }
     record = EntityMerge(
@@ -690,7 +688,7 @@ def unmerge(db: Session, merge_id: int) -> UnmergeResult:
         raise LookupError(f"merge {merge_id} has no surviving entity")
     restore: dict[str, Any] = record.evidence.get("restore", {})
 
-    blocking = _blocking_merges(db, record, restore)
+    blocking = _later_merges(db, record.id)
     if blocking:
         raise UnmergeBlocked(merge_id, blocking)
 
@@ -807,32 +805,13 @@ def unmerge(db: Session, merge_id: int) -> UnmergeResult:
     )
 
 
-def _blocking_merges(db: Session, record: EntityMerge, restore: dict[str, Any]) -> list[int]:
-    """Later live merges that involve an entity ``record`` touched (R28), oldest first.
-
-    An entity is involved in a merge as its survivor or as the entity merged
-    away. ``record`` touched its survivor (under its id at merge time, and
-    under ``surviving_entity_id`` now, which differs once a later merge
-    absorbed it) and the far end of every edge it moved. Undoing ``record``
-    under any such later merge would work on rows that merge has since moved,
-    and could lose an edge or give one to the wrong entity.
-    """
-    touched = set(restore.get("touched_entity_ids", []))
-    touched.add(record.surviving_entity_id)
-    touched.add(record.evidence.get("survivor", {}).get("id"))
-    blocking: list[int] = []
-    later = db.execute(
-        select(EntityMerge).where(EntityMerge.id > record.id).order_by(EntityMerge.id)
-    ).scalars()
-    for other in later:
-        involved = {
-            other.surviving_entity_id,
-            other.evidence.get("survivor", {}).get("id"),
-            other.evidence.get("merged", {}).get("id"),
-        }
-        if involved & touched:
-            blocking.append(other.id)
-    return blocking
+def _later_merges(db: Session, merge_id: int) -> list[int]:
+    """Every live merge newer than ``merge_id``, oldest first (R30)."""
+    return list(
+        db.execute(
+            select(EntityMerge.id).where(EntityMerge.id > merge_id).order_by(EntityMerge.id)
+        ).scalars()
+    )
 
 
 def _without(values: Any, removed: list[str]) -> list:
@@ -860,8 +839,8 @@ def _restore_repointed(
     no longer exists or no longer points at the survivor (it was deleted or
     moved since, and the current graph wins). A source row for a chunk the
     record does not list was added after the merge by a later extraction that
-    found the edge under the survivor's name (a later merge touching either
-    endpoint would have blocked this unmerge, R28). It is a claim about the
+    found the edge under the survivor's name (a later merge would have
+    blocked this unmerge, R30). It is a claim about the
     survivor, so it is split off onto a survivor-side edge rather than handed
     to the restored entity.
     """
