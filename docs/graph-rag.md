@@ -239,10 +239,18 @@ costs nothing on either side.
 ## API, CLI and SDK surface
 
 - **`POST /api/ask`** and **`POST /api/search/query`** accept `strategy: "graph"`. The response
-  carries `subgraph` (nodes with depth, edges with `walked_as` and `reversed`, `truncated`,
-  `empty_reason`; never a stored description, ruling R6) and `dropped_relationship_claims` (each
-  with its `RelationshipDropReason`), alongside the ordinary `dropped_claims` from the Phase 3
-  contract. `Citation.score` is `None` on the graph path, since nothing was ranked (ADR 0004).
+  carries `subgraph` (nodes with depth, edges with `walked_as`, `reversed` and `confidence`
+  (`GraphEdgeOut.confidence`, what the extraction model reported for that edge, or `None` when
+  nothing measured it), `truncated`, `empty_reason`; never a stored description, ruling R6) and
+  `dropped_relationship_claims` (each with its `RelationshipDropReason`), alongside the ordinary
+  `dropped_claims` from the Phase 3 contract. `Citation.score` is `None` on the graph path, since
+  nothing was ranked (ADR 0004).
+- **Answer confidence on the graph path drops the relevance term.** `_confidence`
+  (`packages/core/src/ragfabric_core/generate/answer.py`) blends coverage, relevance and support;
+  a graph chunk carries no similarity score to compute relevance from (ruling R18), so relevance is
+  left out rather than counted as zero, and the remaining measured weights (coverage and support)
+  are renormalised to sum to one. This is why `Citation.score` is `None` for a graph citation:
+  nothing was ranked, so there is no score to report (ruling R38(b), ADR 0004).
 - **`POST /api/search/hybrid`** continues to refuse anything but `traditional`, graph included, with
   a 422: hybrid is one vector ranking fused with one lexical ranking, and a graph walk is neither.
 - **A `document_id` or `format` filter with `strategy: "graph"` is a 422**, naming the filter,

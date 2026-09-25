@@ -117,8 +117,9 @@ query -> analyze -> decide information need -> retrieve (tools) -> evaluate evid
       -> enough? no: rewrite query, retrieve again (bounded) | yes: generate -> verify -> answer
 ```
 
-Built with LangGraph as an explicit state machine: typed state, nodes for each step, conditional edges,
-a hard iteration budget. The agent can call semantic search, lexical search and fetch-full-document as
+A plain Python state machine, not LangGraph ([ADR 0009](docs/adr/0009-plain-state-machine-over-langgraph.md)):
+typed state, a plain function for each node, and branches in the loop that enforce a hard iteration
+budget. The agent can call semantic search, lexical search and fetch-full-document as
 tools, judges whether the evidence answers the question, rewrites the query when it does not, and verifies
 the final answer against the evidence. Every step is recorded in the trace with its calls, tokens and cost.
 
@@ -196,7 +197,7 @@ flowchart TD
     API --> R[Query Router]
     R --> T[Traditional]
     R --> V[Vectorless]
-    R --> A[Agentic<br/>LangGraph]
+    R --> A[Agentic<br/>Python state machine]
     R --> G[Graph<br/>PostgreSQL recursive CTEs]
     T & V & A & G --> RR[RetrievalResult]
     RR --> GEN[Generator]
@@ -299,7 +300,7 @@ is generated, never typed. Until v0.5.0 ships it stays empty on purpose.
 | Layer | Choice |
 |---|---|
 | Engine and API | Python 3.13, FastAPI, Pydantic, SQLAlchemy, Alembic |
-| Agents | LangGraph |
+| Agents | Plain Python state machine, no framework (ADR 0009) |
 | Stores | PostgreSQL 18 with pgvector, Chroma, Redis |
 | Frontend | Angular 22, TypeScript 6, Tailwind 4 |
 | Tooling | uv, Node 24, Docker Compose, GitHub Actions, OpenTelemetry |
@@ -465,7 +466,7 @@ See [ROADMAP.md](ROADMAP.md) and [CHANGELOG.md](CHANGELOG.md).
 | Release | Theme |
 |---|---|
 | v0.1.0 | Initial RAG engine: interfaces, providers, ingestion, access control, Traditional and Vectorless RAG, CLI, Python SDK, console |
-| v0.2.0 | Agentic retrieval with LangGraph |
+| v0.2.0 | Agentic retrieval with a plain Python state machine, not LangGraph |
 | v0.3.0 | Graph retrieval on PostgreSQL recursive CTEs |
 | v0.4.0 | Adaptive router with fallbacks |
 | v0.5.0 | Evaluation framework, dashboards, generated benchmarks |
