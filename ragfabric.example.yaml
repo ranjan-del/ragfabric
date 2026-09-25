@@ -1,44 +1,49 @@
 # ragfabric.example.yaml
 # Phase 1: validated by `ragfabric config validate`; the API starts reading this file in Phase 2.
 # Copy to ragfabric.yaml and edit. Every key is optional; defaults are shown.
-# Secrets never go here: OPENAI_API_KEY, ANTHROPIC_API_KEY, DATABASE_URL, JWT_SECRET,
-# NEO4J_PASSWORD come from the environment (.env.example lists them).
+# Secrets never go here: OPENAI_API_KEY, ANTHROPIC_API_KEY, DATABASE_URL and JWT_SECRET
+# come from the environment (.env.example lists them).
 
-llm:
+llm:                          # the chat model provider
   provider: ollama            # openai | anthropic | ollama | offline
   model: llama3.2:3b          # openai default: gpt-5.4-mini, anthropic default: claude-sonnet-5
   base_url: http://localhost:11434/v1   # any OpenAI compatible endpoint
 
-embeddings:
+embeddings:                   # the embedding model provider
   provider: ollama            # openai | ollama | offline
   model: nomic-embed-text     # 768 dimensions, pinned by migration 0004
   dim: 768                    # must match the migration; see docs/configuration.md
-  base_url: http://localhost:11434/v1
+  base_url: http://localhost:11434/v1   # any OpenAI compatible endpoint
 
-reranker:
+reranker:                     # optional second pass over retrieved chunks
   kind: none                  # none | llm | cross_encoder
 
-vector_store:
+vector_store:                 # where chunk embeddings are stored
   kind: pgvector              # pgvector (lite profile) | chroma (full profile) | memory (tests)
-lexical_store:
+lexical_store:                # where the keyword index is stored
   kind: postgres_fts          # postgres_fts (ts_rank_cd) | bm25 (BM25 in SQL) | bm25_memory (in process)
   max_chunks: 50000           # bm25_memory only: refuse rather than degrade past this many chunks
-graph_store:
-  kind: neo4j
-  enabled: false              # true needs the full compose profile
-cache:
+graph_store:                  # knowledge graph extraction during ingest
+  enabled: false              # true runs one extraction call per changed chunk at ingest
+  kind: postgres              # postgres only: the graph lives in the database (ADR 0011)
+  extraction_model: null      # null uses the llm provider's default model
+  confidence_floor: 0.5       # 0 to 1: items the model reports below this are discarded. Untuned until Phase 8
+  similarity_threshold: 0.9   # 0 to 1: embedding similarity at which two entities merge. Untuned until Phase 8
+  entity_types: [person, team, organisation, project, product, document, policy, location]  # at least one
+  relation_types: [REPORTS_TO, MEMBER_OF, BELONGS_TO, OWNS, WORKS_ON, LOCATED_IN, AUTHORED, MENTIONS, RELATED_TO]  # at least one
+cache:                        # cache backend
   kind: redis                 # redis | memory
 
-ingestion:
-  chunk_size: 600
-  chunk_overlap: 80
-  retain_originals: true
+ingestion:                    # how uploaded documents become chunks
+  chunk_size: 600             # chunk length, at least 50
+  chunk_overlap: 80           # overlap shared by neighbouring chunks
+  retain_originals: true      # keep the uploaded file after parsing
   uploads_dir: data/uploads   # where retained originals are stored (a volume in compose)
   indexing: inline            # inline | queue (queue needs Redis and `ragfabric worker`)
 
-strategies:
-  traditional: { top_k: 8, similarity_threshold: 0.25, rerank: none, max_context_tokens: 6000 }
-  vectorless:
+strategies:                   # per strategy tuning
+  traditional: { top_k: 8, similarity_threshold: 0.25, rerank: none, max_context_tokens: 6000 }  # vector search
+  vectorless:                 # BM25 and ts_rank_cd fused, no embeddings
     top_k: 8                  # chunks returned, applied AFTER fusion, never per store
     k1: 1.2                   # BM25 term frequency saturation. Higher rewards repetition more
     b: 0.75                   # BM25 length normalisation, 0 to 1. 0 disables it entirely
@@ -47,7 +52,7 @@ strategies:
     fusion_k: 60              # the k in RRF's weight/(k + rank). Cormack's original value
     fusion_weights: [1.0, 1.0]  # relative weight of the [BM25, ts_rank_cd] rankings
     max_context_tokens: 6000  # context budget for the chunks handed to generation
-  agentic:
+  agentic:                    # the planning agent's limits
     max_iterations: 4         # retrieve, assess and repair passes before the loop stops
     max_llm_calls: 12         # model calls for the whole run, across every node
     per_node_llm_calls:       # per node caps, so one runaway node cannot spend the lot
@@ -59,17 +64,19 @@ strategies:
     max_latency_ms: 30000     # wall clock ceiling for one run, in milliseconds
     tools: [semantic_search, lexical_search, fetch_document]  # which tools the planner may choose
     assess_strictness: strict  # strict: answerable from the retrieved text. lenient: topical is enough
-  graph:       { max_hops: 2, max_nodes: 200 }
+  graph:                      # graph traversal bounds at query time
+    max_hops: 2               # 1 to 4: edges walked out from the matched entities
+    node_budget: 50           # most entities kept from the walk, nearest first
 
-router:
+router:                       # strategy selection per question
   mode: auto                  # auto | manual
-  min_confidence: 0.6
+  min_confidence: 0.6         # 0 to 1: classifier confidence the router requires
   classifier_model: null      # defaults to llm.model
 
-limits:
-  max_upload_mb: 50
-  allowed_types: [pdf, docx, pptx, txt, csv, md]
-  rate_limit_per_minute: 60
+limits:                       # request guards
+  max_upload_mb: 50           # largest accepted upload
+  allowed_types: [pdf, docx, pptx, txt, csv, md]  # accepted file formats
+  rate_limit_per_minute: 60   # default per API key limit, requests per minute
 
-telemetry:
+telemetry:                    # tracing export
   otlp_endpoint: null         # off by default; e.g. http://otel-collector:4318

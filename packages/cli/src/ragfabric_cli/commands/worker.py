@@ -5,7 +5,7 @@ import threading
 
 import typer
 
-from ragfabric_core.providers.registry import build_embedding_provider
+from ragfabric_core.providers.registry import build_embedding_provider, build_llm_provider
 from ragfabric_core.queue.registry import build_queue
 from ragfabric_core.runtime import get_config, get_session_factory
 from ragfabric_core.stores.registry import build_lexical_store, build_vector_store
@@ -40,6 +40,8 @@ def worker(
         embedding_provider=build_embedding_provider(cfg.embeddings),
         vector_store=vector_store,
         lexical_store=lexical_store,
+        graph_settings=cfg.graph_store,
+        llm=build_llm_provider(cfg.llm) if cfg.graph_store.enabled else None,
     )
     w = Worker(queue, sf, handlers)
     if once:

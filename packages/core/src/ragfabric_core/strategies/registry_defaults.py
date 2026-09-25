@@ -112,13 +112,10 @@ def _build_graph(
     *,
     llm: LLMProvider | None,
 ) -> GraphRAGStrategy:
-    """The graph strategy, built with its own constructor defaults.
+    """The graph strategy, bounded by ``cfg.strategies.graph``.
 
-    ``max_hops`` and ``node_budget`` are left at the strategy's own defaults
-    (2 and ``traverse.DEFAULT_NODE_BUDGET``) rather than read from
-    ``cfg.strategies.graph`` here. Task 11 wires that configuration through;
-    reading it now would mean two places claim to set the same number before
-    either one is tested end to end.
+    Both fields of ``GraphStrategyConfig`` are passed on; a test iterates over
+    the model's fields and fails for any that does not reach the strategy.
 
     The LLM is built unconditionally, the same reasoning as the agentic
     strategy's: entity extraction cannot run without a model, and building a
@@ -128,6 +125,8 @@ def _build_graph(
     return GraphRAGStrategy(
         llm=llm if llm is not None else build_llm_provider(cfg.llm),
         session_factory=session_factory,
+        max_hops=cfg.strategies.graph.max_hops,
+        node_budget=cfg.strategies.graph.node_budget,
     )
 
 

@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from ragfabric_core.config_file import GraphStoreConfig
 from ragfabric_core.ingest.indexing import schedule_indexing
 from ragfabric_core.models import Base
 from ragfabric_core.models.document import Chunk, Collection, Document
@@ -100,6 +101,8 @@ def test_worker_runs_jobs_and_survives_a_failing_handler(db_and_doc, monkeypatch
         embedding_provider=HashingEmbeddingProvider(dim=16),
         vector_store=PgVectorStore(factory),
         lexical_store=PostgresLexicalStore(factory),
+        graph_settings=GraphStoreConfig(),
+        llm=None,
     )
 
     def explode(db, job):
@@ -141,6 +144,8 @@ def test_run_forever_finishes_the_in_flight_job_before_a_sigterm_stops_it(db_and
         embedding_provider=HashingEmbeddingProvider(dim=16),
         vector_store=PgVectorStore(factory),
         lexical_store=PostgresLexicalStore(factory),
+        graph_settings=GraphStoreConfig(),
+        llm=None,
     )
     real_index = handlers["index_document"]
 
@@ -171,6 +176,8 @@ def test_queued_job_failure_marks_the_document_failed(db_and_doc):
             embedding_provider=HashingEmbeddingProvider(dim=16),
             vector_store=PgVectorStore(factory),
             lexical_store=PostgresLexicalStore(factory),
+            graph_settings=GraphStoreConfig(),
+            llm=None,
         )
     )
 

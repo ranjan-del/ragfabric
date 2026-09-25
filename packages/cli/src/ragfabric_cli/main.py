@@ -115,9 +115,17 @@ def config_validate(
         f"max_cost_usd {agentic.max_cost_usd}, max_latency_ms {agentic.max_latency_ms}, "
         f"assess {agentic.assess_strictness}, tools {' '.join(agentic.tools)}"
     )
+    graph_store = cfg.graph_store
     typer.echo(
-        f"graph_store: {cfg.graph_store.kind} ({'enabled' if cfg.graph_store.enabled else 'disabled'})"
+        f"graph_store: {graph_store.kind} ({'enabled' if graph_store.enabled else 'disabled'}), "
+        f"extraction_model {graph_store.extraction_model or 'provider default'}, "
+        f"confidence_floor {graph_store.confidence_floor}, "
+        f"similarity_threshold {graph_store.similarity_threshold}, "
+        f"entity_types {' '.join(graph_store.entity_types)}, "
+        f"relation_types {' '.join(graph_store.relation_types)}"
     )
+    graph = cfg.strategies.graph
+    typer.echo(f"graph: max_hops {graph.max_hops}, node_budget {graph.node_budget}")
     typer.echo(f"cache: {cfg.cache.kind}")
     typer.echo(f"router: {cfg.router.mode} (min_confidence {cfg.router.min_confidence})")
 

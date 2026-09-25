@@ -70,7 +70,7 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 
 from sqlalchemy import delete, or_, select
@@ -93,23 +93,34 @@ from ragfabric_core.providers.base import LLMProvider, Message
 # constraint enforces (R5).
 EntityKey = tuple[str, EntityType]
 
-_ENTITY_TYPES = ", ".join(entity_type.value for entity_type in EntityType)
-_RELATION_TYPES = ", ".join(relation_type.value for relation_type in RelationType)
-
 EXTRACTION_SYSTEM = (
     "You are the extraction step of a knowledge graph builder. "
     "You read one chunk of text and report the entities and relationships it "
     "states. You reply with one JSON object and nothing else."
 )
 
-# A module constant, not built per call: the enum lists are fixed for the
-# process lifetime, and a small model needs the exact values spelled out
-# rather than a description of the schema.
-EXTRACTION_PROMPT = f"""Text:
+
+def build_extraction_prompt(
+    entity_types: Collection[EntityType] | None = None,
+    relation_types: Collection[RelationType] | None = None,
+) -> str:
+    """The extraction prompt template, listing only the enabled types.
+
+    ``None`` means every type. A small model needs the exact values spelled
+    out rather than a description of the schema, and a type the deployment
+    has disabled is left out entirely, so the model is not invited to report
+    something that would only be discarded. The result still has a ``{text}``
+    placeholder for ``str.format``.
+    """
+    entities = ", ".join(t.value for t in EntityType if entity_types is None or t in entity_types)
+    relations = ", ".join(
+        t.value for t in RelationType if relation_types is None or t in relation_types
+    )
+    return f"""Text:
 {{text}}
 
-Entity types (use exactly one of these, lowercase): {_ENTITY_TYPES}
-Relation types (use exactly one of these, uppercase): {_RELATION_TYPES}
+Entity types (use exactly one of these, lowercase): {entities}
+Relation types (use exactly one of these, uppercase): {relations}
 
 Report every entity the text names under "entities": each needs a "name", an
 "entity_type" from the list above, an optional "description", and a
@@ -135,6 +146,10 @@ Rules the response must follow:
 Reply with JSON of the form {{{{"entities": [...], "relationships": [...]}}}}.
 Both keys are required; an empty list is fine.
 """
+
+
+# The template with every type enabled.
+EXTRACTION_PROMPT = build_extraction_prompt()
 
 
 @dataclass(frozen=True)
@@ -188,6 +203,8 @@ def extract_chunk(
     *,
     floor: float,
     model: str,
+    entity_types: Collection[EntityType] | None = None,
+    relation_types: Collection[RelationType] | None = None,
 ) -> ExtractionReport:
     """Extract ``chunk`` unless its text is unchanged since its last extraction.
 
@@ -213,7 +230,15 @@ def extract_chunk(
         if is_re_extraction:
             removed_entity_ids, removed_relationship_ids = _remove_chunk_links(db, chunk.id)
 
-        report = _extract_and_store(db, chunk, llm, floor=floor, model=model)
+        report = _extract_and_store(
+            db,
+            chunk,
+            llm,
+            floor=floor,
+            model=model,
+            entity_types=entity_types,
+            relation_types=relation_types,
+        )
 
         if report.contract_violation:
             # The link removal above already ran inside this savepoint;
@@ -239,17 +264,32 @@ def _extract_and_store(
     *,
     floor: float,
     model: str,
+    entity_types: Collection[EntityType] | None = None,
+    relation_types: Collection[RelationType] | None = None,
 ) -> ExtractionReport:
     """Make one extraction call for ``chunk`` and write what clears the floor.
 
     Everything below ``floor`` is discarded, never stored (kept iff
     ``confidence >= floor``). A contract violation writes nothing and comes
     back reported on the return value rather than raised.
+
+    ``entity_types`` and ``relation_types`` (``None`` means all) are the
+    enabled types. A disabled type is left out of the prompt, and an item the
+    model reports under one anyway is discarded and counted in the same
+    ``*_discarded`` totals as a below-floor item: it is still an item the
+    model produced that the graph did not keep. An edge whose endpoint was a
+    disabled entity type is discarded and counted like any edge whose
+    endpoint was not stored (R9).
     """
     completion = llm.complete(
         [
             Message(role="system", content=EXTRACTION_SYSTEM),
-            Message(role="user", content=EXTRACTION_PROMPT.format(text=chunk.text)),
+            Message(
+                role="user",
+                content=build_extraction_prompt(entity_types, relation_types).format(
+                    text=chunk.text
+                ),
+            ),
         ],
         model=model,
         temperature=0.0,
@@ -258,7 +298,12 @@ def _extract_and_store(
     if isinstance(parsed, ContractViolation):
         return ExtractionReport(contract_violation=True)
 
-    kept_entities = [entity for entity in parsed.entities if entity.confidence >= floor]
+    kept_entities = [
+        entity
+        for entity in parsed.entities
+        if entity.confidence >= floor
+        and (entity_types is None or entity.entity_type in entity_types)
+    ]
     entities_discarded = len(parsed.entities) - len(kept_entities)
 
     entity_ids, entities_stored = _upsert_entities(
@@ -271,7 +316,10 @@ def _extract_and_store(
     type_by_name = {normalise(entity.name): entity.entity_type for entity in parsed.entities}
 
     kept_relationships = [
-        relationship for relationship in parsed.relationships if relationship.confidence >= floor
+        relationship
+        for relationship in parsed.relationships
+        if relationship.confidence >= floor
+        and (relation_types is None or relationship.relation_type in relation_types)
     ]
     relationships_discarded = len(parsed.relationships) - len(kept_relationships)
 
@@ -300,11 +348,25 @@ def extract_chunks(
     *,
     floor: float,
     model: str,
+    entity_types: Collection[EntityType] | None = None,
+    relation_types: Collection[RelationType] | None = None,
 ) -> ExtractionReport:
-    """Run ``extract_chunk`` over several chunks and sum the reports."""
+    """Run ``extract_chunk`` over several chunks and sum the reports.
+
+    ``entity_types`` and ``relation_types`` (``None`` means all) are passed to
+    every call; see ``_extract_and_store`` for what a disabled type does.
+    """
     report = ExtractionReport()
     for chunk in chunks:
-        report = report + extract_chunk(db, chunk, llm, floor=floor, model=model)
+        report = report + extract_chunk(
+            db,
+            chunk,
+            llm,
+            floor=floor,
+            model=model,
+            entity_types=entity_types,
+            relation_types=relation_types,
+        )
     return report
 
 
