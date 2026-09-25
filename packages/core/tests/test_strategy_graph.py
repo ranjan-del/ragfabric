@@ -13,7 +13,7 @@ import json
 import test_graph_traverse as traversal_tests
 
 from ragfabric_core.auth.principal import AccessFilter, Principal
-from ragfabric_core.graph.contracts import EntityType, RelationType
+from ragfabric_core.graph.contracts import EmptyReason, EntityType, RelationType
 from ragfabric_core.providers.offline import ScriptedLLMProvider
 from ragfabric_core.stores.document_chunks import SqlDocumentChunkReader
 from ragfabric_core.strategies.base import (
@@ -34,10 +34,16 @@ def question_response(entities: list[dict], relation_types: list[str] | None = N
     return json.dumps({"entities": entities, "implied_relation_types": relation_types or []})
 
 
-def ctx(*, access: AccessFilter | None = None, top_k: int = 5) -> RetrievalContext:
+def ctx(
+    *,
+    access: AccessFilter | None = None,
+    top_k: int = 5,
+    collection_ids: list[int] | None = None,
+) -> RetrievalContext:
     return RetrievalContext(
         principal=Principal(user_id=1, email="engineer@example.com"),
         access_filter=access or AccessFilter.unrestricted(),
+        collection_ids=collection_ids,
         params=StrategyParams(top_k=top_k),
         budget=Budget(),
     )
@@ -253,3 +259,120 @@ def test_the_access_filter_reaches_the_traversal(graph):
     assert (graph.ids["ada"], graph.ids["grace"]) not in edge_endpoints
     assert graph.secret_chunk not in chunk_ids
     assert restricted.subgraph.nodes and restricted.subgraph.nodes[0].id == graph.ids["ada"]
+
+
+# ---------------------------------------------------------------------------
+# Request scope (ctx.collection_ids, ruling R25): fix round 1 regression
+# tests. Coverage alone honoring the scope is not enough: every subsequent
+# call in the same run must honor it too, or a collection-scoped request can
+# still receive nodes, edges and chunks from collections outside that scope.
+# ---------------------------------------------------------------------------
+
+
+def test_collection_ids_scopes_the_whole_run_not_only_coverage(graph):
+    """The reviewer's demonstrated leak: ada in an open collection, grace in a
+    secret collection, unrestricted access, ctx.collection_ids scoped to the
+    open collection. Grace must be absent from nodes, edges and chunks, not
+    only excluded from the coverage check.
+    """
+    graph.entity("ada", chunks=(graph.open_chunk,))
+    graph.entity("grace", chunks=(graph.secret_chunk,))
+    graph.edge("ada", RelationType.REPORTS_TO, "grace", chunks=(graph.secret_chunk,))
+
+    # Control: with no collection scope, grace is genuinely reachable, so the
+    # assertion below is about scoping and not about a graph with nothing to leak.
+    control = strategy(graph, _ada_question_llm(), max_hops=2).retrieve("who reports to ada", ctx())
+    assert graph.ids["grace"] in {node.id for node in control.subgraph.nodes}
+    assert graph.secret_chunk in {c.chunk_id for c in control.chunks}
+
+    scoped = strategy(graph, _ada_question_llm(), max_hops=2).retrieve(
+        "who reports to ada", ctx(collection_ids=[graph.open_collection])
+    )
+    node_ids = {node.id for node in scoped.subgraph.nodes}
+    chunk_ids = {c.chunk_id for c in scoped.chunks}
+
+    assert graph.ids["grace"] not in node_ids
+    assert scoped.subgraph.edges == []
+    assert graph.secret_chunk not in chunk_ids
+    assert node_ids == {graph.ids["ada"]}
+
+
+def test_collection_ids_never_widens_past_the_access_filter(graph):
+    """A request scope naming a collection the access filter itself denies
+    must not resurrect it: collection_ids only narrows.
+    """
+    graph.entity("ada", chunks=(graph.open_chunk,))
+    graph.entity("grace", chunks=(graph.secret_chunk,))
+
+    result = strategy(graph, _ada_question_llm(), max_hops=2).retrieve(
+        "who reports to ada", ctx(access=graph.restricted, collection_ids=[graph.secret_collection])
+    )
+
+    assert result.subgraph is not None
+    assert result.subgraph.empty_reason == EmptyReason.NO_GRAPH_COVERAGE
+    assert result.chunks == []
+
+
+# ---------------------------------------------------------------------------
+# The LLM call holds no database session (fix round 1: the coverage check's
+# session must close before the model call, not wrap it)
+# ---------------------------------------------------------------------------
+
+
+class _RecordingSession:
+    def __init__(self, inner, events: list[str]) -> None:
+        self._inner = inner
+        self._events = events
+
+    def __enter__(self):
+        self._events.append("session_open")
+        return self._inner.__enter__()
+
+    def __exit__(self, *exc):
+        result = self._inner.__exit__(*exc)
+        self._events.append("session_close")
+        return result
+
+
+class _RecordingSessionFactory:
+    def __init__(self, real_factory, events: list[str]) -> None:
+        self._real = real_factory
+        self._events = events
+
+    def __call__(self):
+        return _RecordingSession(self._real(), self._events)
+
+
+class _RecordingLLM(ScriptedLLMProvider):
+    def __init__(self, responses: list[str], events: list[str]) -> None:
+        super().__init__(responses)
+        self._events = events
+
+    def complete(self, *args, **kwargs):
+        self._events.append("llm_call")
+        return super().complete(*args, **kwargs)
+
+
+def test_the_llm_call_runs_with_no_database_session_open(graph):
+    graph.entity("ada")
+    events: list[str] = []
+    real_factory = session_factory_for(graph)
+    recording_factory = _RecordingSessionFactory(real_factory, events)
+    llm = _RecordingLLM([question_response([{"name": "ada", "entity_type": "person"}])], events)
+    instance = GraphRAGStrategy(
+        llm=llm,
+        session_factory=recording_factory,
+        chunk_reader=SqlDocumentChunkReader(recording_factory),
+    )
+
+    instance.retrieve("who is ada", ctx())
+
+    assert events.count("llm_call") == 1
+    llm_index = events.index("llm_call")
+    before = events[:llm_index]
+    # Any session opened before the model call was also closed before it: a
+    # session left open across the call would leave an unmatched open here.
+    assert before.count("session_open") == before.count("session_close")
+    assert before.count("session_open") >= 1
+    # And a session was opened again afterwards, for the traversal proper.
+    assert events[llm_index + 1 :].count("session_open") >= 1
