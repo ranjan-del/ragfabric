@@ -29,6 +29,7 @@ from ragfabric_core.graph.contracts import (
 )
 from ragfabric_core.graph.traverse import (
     MAX_HOPS_CEILING,
+    has_visible_entities,
     match_entities,
     traverse,
     visible_entity_chunks,
@@ -629,3 +630,98 @@ def test_a_document_deny_inside_an_allowed_collection_is_applied_in_the_walk(gra
     assert graph.names(result) == {"ada", "grace"}
     assert [edge.walked_as for edge in result.edges] == ["REPORTS_TO"]
     assert match_entities(graph.db, [EntityMention(name="hopper")], access) == []
+
+
+# ---------------------------------------------------------------------------
+# Request scope (ctx.collection_ids, ruling R25): narrows on top of access,
+# in every visibility decision, never widening past what access alone admits.
+# ---------------------------------------------------------------------------
+
+
+def test_collection_ids_scopes_every_visibility_decision_to_the_request(graph):
+    graph.entity("ada", chunks=(graph.open_chunk,))
+    graph.entity("grace", chunks=(graph.secret_chunk,))
+    graph.edge("ada", RelationType.REPORTS_TO, "grace", chunks=(graph.secret_chunk,))
+
+    # Unrestricted access alone reaches grace: this is the demonstrated leak,
+    # proved absent below once the request is scoped to the open collection.
+    unscoped = traverse(graph.db, [graph.ids["ada"]], ALL, max_hops=2)
+    assert graph.names(unscoped) == {"ada", "grace"}
+
+    scoped = traverse(
+        graph.db, [graph.ids["ada"]], ALL, max_hops=2, collection_ids=[graph.open_collection]
+    )
+    assert graph.names(scoped) == {"ada"}
+    assert scoped.edges == []
+    assert graph.ids["grace"] not in {node.id for node in scoped.nodes}
+
+    matched = match_entities(
+        graph.db, [EntityMention(name="grace")], ALL, collection_ids=[graph.open_collection]
+    )
+    assert matched == []
+
+    chunks = visible_entity_chunks(
+        graph.db,
+        [graph.ids["ada"], graph.ids["grace"]],
+        ALL,
+        collection_ids=[graph.open_collection],
+    )
+    assert graph.ids["grace"] not in chunks
+    assert chunks[graph.ids["ada"]] == [graph.open_chunk]
+
+    assert has_visible_entities(graph.db, ALL, collection_ids=[graph.open_collection]) is True
+
+
+def test_collection_ids_blocks_an_edge_whose_only_chunk_is_outside_scope(graph):
+    """Both endpoints are reached independently (as seeds); only the edge is scoped out."""
+    graph.entity("ada", chunks=(graph.open_chunk,))
+    graph.entity("grace", chunks=(graph.other_open_chunk,))
+    graph.edge("ada", RelationType.REPORTS_TO, "grace", chunks=(graph.secret_chunk,))
+    seeds = [graph.ids["ada"], graph.ids["grace"]]
+
+    unscoped = traverse(graph.db, seeds, ALL, max_hops=1)
+    assert graph.names(unscoped) == {"ada", "grace"}
+    assert len(unscoped.edges) == 1
+
+    scoped = traverse(graph.db, seeds, ALL, max_hops=1, collection_ids=[graph.open_collection])
+    assert graph.names(scoped) == {"ada", "grace"}
+    assert scoped.edges == []
+    assert scoped.empty_reason == EmptyReason.NO_WALKABLE_EDGES
+
+
+def test_collection_ids_reports_no_coverage_when_the_scope_excludes_everything_visible(graph):
+    graph.entity("ada", chunks=(graph.open_chunk,))
+    assert has_visible_entities(graph.db, ALL) is True
+    assert has_visible_entities(graph.db, ALL, collection_ids=[graph.secret_collection]) is False
+
+
+def test_collection_ids_never_widens_past_the_access_filter(graph):
+    graph.entity("grace", chunks=(graph.secret_chunk,))
+    only_open_access = AccessFilter(collection_ids=frozenset({graph.open_collection}))
+
+    # Access alone already excludes grace.
+    assert match_entities(graph.db, [EntityMention(name="grace")], only_open_access) == []
+    # Explicitly requesting the collection access denies does not widen it.
+    assert (
+        match_entities(
+            graph.db,
+            [EntityMention(name="grace")],
+            only_open_access,
+            collection_ids=[graph.secret_collection],
+        )
+        == []
+    )
+    assert (
+        has_visible_entities(graph.db, only_open_access, collection_ids=[graph.secret_collection])
+        is False
+    )
+    assert (
+        traverse(
+            graph.db,
+            [graph.ids["grace"]],
+            only_open_access,
+            max_hops=1,
+            collection_ids=[graph.secret_collection],
+        ).nodes
+        == []
+    )

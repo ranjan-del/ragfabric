@@ -19,7 +19,7 @@ gets the policy as it was written rather than as it happened to be stored.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -51,7 +51,12 @@ class SqlDocumentChunkReader:
             rows = db.execute(statement.order_by(Chunk.chunk_index, Chunk.id)).all()
             return self._to_chunks(rows)
 
-    def chunks_by_ids(self, chunk_ids: list[int], access: AccessFilter) -> list[RetrievedChunk]:
+    def chunks_by_ids(
+        self,
+        chunk_ids: list[int],
+        access: AccessFilter,
+        collection_ids: Collection[int] | None = None,
+    ) -> list[RetrievedChunk]:
         """Named chunks, under the same access predicate, in no particular order.
 
         For a caller that already knows which chunks it wants (a graph
@@ -59,11 +64,13 @@ class SqlDocumentChunkReader:
         check applied, rather than a whole document in reading order. A chunk
         id the access filter denies is silently absent, the same as
         ``chunks_for_document``: the predicate is a ``WHERE`` clause, not a
-        Python filter applied after the fact.
+        Python filter applied after the fact. ``collection_ids``, when given,
+        narrows the same predicate to a request's own scope (ruling R25), on
+        top of ``access``, never instead of it.
         """
         if not chunk_ids:
             return []
-        clause = access_clause(access, Chunk.document_id, Chunk.collection_id)
+        clause = access_clause(access, Chunk.document_id, Chunk.collection_id, collection_ids)
         with self._sf() as db:
             statement = (
                 select(Chunk, Document.filename, Document.format)

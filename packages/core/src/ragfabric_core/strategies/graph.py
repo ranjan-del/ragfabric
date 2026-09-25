@@ -18,6 +18,22 @@ whether a node, an edge or a chunk is visible lives in ``graph.traverse`` and
 ``access_filter``, and never writes a query of its own over ``entities``,
 ``relationships`` or their source tables.
 
+**Collection scope narrows every call, not just coverage (ruling R25).**
+``ctx.collection_ids`` is a request scope, never a permission: it is passed to
+``has_visible_entities``, ``match_entities``, ``traverse`` and
+``visible_entity_chunks`` alike, and to the chunk fetch, so a scoped request
+cannot see a node, an edge or a chunk from a collection it did not ask about,
+even once coverage has passed. It is never folded into ``access_filter``,
+whose own ``collection_ids`` is an allow axis that would widen instead of
+narrow.
+
+**Two sessions, never one held across the model call.** The coverage check
+opens and closes its own session before the question call is made, so the
+blocking LLM round trip never holds a database connection open. A second
+session, opened only after the question call returns something usable, covers
+``match_entities``, ``traverse`` and ``visible_entity_chunks``; the chunk
+fetch opens its own session in turn, the same as it always has.
+
 **No query-time embedding (ruling R19).** Entity mentions match by normalised
 name and alias only; ``embedding_calls`` is always 0, because none are made.
 
@@ -181,68 +197,73 @@ class GraphRAGStrategy:
                 )
             )
 
+        mark = time.perf_counter()
         with self._sf() as db:
-            mark = time.perf_counter()
             covered = has_visible_entities(db, ctx.access_filter, ctx.collection_ids)
-            span("check_coverage", mark, covered=covered)
+        span("check_coverage", mark, covered=covered)
 
-            if not covered:
-                return RetrievalResult(
-                    strategy=self.name,
-                    chunks=[],
-                    retrieval_calls=1,
-                    embedding_calls=0,
-                    llm_calls=0,
-                    input_tokens=0,
-                    output_tokens=0,
-                    latency_ms=int((time.perf_counter() - started) * 1000),
-                    trace=spans,
-                    subgraph=Subgraph(
-                        nodes=[],
-                        edges=[],
-                        truncated=False,
-                        empty_reason=EmptyReason.NO_GRAPH_COVERAGE,
-                    ),
-                )
-
-            mark = time.perf_counter()
-            completion = self._llm.complete(
-                [
-                    Message(role="system", content=GRAPH_QUESTION_SYSTEM),
-                    Message(role="user", content=build_question_prompt(query)),
-                ],
-                temperature=0.0,
-            )
-            parsed = parse_question(completion.text)
-            span(
-                "extract_question",
-                mark,
-                model=completion.model,
-                violation=parsed.error if isinstance(parsed, ContractViolation) else None,
-                contract=parsed.contract if isinstance(parsed, ContractViolation) else None,
+        if not covered:
+            return RetrievalResult(
+                strategy=self.name,
+                chunks=[],
+                retrieval_calls=1,
+                embedding_calls=0,
+                llm_calls=0,
+                input_tokens=0,
+                output_tokens=0,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                trace=spans,
+                subgraph=Subgraph(
+                    nodes=[],
+                    edges=[],
+                    truncated=False,
+                    empty_reason=EmptyReason.NO_GRAPH_COVERAGE,
+                ),
             )
 
-            if isinstance(parsed, ContractViolation):
-                return RetrievalResult(
-                    strategy=self.name,
-                    chunks=[],
-                    retrieval_calls=1,
-                    embedding_calls=0,
-                    llm_calls=1,
-                    input_tokens=completion.input_tokens,
-                    output_tokens=completion.output_tokens,
-                    latency_ms=int((time.perf_counter() - started) * 1000),
-                    trace=spans,
-                    subgraph=None,
-                )
+        # The coverage check's session is already closed by this point, so the
+        # blocking model call below never holds a database connection open.
+        mark = time.perf_counter()
+        completion = self._llm.complete(
+            [
+                Message(role="system", content=GRAPH_QUESTION_SYSTEM),
+                Message(role="user", content=build_question_prompt(query)),
+            ],
+            temperature=0.0,
+        )
+        parsed = parse_question(completion.text)
+        span(
+            "extract_question",
+            mark,
+            model=completion.model,
+            violation=parsed.error if isinstance(parsed, ContractViolation) else None,
+            contract=parsed.contract if isinstance(parsed, ContractViolation) else None,
+        )
 
-            assert isinstance(parsed, QuestionExtraction)
-            retrieval_calls = 1  # the coverage check above already made one round trip
+        if isinstance(parsed, ContractViolation):
+            return RetrievalResult(
+                strategy=self.name,
+                chunks=[],
+                retrieval_calls=1,
+                embedding_calls=0,
+                llm_calls=1,
+                input_tokens=completion.input_tokens,
+                output_tokens=completion.output_tokens,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                trace=spans,
+                subgraph=None,
+            )
 
+        assert isinstance(parsed, QuestionExtraction)
+        retrieval_calls = 1  # the coverage check above already made one round trip
+
+        # A second, separate session for everything past the model call: the
+        # coverage check never shares a connection with the LLM round trip.
+        with self._sf() as db:
             mark = time.perf_counter()
             # match_entities returns without a query when there is nothing usable
             # to look for, so that call is not counted as a round trip either.
-            matched_ids = match_entities(db, parsed.entities, ctx.access_filter)
+            matched_ids = match_entities(db, parsed.entities, ctx.access_filter, ctx.collection_ids)
             if parsed.entities:
                 retrieval_calls += 1
             span("match_entities", mark, mentions=len(parsed.entities), matched=len(matched_ids))
@@ -255,6 +276,7 @@ class GraphRAGStrategy:
                 max_hops=self._max_hops,
                 node_budget=self._node_budget,
                 relation_types=parsed.implied_relation_types or None,
+                collection_ids=ctx.collection_ids,
             )
             # traverse() returns without a query when there are no seeds to walk
             # from, so that call is not counted as a round trip past matching.
@@ -273,22 +295,24 @@ class GraphRAGStrategy:
             if subgraph.nodes:
                 mark = time.perf_counter()
                 entity_chunks = visible_entity_chunks(
-                    db, [node.id for node in subgraph.nodes], ctx.access_filter
+                    db, [node.id for node in subgraph.nodes], ctx.access_filter, ctx.collection_ids
                 )
                 retrieval_calls += 1
                 span("visible_entity_chunks", mark, entities=len(entity_chunks))
 
-            depth_by_chunk = _chunk_depths(subgraph, entity_chunks)
+        depth_by_chunk = _chunk_depths(subgraph, entity_chunks)
 
-            chunks: list[RetrievedChunk] = []
-            if depth_by_chunk:
-                mark = time.perf_counter()
-                fetched = self._chunks.chunks_by_ids(list(depth_by_chunk), ctx.access_filter)
-                retrieval_calls += 1
-                span("fetch_chunks", mark, requested=len(depth_by_chunk), returned=len(fetched))
-                for chunk in fetched:
-                    chunk.metadata["graph_depth"] = depth_by_chunk[chunk.chunk_id]
-                chunks = sorted(fetched, key=lambda c: (c.metadata["graph_depth"], c.chunk_id))
+        chunks: list[RetrievedChunk] = []
+        if depth_by_chunk:
+            mark = time.perf_counter()
+            fetched = self._chunks.chunks_by_ids(
+                list(depth_by_chunk), ctx.access_filter, ctx.collection_ids
+            )
+            retrieval_calls += 1
+            span("fetch_chunks", mark, requested=len(depth_by_chunk), returned=len(fetched))
+            for chunk in fetched:
+                chunk.metadata["graph_depth"] = depth_by_chunk[chunk.chunk_id]
+            chunks = sorted(fetched, key=lambda c: (c.metadata["graph_depth"], c.chunk_id))
 
         top_k = ctx.params.top_k
         return RetrievalResult(
