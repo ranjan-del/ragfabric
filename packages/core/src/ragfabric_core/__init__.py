@@ -1,3 +1,3 @@
 """RagFabric engine."""
 
-__version__ = "0.1.0a0"
+__version__ = "0.3.0"

@@ -15,6 +15,100 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 | v0.5.0 | Evaluation framework | Corpus, question set, metrics, `make eval`, dashboards, generated benchmarks |
 | v1.0.0 | Production release | Reference UI with Compare and Trace, TypeScript SDK, connectors, hardening, docs site, deployment guides |
 
+## [0.3.0] - unreleased
+
+Graph retrieval. A knowledge graph extracted from ingested chunks, resolved and merged with a
+recorded, reversible history, and walked with a directed, access-checked traversal on PostgreSQL
+recursive CTEs, no Neo4j.
+
+### Added
+- **Graph RAG (Phase 6).** `GraphRAGStrategy`, selectable as `strategy: "graph"` on
+  `POST /api/ask` and `POST /api/search/query`, as `ragfabric ask --strategy graph`, and through
+  the Python SDK; `POST /api/search/hybrid` continues to refuse it. (54f25cc, a6b2b9d, f558010,
+  11706e8)
+- `entities` and `relationships` gain nullable `confidence` and `extraction_model`; new
+  `entity_sources` and `relationship_sources` link tables become the single source of truth for
+  provenance and access, replacing the JSON `source_chunk_ids` columns those tables carried; a new
+  `entity_merges` table records every resolution decision. Migration 0008. (4234ff0, 10f891d)
+- Extraction contracts (`graph/contracts.py`): fixed `EntityType` and `RelationType` enums, the
+  `INVERSES` direction table so a relation with no direction rule cannot be walked backwards,
+  `normalise()`, `QuestionExtraction`, and the `Subgraph` shape (`GraphNode`, `GraphEdge`) every
+  later task consumes. (eb4a25d, 6483369)
+- Extraction behind a confidence floor (`graph_store.confidence_floor`, default 0.5): a stored
+  entity or edge carries only the confidence the model actually reported, never a fabricated
+  default, and items below the floor are discarded and counted rather than silently dropped.
+  Recorded as ADR 0012. (70c9e0b, e9e499f)
+- Incremental extraction: an unchanged chunk is skipped by its content hash on re-ingest; a changed
+  chunk's stale entities and edges are removed and its survivors' confidence recomputed before the
+  new text is stored. (827c889, fbed886)
+- Entity resolution in three stages, exact normalized-name match, alias match, and an embedding
+  tie-break at `graph_store.similarity_threshold`, with every merge recorded with its evidence and
+  fully reversible; unmerge is globally last-in-first-out. (f20253c, 437c3cd, 298041c, 0416966)
+- Directed, access-checked traversal (`graph/traverse.py`): the access predicate sits inside the
+  recursive term itself, applied to both node matching and edge walking, so a path through a chunk
+  a caller cannot read never exists to be filtered afterward. Recorded as ADR 0011. (3b90995,
+  b10092e)
+- A node budget (`strategies.graph.node_budget`) and relation-type filtering on the walk, with
+  truncation reported rather than silent, and three honest empty-graph cases,
+  `no_graph_coverage`, `no_entity_matched`, `no_walkable_edges`, checked in that order.
+  (16e1ee9, 9b4ad08, ffa2e3d)
+- Rendered subgraphs and API output carry names, types, relation types, confidence and
+  caller-visible source chunk ids only, never stored entity or edge descriptions, because a
+  description can be paraphrased from a chunk the caller cannot see.
+- The graph citation contract: a relationship claim must cite a walked edge in the traversed
+  subgraph and a source chunk that backs that edge and names both endpoints it claims, or it is
+  dropped and the reason recorded; additive to the unchanged Phase 3 chunk-citation contract.
+  Recorded as ADR 0012. (c7fef79, 95559d7)
+- Graph extraction wired into ingestion behind typed, strict `graph_store` configuration
+  (`enabled`, `kind`, `extraction_model`, `confidence_floor`, `similarity_threshold`,
+  `entity_types`, `relation_types`) and a typed `strategies.graph` (`max_hops`, `node_budget`);
+  every setting is read by something. (ef2e483, 58012b0)
+- `graph` accepted on `POST /api/ask`, returning the traversed subgraph and any dropped
+  relationship claims with reasons, and on `POST /api/search/query`; `ragfabric graph
+  merges list|show|undo`, an admin CLI for inspecting and reversing a merge. (f558010, 11706e8)
+- `docs/concepts/knowledge-graphs.md`, ADR 0011, ADR 0012, and `docs/graph-rag.md` rewritten to
+  describe what shipped rather than what was planned. (0d5ca90, 1620b7d)
+- A real extraction run recorded against a local model, with what it got right, missed and
+  invented written down rather than claimed from memory. (9e6d309)
+
+### Changed
+- **Neo4j is gone, not deferred.** The `full` Docker Compose profile no longer runs a Neo4j
+  service, and `graph_store.kind: neo4j` is rejected at configuration validation with a message
+  citing ADR 0011. Breaking for any configuration that named it. (ef2e483, 1620b7d)
+- **`strategies.graph.max_nodes` no longer exists.** The untyped strategy dictionary is replaced
+  by a typed config with `max_hops` (1 to 4) and `node_budget` (at least 1, default 50); a
+  configuration still naming `max_nodes` is rejected as an unknown key. Breaking. (ef2e483)
+- **The `GraphStore` protocol is removed.** `stores/base.GraphStore` (`upsert_entities`,
+  `upsert_relationships`, `neighbours`) was written in Phase 1 for the Neo4j design and nothing
+  ever implemented it; removed rather than kept as a stub. (0d5ca90)
+
+### Notes
+- **Retrieval quality is still not measured.** Same as agentic and every other strategy, there is
+  no accuracy, recall or latency figure for graph retrieval. Phase 8 builds the evaluation
+  framework.
+- **Community summaries are out of scope.** Graph-wide clustering and roll-up descriptions across
+  the whole graph are not part of this phase.
+- **Configuration or model changes do not trigger re-extraction.** The incremental-skip hash
+  covers chunk text only; changing `graph_store`'s type lists, confidence floor or extraction
+  model does not re-extract chunks whose text has not changed.
+- **Merge review and undo are CLI-only.** `ragfabric graph merges list|show|undo` is the only way
+  to inspect or reverse a merge this phase; a web merge-review console is deferred to Phase 9.
+- **Unmerge is globally last-in-first-out.** Undoing an older merge first requires undoing every
+  later live merge, named by id in the error; re-running resolution reapplies the correct merges,
+  which Phase 9's merge console can make convenient. This is a deliberate cost, not an oversight.
+- **A disabled entity or relation type still affects the query side.** Disabling a type in
+  `graph_store` stops new extraction of it, but previously stored entities and edges of that type
+  are still walked at query time, and the question-extraction prompt still lists every type.
+- **Entity resolution's embedding stage is not cheap.** Stage 3 re-embeds every live entity of a
+  touched type for each changed document, with no ANN or cached-vector prefilter; the cost is
+  accepted until Phase 8 measures it.
+- **Extraction is all-or-nothing per chunk.** One relation outside the enum discards that chunk's
+  whole response rather than just the one bad item; observed once in the recorded real run against
+  a local model. Partial acceptance or a targeted retry is backlog for a later phase.
+- **A relationship claim's direction and how faithfully it paraphrases its source are not
+  mechanically checked.** Only that it cites a real, chunk-backed edge naming both endpoints it
+  claims. Phase 8 measures this.
+
 ## [0.2.0] - unreleased
 
 Agentic retrieval. An agent that decomposes a question, judges its own evidence, and when it comes
