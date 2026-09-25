@@ -70,10 +70,12 @@ tolerated, not refused, provided it resolves (rule 1). Such a marker adds no
 support (rules 2 to 4 ignore it) and refusing it would drop sentences over a
 redundant citation.
 
-Known looseness #4: names are matched only on the node's own name. A chunk
-that names an endpoint by an alias or a pronoun does not count as naming it,
-so a true claim can be dropped (over-strict, never over-lenient). The rendered
-sub-graph carries no aliases, so there is nothing else to match on here.
+Known looseness #4: names are matched only on the node's own name, which is
+the spelling of the caller's best admitted source (ruling R40). A chunk that
+names an endpoint by another spelling, an alias or a pronoun does not count
+as naming it, so a true claim can be dropped (over-strict, never
+over-lenient). The rendered sub-graph carries one spelling per node and no
+aliases, so there is nothing else to match on here.
 
 Known looseness #5: a single-entity claim with no ``[E k]`` marker is not a
 relationship claim, even if it relates that entity to something outside the

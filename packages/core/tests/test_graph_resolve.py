@@ -157,6 +157,7 @@ def _entity(
                 chunk_id=chunk_id,
                 confidence=confidence,
                 extraction_model=None if confidence is None else model,
+                surface_name=name,
             )
         )
     measured = [value for value in sources.values() if value is not None]
@@ -649,6 +650,38 @@ def test_unmerging_a_chunk_both_entities_came_from_restores_both_confidences(db)
     assert _entity_sources(db, result.restored_entity_id) == {c1: 0.9, c2: 0.4}
     assert db.get(Entity, result.restored_entity_id).confidence == 0.9
     assert survivor.confidence == 0.95
+
+
+def _spellings(db, entity_id: int) -> dict[int, str]:
+    return dict(
+        db.execute(
+            select(EntitySource.chunk_id, EntitySource.surface_name).where(
+                EntitySource.entity_id == entity_id
+            )
+        ).all()
+    )
+
+
+def test_a_merge_moves_each_spelling_with_its_row_and_unmerge_restores_it(db):
+    """R40: the spelling is part of what a chunk reported. On a chunk that named
+    both, the survivor's row keeps the higher report and that report's spelling,
+    and the unmerge hands both spellings back."""
+    c1, c2, c3 = _chunks(db, 3)
+    survivor = _entity(db, "Robert Sharma", "person", {c1: 0.6, c3: 0.95}, aliases=["Bob Sharma"])
+    _entity(db, "Bob Sharma", "person", {c1: 0.9, c2: 0.4})
+
+    report = resolve_entities(db, None, similarity_threshold=THRESHOLD)
+    assert report.merges[0].survivor_id == survivor.id
+    assert _spellings(db, survivor.id) == {
+        c1: "Bob Sharma",
+        c2: "Bob Sharma",
+        c3: "Robert Sharma",
+    }
+
+    result = unmerge(db, report.merges[0].merge_id)
+
+    assert _spellings(db, survivor.id) == {c1: "Robert Sharma", c3: "Robert Sharma"}
+    assert _spellings(db, result.restored_entity_id) == {c1: "Bob Sharma", c2: "Bob Sharma"}
 
 
 def test_unmerging_hands_back_the_merges_the_restored_entity_had_absorbed(db):

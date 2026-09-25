@@ -421,16 +421,25 @@ def test_re_extraction_does_not_crash_when_an_edges_other_source_outlives_its_en
     db.add_all(
         [
             EntitySource(
-                entity_id=ada.id, chunk_id=chunk_one.id, confidence=0.9, extraction_model="model-a"
+                entity_id=ada.id,
+                chunk_id=chunk_one.id,
+                confidence=0.9,
+                extraction_model="model-a",
+                surface_name="Ada Lovelace",
             ),
             EntitySource(
-                entity_id=ada.id, chunk_id=chunk_two.id, confidence=0.7, extraction_model="model-b"
+                entity_id=ada.id,
+                chunk_id=chunk_two.id,
+                confidence=0.7,
+                extraction_model="model-b",
+                surface_name="Ada Lovelace",
             ),
             EntitySource(
                 entity_id=engine.id,
                 chunk_id=chunk_one.id,
                 confidence=0.9,
                 extraction_model="model-a",
+                surface_name="Analytical Engine",
             ),
             RelationshipSource(
                 relationship_id=edge.id,
@@ -491,10 +500,18 @@ def test_a_survivor_whose_remaining_sources_are_all_unmeasured_has_no_confidence
     db.add_all(
         [
             EntitySource(
-                entity_id=ada.id, chunk_id=chunk_one.id, confidence=None, extraction_model=None
+                entity_id=ada.id,
+                chunk_id=chunk_one.id,
+                confidence=None,
+                extraction_model=None,
+                surface_name="Ada Lovelace",
             ),
             EntitySource(
-                entity_id=ada.id, chunk_id=chunk_two.id, confidence=None, extraction_model=None
+                entity_id=ada.id,
+                chunk_id=chunk_two.id,
+                confidence=None,
+                extraction_model=None,
+                surface_name="Ada Lovelace",
             ),
         ]
     )

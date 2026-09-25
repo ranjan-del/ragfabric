@@ -231,6 +231,11 @@ class GraphNode(BaseModel):
     """A node as the caller sees it. No description: a stored description may
     paraphrase a chunk the caller cannot see.
 
+    ``name`` is not ``Entity.name`` but the spelling this caller's best
+    admitted source reported (``entity_sources.surface_name``, ruling R40):
+    after a merge the stored name can come from a chunk the caller may not
+    read, and a spelling is chunk text just as a description is.
+
     ``depth`` is the minimum number of hops from a seed, as the walk itself
     measured it (``min(depth)`` over every path the recursive query found); a
     seed is depth 0. It is carried here, on the contract, rather than

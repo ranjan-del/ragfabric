@@ -123,6 +123,8 @@ def test_0008_entity_sources_confidence_check_constraint_rejects_out_of_range_va
         db.add_all([chunk, entity])
         db.flush()
 
-        db.add(EntitySource(entity_id=entity.id, chunk_id=chunk.id, confidence=1.5))
+        db.add(
+            EntitySource(entity_id=entity.id, chunk_id=chunk.id, confidence=1.5, surface_name="x")
+        )
         with pytest.raises(sa.exc.IntegrityError):
             db.commit()

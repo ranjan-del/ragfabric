@@ -22,6 +22,18 @@ edge fetch. Nothing is filtered after the walk, because a walk that crosses a
 denied edge and drops it afterwards has already used it to reach whatever lies
 beyond, and matching an entity at all reveals that it exists.
 
+**Names (ruling R40).** An entity's spelling is text from a chunk, so it is
+subject to access like the chunk. ``entity_sources.surface_name`` holds the
+spelling each chunk's extraction reported; ``GraphNode.name`` is the spelling
+of the caller's best admitted source (highest per-source confidence, then
+lowest chunk id), and ``match_entities`` compares a question's mentions only
+with admitted sources' spellings. ``Entity.name`` and ``Entity.aliases`` are
+resolution's bookkeeping and never reach a caller: after a merge they carry
+spellings from every source, including ones the caller cannot read.
+
+Edge confidence follows the same rule (ruling R43): ``GraphEdge.confidence``
+is the max over the edge's admitted sources, never the stored aggregate.
+
 **Direction (ruling R2).** Every known ``RelationType`` walks forwards. It
 walks backwards only when it is in ``INVERSES``, and is then reported under
 ``INVERSES[rel]`` with ``reversed=True``. A relation not in ``INVERSES``
@@ -85,7 +97,7 @@ from __future__ import annotations
 
 from collections.abc import Collection, Iterable, Sequence
 
-from sqlalchemy import Integer, Text, and_, case, cast, func, literal_column, or_, select
+from sqlalchemy import Integer, and_, case, cast, func, literal_column, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from ragfabric_core.auth.principal import AccessFilter
@@ -226,49 +238,85 @@ def match_entities(
     """Ids of visible entities a question's mentions name, sorted ascending.
 
     A mention matches an entity when ``normalise(mention.name)`` equals the
-    entity's ``normalized_name`` or the ``normalise`` of one of its aliases,
-    and, when the mention carries an ``entity_type``, the types agree. The
-    visibility predicate is in both queries, so an entity whose every source
-    chunk is denied never matches. ``collection_ids`` narrows that predicate to
-    a request's own scope (ruling R25).
+    ``normalise`` of the ``surface_name`` of one of the entity's **admitted**
+    sources, and, when the mention carries an ``entity_type``, the types
+    agree (ruling R40). ``Entity.name`` and ``Entity.aliases`` are never
+    compared: after a merge they hold spellings from every source, denied ones
+    included, and matching a spelling only a denied chunk uses would confirm
+    that chunk names the entity. The predicate is ``access`` narrowed by
+    ``collection_ids`` (ruling R25), the same one the walk uses, so an entity
+    whose every source chunk is denied never matches.
 
-    Aliases are compared in Python over rows the SQL has already restricted to
-    visible entities, because ``normalise`` (casefold, Unicode punctuation) has
-    no portable SQL equivalent. An ``aliases`` value that is not a list, and an
-    alias that is not a string, are skipped rather than failing the match.
+    The comparison runs in Python over the admitted rows the SQL returns,
+    because ``normalise`` (NFKC, casefold, Unicode punctuation) has no
+    portable SQL equivalent. When every mention carries a type the SQL is
+    narrowed to those types first. The cost is one pass over the distinct
+    admitted spellings, the same deferral R14 made for aliases, until Phase 8
+    measures it.
     """
     wanted = [(normalise(m.name), m.entity_type) for m in mentions]
     wanted = [(name, entity_type) for name, entity_type in wanted if name]
     if not wanted:
         return []
 
-    visible = _entity_visible(Entity.id, access, collection_ids)
-    by_name = or_(
-        *(
-            Entity.normalized_name == name
-            if entity_type is None
-            else and_(Entity.normalized_name == name, Entity.entity_type == entity_type.value)
-            for name, entity_type in wanted
-        )
+    query = (
+        select(EntitySource.entity_id, Entity.entity_type, EntitySource.surface_name)
+        .join(Chunk, Chunk.id == EntitySource.chunk_id)
+        .join(Entity, Entity.id == EntitySource.entity_id)
+        .distinct()
     )
-    matched = set(db.execute(select(Entity.id).where(visible, by_name)).scalars())
-
-    # Comparing the serialised text skips the common empty list without any
-    # JSON function, which would raise on a row whose value is not an array.
-    candidates = db.execute(
-        select(Entity.id, Entity.entity_type, Entity.aliases).where(
-            visible, cast(Entity.aliases, Text) != "[]"
+    clause = access_clause(access, Chunk.document_id, Chunk.collection_id, collection_ids)
+    if clause is not None:
+        query = query.where(clause)
+    if all(entity_type is not None for _, entity_type in wanted):
+        query = query.where(
+            Entity.entity_type.in_(sorted({entity_type.value for _, entity_type in wanted}))
         )
-    ).all()
-    for entity_id, entity_type, aliases in candidates:
-        if not isinstance(aliases, list):
-            continue
-        names = {normalise(alias) for alias in aliases if isinstance(alias, str)}
+
+    matched: set[int] = set()
+    for entity_id, entity_type, surface_name in db.execute(query):
+        spelling = normalise(surface_name)
         for name, want_type in wanted:
-            if name in names and (want_type is None or want_type.value == entity_type):
+            if spelling == name and (want_type is None or want_type.value == entity_type):
                 matched.add(entity_id)
                 break
     return sorted(matched)
+
+
+def visible_names(
+    db: Session,
+    entity_ids: Iterable[int],
+    access: AccessFilter,
+    collection_ids: Collection[int] | None = None,
+) -> dict[int, str]:
+    """The name each entity shows this caller: its best admitted source's spelling (R40).
+
+    Best is the highest per-source confidence (a measured one beats ``None``),
+    then the lowest chunk id. An entity with no admitted source is absent,
+    which ``traverse`` never asks about, since every reached node is visible.
+    """
+    ids = sorted(set(entity_ids))
+    if not ids:
+        return {}
+    query = (
+        select(
+            EntitySource.entity_id,
+            EntitySource.chunk_id,
+            EntitySource.confidence,
+            EntitySource.surface_name,
+        )
+        .join(Chunk, Chunk.id == EntitySource.chunk_id)
+        .where(EntitySource.entity_id.in_(ids))
+    )
+    clause = access_clause(access, Chunk.document_id, Chunk.collection_id, collection_ids)
+    if clause is not None:
+        query = query.where(clause)
+    best: dict[int, tuple[tuple[bool, float, int], str]] = {}
+    for entity_id, chunk_id, confidence, surface_name in db.execute(query):
+        rank = (confidence is not None, confidence or 0.0, -chunk_id)
+        if entity_id not in best or rank > best[entity_id][0]:
+            best[entity_id] = (rank, surface_name)
+    return {entity_id: name for entity_id, (_, name) in sorted(best.items())}
 
 
 def visible_entity_chunks(
@@ -398,7 +446,6 @@ def _edge_statement(
             rel.source_entity_id,
             rel.target_entity_id,
             rel.relation_type,
-            rel.confidence,
             case((forwards, 1), else_=0).label("goes_forwards"),
         )
         .where(or_(forwards, backwards), _relationship_visible(rel.id, access, collection_ids))
@@ -429,7 +476,9 @@ def traverse(
     reported, regardless of which direction actually reached the node it leads
     to, so ``depth`` (not edge direction) is the only reliable measure of how
     a node was reached. An edge's ``source_chunk_ids`` are its admitted source
-    chunks only. ``collection_ids``, when given, narrows every visibility
+    chunks only, and its ``confidence`` is the max those admitted chunks
+    reported (``None`` when none of them measured one), never the stored
+    aggregate over every source (ruling R43). ``collection_ids``, when given, narrows every visibility
     predicate in the walk (anchor, recursive term, edge fetch) to a request's
     own scope, on top of ``access`` (ruling R25); it never widens past what
     ``access`` alone would admit.
@@ -464,12 +513,16 @@ def traverse(
             nodes=[], edges=[], truncated=False, empty_reason=EmptyReason.NO_ENTITY_MATCHED
         )
 
+    names = visible_names(db, depths, access, collection_ids)
     nodes = [
         GraphNode(
-            id=entity_id, name=name, entity_type=EntityType(entity_type), depth=depths[entity_id]
+            id=entity_id,
+            name=names[entity_id],
+            entity_type=EntityType(entity_type),
+            depth=depths[entity_id],
         )
-        for entity_id, name, entity_type in db.execute(
-            select(Entity.id, Entity.name, Entity.entity_type)
+        for entity_id, entity_type in db.execute(
+            select(Entity.id, Entity.entity_type)
             .where(Entity.id.in_(sorted(depths)))
             .order_by(Entity.id)
         )
@@ -499,7 +552,11 @@ def _edges(
         return []
     ids = [row.id for row in rows]
     chunk_query = (
-        select(RelationshipSource.relationship_id, RelationshipSource.chunk_id)
+        select(
+            RelationshipSource.relationship_id,
+            RelationshipSource.chunk_id,
+            RelationshipSource.confidence,
+        )
         .join(Chunk, Chunk.id == RelationshipSource.chunk_id)
         .where(RelationshipSource.relationship_id.in_(ids))
     )
@@ -507,8 +564,14 @@ def _edges(
     if clause is not None:
         chunk_query = chunk_query.where(clause)
     chunks: dict[int, list[int]] = {}
-    for relationship_id, chunk_id in db.execute(chunk_query):
+    # R43: an edge's confidence is the max its ADMITTED sources reported, never
+    # the stored aggregate, which also counts denied chunks and would reveal
+    # that a higher-confidence source the caller cannot read exists.
+    confidence: dict[int, float] = {}
+    for relationship_id, chunk_id, reported in db.execute(chunk_query):
         chunks.setdefault(relationship_id, []).append(chunk_id)
+        if reported is not None and reported > confidence.get(relationship_id, -1.0):
+            confidence[relationship_id] = reported
 
     edges = []
     for row in rows:
@@ -522,7 +585,7 @@ def _edges(
                 relation_type=relation,
                 walked_as=INVERSES[relation] if is_reversed else relation.value,
                 reversed=is_reversed,
-                confidence=row.confidence,
+                confidence=confidence.get(row.id),
                 source_chunk_ids=sorted(chunks.get(row.id, [])),
             )
         )

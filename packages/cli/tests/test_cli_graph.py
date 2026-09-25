@@ -212,7 +212,14 @@ def _seed_merges(factory, pairs: list[tuple[str, str]]) -> list[int]:
                 )
                 db.add(entity)
                 db.flush()
-                db.add(EntitySource(entity_id=entity.id, chunk_id=chunk.id, confidence=0.9))
+                db.add(
+                    EntitySource(
+                        entity_id=entity.id,
+                        chunk_id=chunk.id,
+                        confidence=0.9,
+                        surface_name=entity.name,
+                    )
+                )
         db.flush()
         report = resolve_entities(db, None, similarity_threshold=0.9)
         db.commit()
