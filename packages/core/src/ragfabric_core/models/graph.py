@@ -12,7 +12,12 @@ which code path writes the row.
 for provenance: which chunks an entity or relationship was extracted from.
 They replace the JSON ``source_chunk_ids`` columns migration 0008 drops, so
 that the access filter a traversal query applies can be a join inside the
-recursive term rather than a second, driftable copy of the same list.
+recursive term rather than a second, driftable copy of the same list. Each
+link row also carries the confidence and extraction model that one chunk's
+extraction call reported (R20), so the parent row's own confidence can be
+recomputed as the max over its current sources whenever a source is added,
+removed or moved, rather than drifting once the chunk that supplied the
+number is re-extracted or merged away.
 
 ``EntityMerge`` records every entity resolution decision (Task 5): the
 surviving entity, the merged-away entity's name, type, aliases and source
@@ -89,9 +94,20 @@ class EntitySource(Base):
     nothing to update, only rows to add or cascade-delete. Indexed on
     ``chunk_id`` because the access filter walks from a visible chunk set to
     the entities and relationships it justifies, not the other way round.
+
+    ``confidence`` and ``extraction_model`` (R20) are what *that chunk's*
+    extraction call reported for this entity, nullable for the same ADR 0004
+    reason as the parent row. They are what ``Entity.confidence`` /
+    ``Entity.extraction_model`` are recomputed from (the max over every
+    surviving source) whenever a source is added, removed (Task 4 cleanup) or
+    moved (Task 5 merge/unmerge), so the parent row never carries a number no
+    current source supports.
     """
 
     __tablename__ = "entity_sources"
+    __table_args__ = (
+        CheckConstraint(_CONFIDENCE_RANGE, name="ck_entity_sources_confidence_range"),
+    )
 
     entity_id: Mapped[int] = mapped_column(
         ForeignKey("entities.id", ondelete="CASCADE"), primary_key=True
@@ -99,12 +115,17 @@ class EntitySource(Base):
     chunk_id: Mapped[int] = mapped_column(
         ForeignKey("chunks.id", ondelete="CASCADE"), primary_key=True, index=True
     )
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    extraction_model: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class RelationshipSource(Base):
     """One row per (relationship, chunk) the relationship was extracted from. See ``EntitySource``."""
 
     __tablename__ = "relationship_sources"
+    __table_args__ = (
+        CheckConstraint(_CONFIDENCE_RANGE, name="ck_relationship_sources_confidence_range"),
+    )
 
     relationship_id: Mapped[int] = mapped_column(
         ForeignKey("relationships.id", ondelete="CASCADE"), primary_key=True
@@ -112,6 +133,8 @@ class RelationshipSource(Base):
     chunk_id: Mapped[int] = mapped_column(
         ForeignKey("chunks.id", ondelete="CASCADE"), primary_key=True, index=True
     )
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    extraction_model: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class EntityMerge(Base):
