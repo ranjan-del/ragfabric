@@ -1,6 +1,6 @@
 [project]
 name = "ragfabric"
-version = "0.2.0"
+version = "0.3.0"
 description = "RagFabric: self hosted, measurement first RAG platform. Installs the engine, the API and the ragfabric command."
 readme = "README.md"
 license = "Apache-2.0"

@@ -1,6 +1,6 @@
 [project]
 name = "ragfabric-core"
-version = "0.2.0"
+version = "0.3.0"
 description = "RagFabric engine: retrieval strategies, providers, stores, ingestion, evaluation, access policy."
 readme = "README.md"
 license = "Apache-2.0"
