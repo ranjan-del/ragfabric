@@ -441,6 +441,102 @@ def test_a_denied_documents_entities_and_chunks_never_reach_the_ask_response(
     assert body["answer"] == "The Platform Team is a member of Engineering [E 1] [1]."
 
 
+def test_a_denied_documents_entities_and_chunks_never_reach_the_streamed_ask_response(
+    client, restricted_token, split_graph
+):
+    """The streaming generator is a separate code path from ``_ask``'s ``stream: False``.
+
+    It builds its own prompt (``build_graph_prompt``) and emits the sub-graph on the
+    ``retrieval`` event rather than in the final JSON body, so the route-level
+    non-streaming test above does not exercise it. ``split_graph`` already proved, via
+    its own admin control run, that the secret side is reachable through this same
+    question before the collection is locked down; this test checks every SSE event a
+    restricted caller receives afterwards, not just the final response body.
+    """
+    with client.stream(
+        "POST",
+        "/api/ask",
+        json={"query": QUESTION, "strategy": "graph", "stream": True, "top_k": 10},
+        headers=auth(restricted_token),
+    ) as res:
+        assert res.status_code == 200
+        raw = "".join(res.iter_text())
+
+    events = _events(raw)
+    by_name = dict(events)
+    secret_chunk = split_graph["secret_chunk"]
+    subgraph = by_name["retrieval"]["subgraph"]
+    node_ids = {node["id"] for node in subgraph["nodes"]}
+
+    assert split_graph["ids"]["Nightjar"] not in node_ids
+    assert all(edge["relation_type"] != "WORKS_ON" for edge in subgraph["edges"])
+    assert all(secret_chunk not in edge["source_chunk_ids"] for edge in subgraph["edges"])
+    citations = by_name["citations"]["citations"]
+    assert all(c["chunk_id"] != secret_chunk for c in citations)
+    assert all(c["document_id"] != split_graph["secret_document"] for c in citations)
+    # Across every event on the wire, not just one of them: the streamed tokens,
+    # any superseded repair, the retrieval event and the final citations.
+    assert "Nightjar" not in raw
+    assert "confidential acquisition" not in raw
+    # Not vacuous: the restricted caller still walked the open side of the graph.
+    assert split_graph["ids"]["Platform Team"] in node_ids
+    assert split_graph["ids"]["Engineering"] in node_ids
+    assert by_name["done"] is not None
+
+
+class _NoDropGraphAnswerLLM:
+    """Streams a leading fragment that carries no words and no ``[E k]``/``[n]`` marker.
+
+    ``apply_graph_contract`` discards a claim like this without recording it in
+    either drop list (its docstring: "one with no marker ... is discarded without a
+    record"), which used to make the stream compare the checked text against the raw
+    streamed text, see a difference, and announce a ``superseded`` repair with two
+    empty drop lists. The event must be keyed on whether anything was actually
+    dropped, not on whether the text changed shape.
+    """
+
+    name = "graph-answer-no-drop"
+    default_model = "graph-answer-no-drop-test-model"
+
+    TEXT = " . The Platform Team is a member of Engineering [E 1] [1]."
+
+    def complete(self, messages: list[Message], **kwargs) -> Completion:
+        return Completion(
+            text=self.TEXT,
+            model=self.default_model,
+            provider=self.name,
+            input_tokens=7,
+            output_tokens=11,
+            latency_ms=0,
+            finish_reason="stop",
+        )
+
+    def stream(self, messages: list[Message], **kwargs):
+        words = self.TEXT.split(" ")
+        for i, word in enumerate(words):
+            yield word if i == len(words) - 1 else word + " "
+
+
+def test_a_contract_pass_with_no_drops_emits_no_superseded_event(client, admin_token, team_graph):
+    app.dependency_overrides[get_llm_provider] = lambda: _NoDropGraphAnswerLLM()
+    with client.stream(
+        "POST",
+        "/api/ask",
+        json={"query": QUESTION, "strategy": "graph", "stream": True},
+        headers=auth(admin_token),
+    ) as res:
+        assert res.status_code == 200
+        events = _events("".join(res.iter_text()))
+
+    names = [name for name, _ in events]
+    assert "superseded" not in names
+    by_name = dict(events)
+    # The leading marker-less fragment still vanishes from the recorded answer;
+    # only the announcement is what changed, not the correction itself.
+    run = client.get(f"/api/runs/{by_name['done']['run_id']}", headers=auth(admin_token)).json()
+    assert run["answer"] == "The Platform Team is a member of Engineering [E 1] [1]."
+
+
 def test_the_audit_row_counts_the_graph_chunks_the_filter_removed(
     client, restricted_token, split_graph, db_session
 ):

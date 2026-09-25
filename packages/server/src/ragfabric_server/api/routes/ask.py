@@ -360,7 +360,7 @@ def ask(
             llm_calls = result.llm_calls + 1
             checked = apply_graph_contract(streamed, result.chunks, result.subgraph)
             text = checked.text
-            if text.strip() != streamed.strip():
+            if checked.dropped_claims or checked.dropped_relationship_claims:
                 yield _event(
                     "superseded",
                     {
