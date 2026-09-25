@@ -27,7 +27,13 @@ merge at any stage: every candidate pair passes through one predicate,
    pass (R27): a pair touching an entity already merged in this stage, as
    survivor or as merged, is skipped. So every stage-3 merge joins exactly
    two entities whose own similarity met the threshold, and no pass clusters
-   transitively; a legitimate larger cluster needs another pass.
+   transitively; a legitimate larger cluster needs another pass. With
+   ``entity_ids`` set, only pairs with an in-scope member are compared, but
+   every live entity of an in-scope entity's type is still embedded, because
+   the other side of each pair needs a vector too. That is a known cost:
+   O(type group) embedding per resolution call, which the ingest handler
+   makes once per changed document (R36). An approximate nearest neighbour
+   or cached-vector candidate prefilter is deferred to Phase 8.
 
 Stages 1 and 2 repeat until no pair is left, because a merge adds the merged
 name and aliases to the survivor's aliases and that can create a new match.

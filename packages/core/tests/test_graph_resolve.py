@@ -513,6 +513,25 @@ def test_entity_ids_restrict_resolution_to_pairs_touching_them(db):
     assert db.get(Entity, ann.id) is not None
 
 
+def test_entity_ids_restrict_embedding_pairs_to_ones_touching_them(db):
+    """Stage 3 embeds the in-scope entity's whole type group, but only pairs
+    with an in-scope member may merge: two similar out-of-scope entities stay."""
+    c1, c2, c3 = _chunks(db, 3)
+    ada = _entity(db, "Ada Lovelace", "person", {c1: 0.9})
+    grace = _entity(db, "Grace Hopper", "person", {c2: 0.9})
+    admiral = _entity(db, "Admiral Hopper", "person", {c3: 0.9})
+    embedder = ScriptedEmbedder(
+        {"Ada Lovelace": [1.0, 0.0], "Grace Hopper": [0.0, 1.0], "Admiral Hopper": [0.1, 0.995]}
+    )
+
+    report = resolve_entities(db, embedder, similarity_threshold=THRESHOLD, entity_ids=[ada.id])
+    assert report.merges == [] and report.embedding_calls == 1
+    assert {e.id for e in _entities(db)} == {ada.id, grace.id, admiral.id}
+
+    report = resolve_entities(db, embedder, similarity_threshold=THRESHOLD)
+    assert [(m.survivor_id, m.merged_id) for m in report.merges] != []
+
+
 def test_entities_of_different_types_never_merge(db):
     c1, c2, c3, c4 = _chunks(db, 4)
     # Same name, alias crossover and identical vectors: every stage would

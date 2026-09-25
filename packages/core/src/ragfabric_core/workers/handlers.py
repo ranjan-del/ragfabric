@@ -120,6 +120,22 @@ class GraphExtractionOutcome:
     extraction: ExtractionReport
     resolution: ResolutionReport | None
 
+    def summary(self) -> str:
+        """One log-ready line with every count an operator needs to judge the pass."""
+        extraction = self.extraction
+        merges = 0 if self.resolution is None else len(self.resolution.merges)
+        embedding_calls = 0 if self.resolution is None else self.resolution.embedding_calls
+        return (
+            f"{extraction.entities_stored} entities stored, "
+            f"{extraction.relationships_stored} relationships stored, "
+            f"{extraction.entities_discarded} entities discarded, "
+            f"{extraction.relationships_discarded} relationships discarded, "
+            f"{len(extraction.extracted_chunk_ids)} chunks extracted, "
+            f"{extraction.chunks_skipped} chunks unchanged, "
+            f"contract violation {extraction.contract_violation}, "
+            f"{merges} merges, {embedding_calls} embedding calls"
+        )
+
 
 def extract_graph(
     db: Session,
@@ -138,10 +154,22 @@ def extract_graph(
     Enabled: ``extract_chunks`` over the document's chunks with the
     configured confidence floor, extraction model (``None`` means the
     provider's own default model) and enabled type lists; then
-    ``resolve_entities`` over the entities those chunks now source, with the
-    embedder and similarity threshold; then one commit. Unchanged chunks are
-    skipped by the extractor's own hash check, so re-running the job for a
-    document costs nothing for text that has not changed.
+    ``resolve_entities`` with the embedder and similarity threshold; then one
+    commit.
+
+    Resolution is scoped to the entities sourced by the chunks that were
+    actually extracted in this run (R36), and skipped entirely when none
+    were: an unchanged chunk is skipped by the extractor's hash check, and
+    its entities were already resolved when it was last extracted, so a
+    re-run over unchanged text makes no model call and no embedding call.
+
+    Known cost: stage 3 of resolution embeds the whole type group of every
+    in-scope entity (only pairs with an in-scope member may merge, but the
+    comparison needs the other side's vector too), so each changed document
+    that names a person re-embeds every person in the corpus. That is
+    O(type group) embedding per changed document. An approximate nearest
+    neighbour or cached-vector prefilter is deferred to Phase 8, where it can
+    be measured against the recall it would cost.
     """
     if not settings.enabled:
         log.info("extract_graph: graph extraction is disabled; document %s skipped", document_id)
@@ -164,15 +192,17 @@ def extract_graph(
         entity_types=settings.entity_types,
         relation_types=settings.relation_types,
     )
-    touched = sorted(
-        set(
-            db.execute(
-                select(EntitySource.entity_id).where(
-                    EntitySource.chunk_id.in_([chunk.id for chunk in chunks])
-                )
-            ).scalars()
+    touched: list[int] = []
+    if extraction.extracted_chunk_ids:
+        touched = sorted(
+            set(
+                db.execute(
+                    select(EntitySource.entity_id).where(
+                        EntitySource.chunk_id.in_(extraction.extracted_chunk_ids)
+                    )
+                ).scalars()
+            )
         )
-    )
     resolution = None
     if touched:
         resolution = resolve_entities(
@@ -182,20 +212,9 @@ def extract_graph(
             entity_ids=touched,
         )
     db.commit()
-    log.info(
-        "extract_graph: document %s: %s entities and %s relationships stored, "
-        "%s entities and %s relationships discarded, %s chunks unchanged, "
-        "contract violation %s, %s merges",
-        document_id,
-        extraction.entities_stored,
-        extraction.relationships_stored,
-        extraction.entities_discarded,
-        extraction.relationships_discarded,
-        extraction.chunks_skipped,
-        extraction.contract_violation,
-        0 if resolution is None else len(resolution.merges),
-    )
-    return GraphExtractionOutcome(extraction=extraction, resolution=resolution)
+    outcome = GraphExtractionOutcome(extraction=extraction, resolution=resolution)
+    log.info("extract_graph: document %s: %s", document_id, outcome.summary())
+    return outcome
 
 
 def reconcile_stuck_indexing(

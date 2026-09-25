@@ -71,7 +71,7 @@ from __future__ import annotations
 import hashlib
 from collections import defaultdict
 from collections.abc import Collection, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
@@ -161,6 +161,12 @@ class ExtractionReport:
     target_entity_id, relation_type)``), not the raw number of kept items:
     the contract tolerates the same entity or edge listed twice in one
     response, and both collapse into one stored row.
+
+    ``extracted_chunk_ids`` lists the chunks whose extraction call completed
+    in this run, in order: not the ones skipped as unchanged and not the ones
+    whose response violated the contract (their savepoint rolled back, so
+    they changed nothing). Only these chunks can have introduced or moved an
+    entity, which is what lets the ingest handler resolve just them (R36).
     """
 
     entities_stored: int = 0
@@ -169,6 +175,7 @@ class ExtractionReport:
     relationships_discarded: int = 0
     contract_violation: bool = False
     chunks_skipped: int = 0
+    extracted_chunk_ids: tuple[int, ...] = ()
 
     def __add__(self, other: ExtractionReport) -> ExtractionReport:
         if not isinstance(other, ExtractionReport):
@@ -180,6 +187,7 @@ class ExtractionReport:
             relationships_discarded=self.relationships_discarded + other.relationships_discarded,
             contract_violation=self.contract_violation or other.contract_violation,
             chunks_skipped=self.chunks_skipped + other.chunks_skipped,
+            extracted_chunk_ids=self.extracted_chunk_ids + other.extracted_chunk_ids,
         )
 
 
@@ -254,7 +262,7 @@ def extract_chunk(
         chunk.extraction_hash = chunk_hash
         db.flush()
 
-    return report
+    return replace(report, extracted_chunk_ids=(chunk.id,))
 
 
 def _extract_and_store(

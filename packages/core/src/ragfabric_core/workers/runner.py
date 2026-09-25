@@ -72,13 +72,18 @@ def default_handlers(
         )
 
     def _graph(db: Session, job: Job) -> None:
-        handlers.extract_graph(
+        document_id = int(job.payload["document_id"])
+        outcome = handlers.extract_graph(
             db,
-            int(job.payload["document_id"]),
+            document_id,
             settings=graph_settings,
             llm=llm,
             embedder=embedding_provider,
         )
+        if outcome is not None:
+            log.info(
+                "job %s extract_graph for document %s: %s", job.id, document_id, outcome.summary()
+            )
 
     return {"index_document": _index, "extract_graph": _graph}
 
