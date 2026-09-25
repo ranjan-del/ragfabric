@@ -15,7 +15,7 @@ Two things are worth reading here rather than skipping as boilerplate:
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 
 # Importing the models package has the side effect of registering every table on
 # Base.metadata. Without it, autogenerate would see an empty schema and cheerfully
@@ -69,6 +69,9 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        sqlite = connection.dialect.name == "sqlite"
+        if sqlite:
+            _sqlite_foreign_keys(connection, enabled=False)
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
@@ -80,6 +83,37 @@ def run_migrations_online() -> None:
         )
         with context.begin_transaction():
             context.run_migrations()
+        if sqlite:
+            _sqlite_foreign_keys(connection, enabled=True)
+
+
+def _sqlite_foreign_keys(connection, *, enabled: bool) -> None:
+    """Switch SQLite foreign-key enforcement for this connection, outside any transaction.
+
+    The application turns enforcement on for every SQLite connection
+    (``db/session.py`` registers a global ``connect`` listener, so Alembic's
+    connection gets it too). A batch migration rebuilds a table by copying it,
+    dropping the original and renaming the copy, and with enforcement on that
+    DROP TABLE is an implicit DELETE that fires every ``ON DELETE CASCADE``
+    pointing at the table: rebuilding ``entities`` emptied ``relationships``.
+    This is the standard recipe for batch mode: enforcement off for the run,
+    back on afterwards.
+
+    ``PRAGMA foreign_keys`` is a no-op inside a transaction, so it cannot live
+    in a migration script (every script runs inside ``begin_transaction``).
+    Here it runs before that transaction opens and after it has committed;
+    the ``commit`` closes the transaction SQLAlchemy autobegins around the
+    pragma itself, so the migrations still get a transaction of their own.
+    Before switching enforcement back on, ``PRAGMA foreign_key_check`` must
+    come back empty, so a migration can never leave a dangling reference
+    behind that enforcement would have refused.
+    """
+    if enabled:
+        violations = connection.execute(text("PRAGMA foreign_key_check")).all()
+        if violations:
+            raise RuntimeError(f"migrations left foreign key violations: {violations}")
+    connection.execute(text(f"PRAGMA foreign_keys={'ON' if enabled else 'OFF'}"))
+    connection.commit()
 
 
 if context.is_offline_mode():

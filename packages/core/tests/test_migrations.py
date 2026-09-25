@@ -237,3 +237,70 @@ def test_0008_makes_graph_ids_never_reused_on_sqlite(tmp_path):
     for table in ("entities", "relationships", "entity_merges"):
         assert _declares_autoincrement(engine, table), table
     engine.dispose()
+
+
+def _seed_two_entities_and_an_edge(path, *, with_source_chunk_ids: bool) -> None:
+    """Write two entities and one relationship straight through sqlite3, below the ORM."""
+    import sqlite3
+
+    extra_columns = ", source_chunk_ids" if with_source_chunk_ids else ""
+    extra_values = ", '[]'" if with_source_chunk_ids else ""
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "insert into entities(name, normalized_name, entity_type, description, aliases, "
+        f"created_at{extra_columns}) values "
+        f"('A', 'a', 'person', '', '[]', '2026-01-01'{extra_values}), "
+        f"('B', 'b', 'person', '', '[]', '2026-01-01'{extra_values})"
+    )
+    connection.execute(
+        "insert into relationships(source_entity_id, target_entity_id, relation_type, "
+        f"description, weight, created_at{extra_columns}) values "
+        f"(1, 2, 'REPORTS_TO', '', 1.0, '2026-01-01'{extra_values})"
+    )
+    connection.commit()
+    connection.close()
+
+
+def _count(path, table: str) -> int:
+    import sqlite3
+
+    connection = sqlite3.connect(path)
+    try:
+        return connection.execute(f"select count(*) from {table}").fetchone()[0]
+    finally:
+        connection.close()
+
+
+def test_0008_downgrade_keeps_relationships_with_foreign_keys_enforced(tmp_path):
+    """The batch rebuild drops and recreates ``entities``; with SQLite foreign keys
+    on (the global listener in db/session.py turns them on for every connection,
+    Alembic's included), that DROP TABLE cascaded into ``relationships`` and
+    emptied it. The migration environment switches enforcement off around the
+    run, outside any transaction, where the pragma actually takes effect.
+    """
+    import ragfabric_core.db.session  # noqa: F401  (installs the global FK listener)
+
+    path = tmp_path / "m.db"
+    url = f"sqlite:///{path}"
+    migrate.upgrade(url, "head")
+    _seed_two_entities_and_an_edge(path, with_source_chunk_ids=False)
+
+    migrate.downgrade(url, "0007_bm25_term_stats")
+
+    assert _count(path, "entities") == 2
+    assert _count(path, "relationships") == 1
+
+
+def test_0008_upgrade_keeps_relationships_written_before_it(tmp_path):
+    """Same cascade on the way up: 0008 rebuilds ``entities`` before ``relationships``."""
+    import ragfabric_core.db.session  # noqa: F401  (installs the global FK listener)
+
+    path = tmp_path / "m.db"
+    url = f"sqlite:///{path}"
+    migrate.upgrade(url, "0007_bm25_term_stats")
+    _seed_two_entities_and_an_edge(path, with_source_chunk_ids=True)
+
+    migrate.upgrade(url, "head")
+
+    assert _count(path, "entities") == 2
+    assert _count(path, "relationships") == 1
