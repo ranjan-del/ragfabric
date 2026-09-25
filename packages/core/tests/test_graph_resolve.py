@@ -836,8 +836,8 @@ def test_unmerge_is_blocked_while_a_later_merge_shares_its_survivor(db):
 def test_unmerge_is_blocked_while_a_later_merge_moved_the_far_end_of_its_edge(db):
     c1, c2, c3 = _chunks(db, 3)
     # M1 repoints Bob's edge to Apollo onto Robert; M2 then merges Apollo
-    # Program into Apollo, the far end of that edge. M2's survivor is not
-    # M1's, but it touched an entity M1 changed rows for, so it still blocks.
+    # Program into Apollo, the far end of that edge. Under the global rule
+    # (R30) any later merge blocks, and this one also genuinely overlaps.
     robert = _entity(db, "Robert Sharma", "person", {c1: 0.9}, aliases=["Bob Sharma"])
     bob = _entity(db, "Bob Sharma", "person", {c2: 0.7})
     apollo = _entity(db, "Apollo", "project", {c2: 0.9}, aliases=["Apollo Program"])
@@ -859,6 +859,81 @@ def test_unmerge_is_blocked_while_a_later_merge_moved_the_far_end_of_its_edge(db
 
     unmerge(db, second.merge_id)
     unmerge(db, first.merge_id)
+    assert _snapshot(db) == before
+
+
+def test_a_far_end_entity_recreated_by_an_unmerge_cannot_bypass_the_block(db):
+    c1, c2, c3, c4 = _chunks(db, 4)
+    # The reviewer's sequence. M1: Robert absorbs Bob, whose edge to Apollo
+    # Program is repointed onto Robert. M2: Apollo absorbs Apollo Program and
+    # the edge folds into Robert's own edge to Apollo. Undo M2 (in order):
+    # Apollo Program comes back under a new id. M3: Apollo absorbs it again,
+    # folding the edge again. An entity-scoped block keyed on the old id let
+    # M1 through here; the global rule does not.
+    robert = _entity(db, "Robert Sharma", "person", {c1: 0.9}, aliases=["Bob Sharma"])
+    bob = _entity(db, "Bob Sharma", "person", {c2: 0.7})
+    apollo = _entity(db, "Apollo", "project", {c4: 0.9}, aliases=["Apollo Program"])
+    program = _entity(db, "Apollo Program", "project", {c3: 0.8})
+    _edge(db, bob, program, "WORKS_ON", {c2: 0.8})
+    _edge(db, robert, apollo, "WORKS_ON", {c4: 0.5})
+    before = _snapshot(db)
+
+    (m1,) = resolve_entities(db, None, similarity_threshold=THRESHOLD, entity_ids=[bob.id]).merges
+    (m2,) = resolve_entities(
+        db, None, similarity_threshold=THRESHOLD, entity_ids=[program.id]
+    ).merges
+    # A new id on PostgreSQL. SQLite may hand back the freed id, which is
+    # what masked the entity-scoped bug on SQLite.
+    recreated = unmerge(db, m2.merge_id).restored_entity_id
+    (m3,) = resolve_entities(
+        db, None, similarity_threshold=THRESHOLD, entity_ids=[recreated]
+    ).merges
+    assert (m3.survivor_id, m3.merged_id) == (apollo.id, recreated)
+    assert m3.merge_id > m1.merge_id
+
+    _assert_blocked(db, m1.merge_id, [m3.merge_id])
+
+    unmerge(db, m3.merge_id)
+    result = unmerge(db, m1.merge_id)
+    assert result.unrestored_relationship_ids == []
+    assert _snapshot(db) == before
+
+
+def test_merges_of_unrelated_entities_still_block_out_of_order(db):
+    c1, c2, c3, c4 = _chunks(db, 4)
+    # The intended cost of the global rule (R30): these two merges share no
+    # entity and no edge, and the older one still cannot be undone first.
+    _entity(db, "Robert Sharma", "person", {c1: 0.9}, aliases=["Bob Sharma"])
+    bob = _entity(db, "Bob Sharma", "person", {c2: 0.7})
+    _entity(db, "Apollo", "project", {c3: 0.9}, aliases=["Apollo Program"])
+    program = _entity(db, "Apollo Program", "project", {c4: 0.8})
+    (first,) = resolve_entities(
+        db, None, similarity_threshold=THRESHOLD, entity_ids=[bob.id]
+    ).merges
+    (second,) = resolve_entities(
+        db, None, similarity_threshold=THRESHOLD, entity_ids=[program.id]
+    ).merges
+
+    _assert_blocked(db, first.merge_id, [second.merge_id])
+
+
+def test_the_most_recent_merge_is_always_undoable(db):
+    chunk_ids = _chunks(db, 6)
+    pairs = [("Robert Sharma", "Bob Sharma"), ("Apollo", "Apollo Program"), ("Ann Rao", "Annie")]
+    for index, (keep, alias) in enumerate(pairs):
+        _entity(db, keep, "person", {chunk_ids[2 * index]: 0.9}, aliases=[alias])
+        _entity(db, alias, "person", {chunk_ids[2 * index + 1]: 0.5})
+    before = _snapshot(db)
+    merges = resolve_entities(db, None, similarity_threshold=THRESHOLD).merges
+    ids = [merge.merge_id for merge in merges]
+    assert len(ids) == 3
+
+    # The oldest is blocked by every newer live merge, listed oldest first.
+    _assert_blocked(db, ids[0], ids[1:])
+    for merge_id in reversed(ids):
+        unmerge(db, merge_id)
+
+    assert _merge_ids(db) == []
     assert _snapshot(db) == before
 
 
