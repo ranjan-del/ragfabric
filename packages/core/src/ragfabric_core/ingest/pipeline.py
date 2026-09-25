@@ -23,7 +23,7 @@ from ragfabric_core.ingest import parser
 from ragfabric_core.ingest.chunk import chunk_text
 from ragfabric_core.ingest.clean import clean_text, document_type_for
 from ragfabric_core.ingest.embed import get_embedder
-from ragfabric_core.ingest.indexing import schedule_indexing
+from ragfabric_core.ingest.indexing import GraphExtractionFailed, schedule_indexing
 from ragfabric_core.ingest.storage import get_storage
 from ragfabric_core.models.document import Chunk, Document, IngestionRun
 from ragfabric_core.queue.registry import build_queue
@@ -146,11 +146,12 @@ def _index_content(
         try:
             with trace("schedule_indexing", mode=get_config().ingestion.indexing):
                 document.status = schedule_indexing(db, document, build_queue(get_config()))
-        except Exception as exc:  # embedding or store failure during inline indexing
+        except Exception as exc:  # embedding, store or graph failure during inline indexing
             db.rollback()
             document = db.get(Document, document.id)
             document.status = "failed"
-            document.error = f"indexing failed: {exc}"[:500]
+            stage = "extract_graph" if isinstance(exc, GraphExtractionFailed) else "indexing"
+            document.error = f"{stage} failed: {exc}"[:500]
         db.commit()
         db.refresh(document)
         _record_ingestion_run(db, document, tracing, started, chunk_count=document.num_chunks)

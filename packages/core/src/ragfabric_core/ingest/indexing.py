@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from sqlalchemy.orm import Session
@@ -12,6 +13,8 @@ from ragfabric_core.queue.base import Job, JobQueue
 from ragfabric_core.runtime import get_config, get_session_factory
 from ragfabric_core.stores.registry import build_lexical_store, build_vector_store
 from ragfabric_core.workers.handlers import extract_graph, index_document
+
+log = logging.getLogger(__name__)
 
 
 def _embedding_provider():
@@ -39,6 +42,15 @@ def index_inline(db: Session, document: Document) -> int:
     )
 
 
+class GraphExtractionFailed(Exception):
+    """Inline graph extraction failed after the document was indexed.
+
+    A distinct type so the ingest pipeline records ``extract_graph failed: ...``,
+    the same prefix a failed queued job records, rather than blaming indexing.
+    The message is the original error's.
+    """
+
+
 def extract_graph_inline(db: Session, document: Document) -> None:
     """Build the document's graph in the request, when the graph is enabled.
 
@@ -47,13 +59,18 @@ def extract_graph_inline(db: Session, document: Document) -> None:
     no error. The model provider is built only when extraction is enabled.
     """
     settings = get_config().graph_store
-    extract_graph(
-        db,
-        document.id,
-        settings=settings,
-        llm=build_llm_provider(get_config().llm) if settings.enabled else None,
-        embedder=_embedding_provider(),
-    )
+    try:
+        outcome = extract_graph(
+            db,
+            document.id,
+            settings=settings,
+            llm=build_llm_provider(get_config().llm) if settings.enabled else None,
+            embedder=_embedding_provider(),
+        )
+    except Exception as exc:
+        raise GraphExtractionFailed(str(exc)) from exc
+    if outcome is not None:
+        log.info("inline extract_graph for document %s: %s", document.id, outcome.summary())
 
 
 def schedule_indexing(db: Session, document: Document, queue: JobQueue | None) -> str:

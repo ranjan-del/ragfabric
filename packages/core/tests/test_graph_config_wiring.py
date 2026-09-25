@@ -475,3 +475,175 @@ def test_inline_scheduling_indexes_then_extracts(tmp_path, monkeypatch):
     with factory() as db:
         assert indexing.schedule_indexing(db, db.get(Document, document_id), None) == "ready"
     assert order == ["index", "graph"]
+
+
+# --- fix round 1: resolve only what this run actually extracted (R36) ---
+
+
+class PerChunkLLM(RecordingLLM):
+    """Answers with the payload whose key the chunk text contains."""
+
+    def __init__(self, payloads: dict[str, dict]) -> None:
+        super().__init__({"entities": [], "relationships": []})
+        self.payloads = payloads
+
+    def complete(self, messages, *, model=None, max_tokens=1024, temperature=0.0, json_schema=None):
+        self.calls.append({"messages": list(messages), "model": model})
+        text = messages[-1].content
+        (payload,) = [p for key, p in self.payloads.items() if key in text]
+        return Completion(
+            text=json.dumps(payload),
+            model=model or self.default_model,
+            provider=self.name,
+            input_tokens=0,
+            output_tokens=0,
+            latency_ms=0,
+        )
+
+
+def _person(name: str) -> dict:
+    return {
+        "entities": [{"name": name, "entity_type": "person", "confidence": 0.9}],
+        "relationships": [],
+    }
+
+
+def _two_chunk_document(factory, first: str, second: str) -> int:
+    document_id = _document(factory, first)
+    with factory() as db:
+        chunk = db.execute(select(Chunk)).scalar_one()
+        db.add(
+            Chunk(
+                document_id=document_id,
+                collection_id=chunk.collection_id,
+                chunk_index=1,
+                text=second,
+                embedding=[],
+            )
+        )
+        db.commit()
+    return document_id
+
+
+def _dispatch(factory, document_id: int, settings: GraphStoreConfig, llm, embedder) -> None:
+    by_kind = default_handlers(
+        embedding_provider=embedder,
+        vector_store=PgVectorStore(factory),
+        lexical_store=PostgresLexicalStore(factory),
+        graph_settings=settings,
+        llm=llm,
+    )
+    with factory() as db:
+        by_kind["extract_graph"](
+            db, Job(id="g", kind="extract_graph", payload={"document_id": document_id})
+        )
+
+
+VECTORS = {
+    "Ada Lovelace": [1.0, 0.0],
+    "Grace Hopper": [0.0, 1.0],
+    "Admiral Hopper": [0.6, 0.8],
+}
+
+
+def test_an_unchanged_re_ingest_makes_no_model_and_no_embedding_calls(tmp_path):
+    factory = _factory(tmp_path)
+    document_id = _two_chunk_document(factory, "Ada wrote notes.", "Grace wrote code.")
+    llm = PerChunkLLM({"Ada": _person("Ada Lovelace"), "Grace": _person("Grace Hopper")})
+    embedder = ScriptedEmbedder(VECTORS)
+    settings = GraphStoreConfig(enabled=True)
+
+    _dispatch(factory, document_id, settings, llm, embedder)
+    assert len(llm.calls) == 2 and len(embedder.calls) == 1
+
+    _dispatch(factory, document_id, settings, llm, embedder)
+    assert len(llm.calls) == 2, "unchanged chunks must not be re-extracted"
+    assert len(embedder.calls) == 1, "nothing was extracted, so nothing may be resolved"
+
+
+def test_a_changed_chunk_resolves_only_the_entities_it_sources(tmp_path, monkeypatch):
+    factory = _factory(tmp_path)
+    document_id = _two_chunk_document(factory, "Ada wrote notes.", "Grace wrote code.")
+    llm = PerChunkLLM(
+        {
+            "Ada": _person("Ada Lovelace"),
+            "Grace": _person("Grace Hopper"),
+            "Admiral": _person("Admiral Hopper"),
+        }
+    )
+    embedder = ScriptedEmbedder(VECTORS)
+    settings = GraphStoreConfig(enabled=True)
+    _dispatch(factory, document_id, settings, llm, embedder)
+
+    with factory() as db:
+        second = db.execute(select(Chunk).where(Chunk.chunk_index == 1)).scalar_one()
+        second.text = "Admiral wrote compilers."
+        db.commit()
+
+    scopes: list[list[int]] = []
+    real = handlers.resolve_entities
+
+    def spy(db, embedder, *, similarity_threshold, entity_ids=None, **kwargs):
+        scopes.append(sorted(entity_ids))
+        return real(
+            db, embedder, similarity_threshold=similarity_threshold, entity_ids=entity_ids, **kwargs
+        )
+
+    monkeypatch.setattr(handlers, "resolve_entities", spy)
+    _dispatch(factory, document_id, settings, llm, embedder)
+
+    assert len(llm.calls) == 3, "only the changed chunk is re-extracted"
+    with factory() as db:
+        admiral = db.execute(select(Entity).where(Entity.name == "Admiral Hopper")).scalar_one()
+    assert scopes == [[admiral.id]]
+
+
+def test_the_handler_logs_extraction_and_resolution_counts(tmp_path, monkeypatch):
+    logged: list[str] = []
+    monkeypatch.setattr(handlers.log, "info", lambda message, *args: logged.append(message % args))
+    embedder = ScriptedEmbedder({"Ada Lovelace": [1.0, 0.0], "Countess Lovelace": [0.8, 0.6]})
+    _run_extract_graph(
+        tmp_path,
+        GraphStoreConfig(enabled=True, similarity_threshold=0.7),
+        RecordingLLM(TWO_NAMES_FOR_ONE_PERSON),
+        embedder=embedder,
+    )
+    (line,) = [entry for entry in logged if entry.startswith("extract_graph: document")]
+    for fragment in (
+        "2 entities stored",
+        "0 relationships stored",
+        "0 entities discarded",
+        "0 chunks unchanged",
+        "1 merges",
+        "1 embedding calls",
+    ):
+        assert fragment in line, (fragment, line)
+
+
+def test_the_worker_logs_the_graph_outcome(tmp_path, monkeypatch):
+    from ragfabric_core.workers import runner
+
+    logged: list[str] = []
+    monkeypatch.setattr(runner.log, "info", lambda message, *args: logged.append(message % args))
+    _run_extract_graph(tmp_path, GraphStoreConfig(enabled=True), RecordingLLM(ADA_AND_ENGINE))
+    assert any("extract_graph" in line and "2 entities stored" in line for line in logged)
+
+
+def test_an_inline_graph_failure_is_reported_as_an_extract_graph_failure(tmp_path, monkeypatch):
+    from ragfabric_core.ingest import indexing, pipeline
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("model down")
+
+    monkeypatch.setattr(indexing, "index_inline", lambda db, doc: 0)
+    monkeypatch.setattr(indexing, "extract_graph", boom)
+    monkeypatch.setattr(indexing, "_embedding_provider", ScriptedEmbedder)
+    monkeypatch.setattr(pipeline, "build_queue", lambda cfg: None)
+    factory = _factory(tmp_path)
+    document_id = _document(factory)
+    with factory() as db:
+        document = pipeline._index_content(
+            db, db.get(Document, document_id), b"Ada Lovelace works on the Analytical Engine."
+        )
+        assert document.status == "failed"
+        assert document.error == "extract_graph failed: model down"
