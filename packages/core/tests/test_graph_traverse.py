@@ -469,6 +469,39 @@ def test_a_hub_walk_stays_bounded(graph):
     assert len(result.edges) == 30 + 29
 
 
+def test_node_depth_is_the_walks_minimum_hop_count(graph):
+    for name in ("a", "b", "c"):
+        graph.entity(name)
+    graph.edge("a", RelationType.REPORTS_TO, "b")
+    graph.edge("b", RelationType.REPORTS_TO, "c")
+
+    result = traverse(graph.db, [graph.ids["a"]], ALL, max_hops=2)
+    depths = {node.id: node.depth for node in result.nodes}
+    assert depths == {graph.ids["a"]: 0, graph.ids["b"]: 1, graph.ids["c"]: 2}
+
+
+def test_a_node_reached_only_backwards_still_gets_its_true_depth(graph):
+    """A node's ``depth`` must come from the walk's own minimum, not from the
+    direction its reported edge happens to read. ``team`` is reached only by
+    walking BELONGS_TO backwards from ``dept`` (there is no other path to
+    it), at depth 1 with a hop still to spare, so ``_edge_statement``'s
+    ``goes_forwards`` preference reports the edge in the forwards reading
+    even though the walk reached ``team`` backwards. A depth reconstruction
+    keyed off ``edge.reversed`` would never visit ``team`` at all.
+    """
+    graph.entity("dept", EntityType.ORGANISATION)
+    graph.entity("team", EntityType.TEAM)
+    graph.edge("team", RelationType.BELONGS_TO, "dept")
+
+    result = traverse(graph.db, [graph.ids["dept"]], ALL, max_hops=2)
+    depths = {node.id: node.depth for node in result.nodes}
+    assert depths == {graph.ids["dept"]: 0, graph.ids["team"]: 1}
+
+    [edge] = result.edges
+    assert edge.reversed is False
+    assert edge.walked_as == "BELONGS_TO"
+
+
 def test_edges_report_names_types_and_confidence(graph):
     graph.entity("ada", EntityType.PERSON)
     graph.entity("engine", EntityType.PROJECT)

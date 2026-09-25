@@ -24,17 +24,26 @@ name and alias only; ``embedding_calls`` is always 0, because none are made.
 **Counting honestly (ADR 0004).** ``llm_calls`` is 1 whenever the question call
 was made, whether or not the model's answer could be used: a call that came
 back as a contract violation still spent one call, and reporting 0 would hide
-that spend. Nothing here calls a model a second time to retry.
+that spend. Nothing here calls a model a second time to retry. ``retrieval_calls``
+counts one per store round trip this run actually made, not a fixed number per
+call shape: ``match_entities`` always runs one query once the question parsed;
+``traverse`` adds one only when there were matched seeds to walk from, since it
+returns without touching the database when its seed list is empty;
+``visible_entity_chunks`` and the chunk fetch each add one only when there was
+something to ask about.
 
-**Ordering (ruling R18).** A chunk carries no score: a traversal is not a
-similarity search and ADR 0004 forbids inventing one. Chunks are ordered by
-the minimum hop depth of whichever node or edge sourced them, then by chunk
-id, and that depth is recorded in ``metadata["graph_depth"]``. Depth is not
-part of the ``Subgraph`` contract (``GraphNode`` and ``GraphEdge`` do not carry
-it), so it is recomputed here by walking the returned edges outward from the
-matched seeds, in the direction each edge was walked; that reconstruction is
-exact because ``traverse`` guarantees every kept node has a kept node one hop
-nearer the seeds.
+**Ordering (ruling R18, depth per ruling R21).** A chunk carries no score: a
+traversal is not a similarity search and ADR 0004 forbids inventing one.
+Chunks are ordered by the minimum hop depth of whichever node or edge sourced
+them, then by chunk id, and that depth is recorded in
+``metadata["graph_depth"]``. Node depth is read straight from
+``GraphNode.depth``, which ``traverse`` fills from the walk's own minimum
+depth, never re-derived here from edge direction: a node reached only
+backwards through an invertible relation can still have its sole edge
+reported in the forwards reading, which is exactly why the contract carries
+depth instead of leaving callers to reconstruct it. An edge's depth is the
+max of its two endpoints' depths, since both ends of an edge must already be
+reached for the edge to be usable as a citation.
 
 **The three empty cases are not this task's.** A question with no matched
 entity, a match with no walkable edge and a walk with no visible chunk all
@@ -48,7 +57,6 @@ carry everything that distinction needs.
 from __future__ import annotations
 
 import time
-from collections import deque
 from collections.abc import Callable
 
 from sqlalchemy.orm import Session
@@ -161,7 +169,8 @@ class GraphRAGStrategy:
             "extract_question",
             mark,
             model=completion.model,
-            violation=isinstance(parsed, ContractViolation),
+            violation=parsed.error if isinstance(parsed, ContractViolation) else None,
+            contract=parsed.contract if isinstance(parsed, ContractViolation) else None,
         )
 
         if isinstance(parsed, ContractViolation):
@@ -196,7 +205,10 @@ class GraphRAGStrategy:
                 node_budget=self._node_budget,
                 relation_types=parsed.implied_relation_types or None,
             )
-            retrieval_calls += 1
+            # traverse() returns without a query when there are no seeds to walk
+            # from, so that call is not counted as a round trip past matching.
+            if matched_ids:
+                retrieval_calls += 1
             span(
                 "traverse",
                 mark,
@@ -205,8 +217,6 @@ class GraphRAGStrategy:
                 truncated=subgraph.truncated,
                 empty_reason=subgraph.empty_reason.value if subgraph.empty_reason else None,
             )
-
-            depths = _hop_depths(subgraph, matched_ids)
 
             entity_chunks: dict[int, list[int]] = {}
             if subgraph.nodes:
@@ -217,7 +227,7 @@ class GraphRAGStrategy:
                 retrieval_calls += 1
                 span("visible_entity_chunks", mark, entities=len(entity_chunks))
 
-            depth_by_chunk = _chunk_depths(subgraph, depths, entity_chunks)
+            depth_by_chunk = _chunk_depths(subgraph, entity_chunks)
 
             chunks: list[RetrievedChunk] = []
             if depth_by_chunk:
@@ -244,49 +254,17 @@ class GraphRAGStrategy:
         )
 
 
-def _hop_depths(subgraph: Subgraph, seed_ids: list[int]) -> dict[int, int]:
-    """Minimum hops from a seed to each node, by walking the returned edges forward.
+def _chunk_depths(subgraph: Subgraph, entity_chunks: dict[int, list[int]]) -> dict[int, int]:
+    """The minimum graph depth of every chunk that sources a kept node or edge (ruling R18).
 
-    ``traverse`` computes this internally but the ``Subgraph`` contract does
-    not carry it (``GraphNode`` has no depth field), so it is reconstructed
-    here rather than exposed as a private detail of the traversal module. The
-    edge set ``traverse`` returns is exactly the one that makes the
-    reconstruction exact: every kept node has a kept node one hop nearer the
-    seeds, so a breadth first walk in the direction each edge was walked
-    recovers the same minimum depth ``traverse`` used to decide the budget.
+    Node depth comes straight from ``GraphNode.depth`` (ruling R21), never
+    re-derived from edge direction: an edge walked backwards through an
+    invertible relation can still be reported in the forwards reading, which
+    makes edge direction unreliable for exactly the nodes only reachable that
+    way. An edge's own depth is the max of its two endpoints, since both ends
+    must already be reached before the edge is usable as a citation.
     """
-    node_ids = {node.id for node in subgraph.nodes}
-    forward: dict[int, list[int]] = {}
-    for edge in subgraph.edges:
-        start, end = (
-            (edge.target_id, edge.source_id)
-            if edge.reversed
-            else (
-                edge.source_id,
-                edge.target_id,
-            )
-        )
-        forward.setdefault(start, []).append(end)
-
-    depths: dict[int, int] = {}
-    queue: deque[int] = deque()
-    for seed in seed_ids:
-        if seed in node_ids and seed not in depths:
-            depths[seed] = 0
-            queue.append(seed)
-    while queue:
-        node_id = queue.popleft()
-        for neighbour in forward.get(node_id, ()):
-            if neighbour not in depths:
-                depths[neighbour] = depths[node_id] + 1
-                queue.append(neighbour)
-    return depths
-
-
-def _chunk_depths(
-    subgraph: Subgraph, depths: dict[int, int], entity_chunks: dict[int, list[int]]
-) -> dict[int, int]:
-    """The minimum graph depth of every chunk that sources a kept node or edge (ruling R18)."""
+    depths = {node.id: node.depth for node in subgraph.nodes}
     by_chunk: dict[int, int] = {}
 
     def offer(chunk_id: int, depth: int) -> None:
@@ -301,12 +279,7 @@ def _chunk_depths(
             offer(chunk_id, depth)
 
     for edge in subgraph.edges:
-        endpoints = [
-            depths[node_id] for node_id in (edge.source_id, edge.target_id) if node_id in depths
-        ]
-        if not endpoints:
-            continue
-        depth = min(endpoints)
+        depth = max(depths[edge.source_id], depths[edge.target_id])
         for chunk_id in edge.source_chunk_ids:
             offer(chunk_id, depth)
 

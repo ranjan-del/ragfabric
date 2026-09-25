@@ -13,7 +13,7 @@ import json
 import test_graph_traverse as traversal_tests
 
 from ragfabric_core.auth.principal import AccessFilter, Principal
-from ragfabric_core.graph.contracts import RelationType
+from ragfabric_core.graph.contracts import EntityType, RelationType
 from ragfabric_core.providers.offline import ScriptedLLMProvider
 from ragfabric_core.stores.document_chunks import SqlDocumentChunkReader
 from ragfabric_core.strategies.base import (
@@ -121,7 +121,10 @@ def test_a_contract_violation_is_reported_honestly_with_no_chunks(graph):
     assert result.retrieval_calls == 0
     assert result.chunks == []
     assert result.subgraph is None
-    assert any(span.attributes.get("violation") is True for span in result.trace)
+    violations = [span for span in result.trace if span.attributes.get("violation") is not None]
+    assert len(violations) == 1
+    assert violations[0].attributes["contract"] == "question"
+    assert violations[0].attributes["violation"] == "no JSON object found in the response"
 
 
 def test_no_entity_match_makes_no_traversal_calls_past_matching(graph):
@@ -133,10 +136,10 @@ def test_no_entity_match_makes_no_traversal_calls_past_matching(graph):
     assert result.chunks == []
     assert result.subgraph is not None
     assert result.subgraph.nodes == []
-    # match_entities and traverse are always called; nothing past that runs
-    # because there is nothing for visible_entity_chunks or the chunk reader
-    # to be asked about.
-    assert result.retrieval_calls == 2
+    # match_entities always runs; traverse makes no round trip when there are
+    # no matched seeds to walk from (it returns without touching the
+    # database), so only match_entities is counted.
+    assert result.retrieval_calls == 1
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +163,10 @@ def test_chunks_come_from_nodes_and_edges_on_the_path(graph):
     depths = {c.chunk_id: c.metadata["graph_depth"] for c in result.chunks}
     assert depths[graph.open_chunk] == 0
     assert depths[graph.open_chunk_2] == 1
-    assert depths[graph.other_open_chunk] == 0
+    # An edge's depth is the max of its two endpoints (ruling R21): both ada
+    # (depth 0) and engine (depth 1) must be reached before the edge between
+    # them is usable, so its chunk carries depth 1, not 0.
+    assert depths[graph.other_open_chunk] == 1
     # Ordered by (graph_depth, chunk id).
     assert [c.chunk_id for c in result.chunks] == sorted(depths, key=lambda cid: (depths[cid], cid))
     assert all(c.score is None for c in result.chunks)
@@ -174,6 +180,42 @@ def test_chunks_are_capped_to_top_k(graph):
 
     result = strategy(graph, llm, max_hops=2).retrieve("what does ada work on", ctx(top_k=1))
     assert len(result.chunks) == 1
+
+
+# ---------------------------------------------------------------------------
+# Depth reflects the walk, not edge direction (ruling R21)
+# ---------------------------------------------------------------------------
+
+
+def test_a_node_reached_only_backwards_still_contributes_its_chunk(graph):
+    """A regression test for the bug this fix round closes.
+
+    ``dept`` is the seed. ``team`` reaches it only by walking BELONGS_TO
+    backwards (there is no other path to ``team``). Because ``team`` sits at
+    depth 1 with a hop still to spare (``max_hops=2``), ``graph.traverse``'s
+    ``goes_forwards`` preference reports the edge in the forwards reading
+    (``reversed is False``) even though the walk only ever reached ``team``
+    backwards. A depth reconstruction keyed off edge direction misses this
+    node entirely; reading ``GraphNode.depth`` from the contract does not.
+    """
+    graph.entity("dept", EntityType.ORGANISATION, chunks=(graph.open_chunk,))
+    graph.entity("team", EntityType.TEAM, chunks=(graph.open_chunk_2,))
+    graph.edge("team", RelationType.BELONGS_TO, "dept")
+    llm = ScriptedLLMProvider(
+        [question_response([{"name": "dept", "entity_type": "organisation"}])]
+    )
+
+    result = strategy(graph, llm, max_hops=2).retrieve("what belongs to dept", ctx())
+
+    [edge] = result.subgraph.edges
+    assert edge.reversed is False
+    assert edge.walked_as == "BELONGS_TO"
+    node_depths = {node.id: node.depth for node in result.subgraph.nodes}
+    assert node_depths[graph.ids["team"]] == 1
+
+    chunk_depths = {c.chunk_id: c.metadata["graph_depth"] for c in result.chunks}
+    assert graph.open_chunk_2 in chunk_depths
+    assert chunk_depths[graph.open_chunk_2] == 1
 
 
 # ---------------------------------------------------------------------------
