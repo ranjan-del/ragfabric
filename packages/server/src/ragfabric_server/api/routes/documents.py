@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from ragfabric_core.auth.principal import AccessFilter, Principal
 from ragfabric_core.db.session import get_db
+from ragfabric_core.graph.extract import detach_documents
 from ragfabric_core.ingest.parser import SUPPORTED_FORMATS
 from ragfabric_core.ingest.pipeline import ingest_document
 from ragfabric_core.ingest.storage import get_storage
@@ -332,6 +333,10 @@ def delete_document(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You may only delete your own documents.",
         )
+    # The chunks' graph links would go with the cascade below, leaving the
+    # entities and edges they supported with a confidence no remaining source
+    # reported, or with no source at all. Recompute and collect first (R42).
+    detach_documents(db, [document.id])
     db.delete(document)  # cascades to chunks
     db.commit()
     # The ORM cascade above deletes `chunks` rows. `chunk_embeddings` and

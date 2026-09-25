@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from ragfabric_core.db.session import get_db
+from ragfabric_core.graph.extract import detach_documents
 from ragfabric_core.models.document import Collection, Document
 from ragfabric_core.models.user import User
 from ragfabric_core.runtime import get_config, get_session_factory
@@ -145,6 +146,7 @@ def delete_collection(
         row[0]
         for row in db.query(Document.id).filter(Document.collection_id == collection_id).all()
     ]
+    detach_documents(db, document_ids)  # recompute the graph first (R42)
     db.delete(collection)  # cascades to documents + chunks
     db.commit()
     # The cascade above only reaches the relational `documents`/`chunks` rows.

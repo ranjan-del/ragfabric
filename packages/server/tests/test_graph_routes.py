@@ -764,3 +764,87 @@ def test_an_admin_sees_the_higher_confidence_spelling(client, admin_token, merge
 
     names = {node["id"]: node["name"] for node in body["subgraph"]["nodes"]}
     assert names[merged_person["ids"]["person"]] == "Ravi Sharma"
+
+
+# ---------------------------------------------------------------------------
+# R42: deleting a document recomputes what its chunks sourced
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def two_source_graph(client, admin_token) -> dict:
+    """One edge sourced 0.95 by doc one and 0.6 by doc two; Nightjar only by doc one."""
+    admin = auth(admin_token)
+    collection = client.post("/api/collections", json={"name": "doomed"}, headers=admin).json()
+    first = _upload(client, admin_token, "one.txt", SECRET_TEXT, collection["id"])
+    second = _upload(client, admin_token, "two.txt", ALLOWED_TEXT)
+    [one] = _chunk_ids(first)
+    [two] = _chunk_ids(second)
+    with SessionLocal() as db:
+
+        def entity(name: str, entity_type: str, sources: dict[int, float]) -> int:
+            row = Entity(
+                name=name,
+                normalized_name=normalise(name),
+                entity_type=entity_type,
+                confidence=max(sources.values()),
+            )
+            db.add(row)
+            db.flush()
+            db.add_all(
+                EntitySource(entity_id=row.id, chunk_id=c, confidence=v, surface_name=name)
+                for c, v in sources.items()
+            )
+            return row.id
+
+        def edge(source: int, relation: str, target: int, sources: dict[int, float]) -> int:
+            row = Relationship(
+                source_entity_id=source,
+                target_entity_id=target,
+                relation_type=relation,
+                confidence=max(sources.values()),
+            )
+            db.add(row)
+            db.flush()
+            db.add_all(
+                RelationshipSource(relationship_id=row.id, chunk_id=c, confidence=v)
+                for c, v in sources.items()
+            )
+            return row.id
+
+        team = entity("Platform Team", "team", {one: 0.95, two: 0.6})
+        engineering = entity("Engineering", "organisation", {one: 0.95, two: 0.6})
+        nightjar = entity("Nightjar", "project", {one: 0.9})
+        shared = edge(team, "MEMBER_OF", engineering, {one: 0.95, two: 0.6})
+        only_one = edge(team, "WORKS_ON", nightjar, {one: 0.9})
+        db.commit()
+    return {
+        "first": first,
+        "collection": collection["id"],
+        "team": team,
+        "nightjar": nightjar,
+        "shared": shared,
+        "only_one": only_one,
+    }
+
+
+@pytest.mark.parametrize("route", ["owner", "admin", "collection"])
+def test_deleting_a_document_recomputes_and_collects_the_graph(
+    client, admin_token, two_source_graph, route
+):
+    graph = two_source_graph
+    path = {
+        "owner": f"/api/documents/{graph['first']}",
+        "admin": f"/api/admin/documents/{graph['first']}",
+        "collection": f"/api/collections/{graph['collection']}",
+    }[route]
+    r = client.delete(path, headers=auth(admin_token))
+    assert r.status_code == 200, r.text
+
+    with SessionLocal() as db:
+        # The confidence the deleted chunk supplied is gone with it (ADR 0004).
+        assert db.get(Relationship, graph["shared"]).confidence == 0.6
+        assert db.get(Entity, graph["team"]).confidence == 0.6
+        # What only the deleted document sourced is collected, not left orphaned.
+        assert db.get(Relationship, graph["only_one"]) is None
+        assert db.get(Entity, graph["nightjar"]) is None
