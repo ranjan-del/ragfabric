@@ -22,6 +22,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from ragfabric_core.config_file import (
+    NODE_BUDGET_CEILING,
     GraphStoreConfig,
     GraphStrategyConfig,
     RagFabricConfig,
@@ -405,6 +406,14 @@ def test_max_hops_at_the_ceiling_is_accepted():
 def test_a_node_budget_below_one_is_rejected():
     with pytest.raises(ValidationError, match="node_budget"):
         GraphStrategyConfig(node_budget=0)
+
+
+def test_a_node_budget_above_the_ceiling_is_rejected():
+    """The budget is bounded above (untuned, like the rest of the graph limits) so a
+    config cannot hand generation an unbounded neighbourhood."""
+    assert GraphStrategyConfig(node_budget=NODE_BUDGET_CEILING).node_budget == 1000
+    with pytest.raises(ValidationError, match="node_budget"):
+        GraphStrategyConfig(node_budget=NODE_BUDGET_CEILING + 1)
 
 
 # --- the example file ---

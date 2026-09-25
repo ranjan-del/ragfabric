@@ -216,7 +216,7 @@ graph_store:                  # knowledge graph extraction during ingest
 strategies:
   graph:                       # graph traversal bounds at query time
     max_hops: 2                 # 1 to 4: edges walked out from the matched entities
-    node_budget: 50              # most entities kept from the walk, nearest first
+    node_budget: 50              # most entities kept from the walk, nearest first (1 to 1000, untuned)
 ```
 
 `graph_store.kind` accepts only `postgres`; a config naming `neo4j` is rejected at validation with a
