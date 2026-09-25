@@ -70,7 +70,7 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass, replace
 
 from sqlalchemy import delete, or_, select
@@ -236,7 +236,7 @@ def extract_chunk(
         removed_entity_ids: set[int] = set()
         removed_relationship_ids: set[int] = set()
         if is_re_extraction:
-            removed_entity_ids, removed_relationship_ids = _remove_chunk_links(db, chunk.id)
+            removed_entity_ids, removed_relationship_ids = _remove_chunk_links(db, [chunk.id])
 
         report = _extract_and_store(
             db,
@@ -502,8 +502,99 @@ def _upsert_relationships(
     return len(grouped), endpoint_discarded
 
 
-def _remove_chunk_links(db: Session, chunk_id: int) -> tuple[set[int], set[int]]:
-    """Remove ``chunk_id``'s ``EntitySource``/``RelationshipSource`` rows.
+def detach_chunks(db: Session, chunk_ids: Iterable[int]) -> None:
+    """Take chunks that are about to be deleted out of the graph (R42).
+
+    Deleting a chunk row cascades its ``EntitySource`` / ``RelationshipSource``
+    rows in the database, but nothing then recomputes the entities and edges
+    those rows supported: a parent kept a confidence only the deleted chunk
+    had reported (an ADR 0004 violation), and an entity or edge left with no
+    source at all stayed in the graph as an orphan. Call this before deleting
+    the chunks (a document delete, a collection delete, or the unmatched old
+    chunks of a re-ingest): it removes their links, deletes whatever is left
+    with no source, and recomputes the survivors, all through the ORM, so the
+    cascade that follows has nothing graph-side left to do.
+    """
+    ids = sorted(set(chunk_ids))
+    if not ids:
+        return
+    entity_ids, relationship_ids = _remove_chunk_links(db, ids)
+    _garbage_collect_and_recompute(db, entity_ids, relationship_ids)
+
+
+def detach_documents(db: Session, document_ids: Iterable[int]) -> None:
+    """``detach_chunks`` for every chunk of ``document_ids``, before they are deleted."""
+    ids = sorted(set(document_ids))
+    if not ids:
+        return
+    detach_chunks(db, db.execute(select(Chunk.id).where(Chunk.document_id.in_(ids))).scalars())
+
+
+def carry_graph_to_new_chunks(
+    db: Session, old_chunks: Sequence[Chunk], new_chunks: Sequence[Chunk]
+) -> None:
+    """Move graph state from a document's replaced chunks to its new ones (R41).
+
+    A re-ingest writes every chunk row afresh. Without this the new rows
+    arrive with no ``extraction_hash`` and no graph links, so every chunk is
+    extracted again even when the text is identical, and the old links go
+    with the cascade. Here each new chunk whose text hashes equal to an old
+    chunk's (paired in ``chunk_index`` order when the same text occurs more
+    than once) inherits that old chunk's ``extraction_hash`` and has its
+    ``EntitySource`` and ``RelationshipSource`` rows moved over unchanged,
+    confidence, model and spelling included. The next extraction pass then
+    skips it as unchanged. An old chunk no new chunk matched is detached
+    (``detach_chunks``): its links are removed and what they alone supported
+    is garbage collected, the rest recomputed.
+
+    ``new_chunks`` must already be flushed (they need ids); the caller
+    deletes ``old_chunks`` afterwards. Merge records that name an old chunk
+    id are not rewritten: an unmerge treats that chunk as gone, restores
+    what it can and reports the rest (R31).
+    """
+    unmatched: dict[str, list[Chunk]] = defaultdict(list)
+    for new in sorted(new_chunks, key=lambda chunk: chunk.chunk_index):
+        unmatched[_hash_chunk_text(new.text)].append(new)
+
+    leftovers: list[int] = []
+    for old in sorted(old_chunks, key=lambda chunk: chunk.chunk_index):
+        waiting = unmatched.get(_hash_chunk_text(old.text))
+        if not waiting:
+            leftovers.append(old.id)
+            continue
+        new = waiting.pop(0)
+        new.extraction_hash = old.extraction_hash
+        for source in db.execute(
+            select(EntitySource).where(EntitySource.chunk_id == old.id)
+        ).scalars():
+            db.add(
+                EntitySource(
+                    entity_id=source.entity_id,
+                    chunk_id=new.id,
+                    confidence=source.confidence,
+                    extraction_model=source.extraction_model,
+                    surface_name=source.surface_name,
+                )
+            )
+            db.delete(source)
+        for source in db.execute(
+            select(RelationshipSource).where(RelationshipSource.chunk_id == old.id)
+        ).scalars():
+            db.add(
+                RelationshipSource(
+                    relationship_id=source.relationship_id,
+                    chunk_id=new.id,
+                    confidence=source.confidence,
+                    extraction_model=source.extraction_model,
+                )
+            )
+            db.delete(source)
+    db.flush()
+    detach_chunks(db, leftovers)
+
+
+def _remove_chunk_links(db: Session, chunk_ids: Collection[int]) -> tuple[set[int], set[int]]:
+    """Remove the ``EntitySource``/``RelationshipSource`` rows of ``chunk_ids``.
 
     Called before re-extracting a changed chunk (R23), instead of deleting
     the entities and relationships those links pointed at outright: the
@@ -517,21 +608,18 @@ def _remove_chunk_links(db: Session, chunk_id: int) -> tuple[set[int], set[int]]
     exactly the ids whose source count could have changed; the caller checks
     these, once re-extraction has run, for which ended up with none at all.
     """
+    ids = sorted(chunk_ids)
     relationship_ids = set(
         db.execute(
-            select(RelationshipSource.relationship_id).where(
-                RelationshipSource.chunk_id == chunk_id
-            )
+            select(RelationshipSource.relationship_id).where(RelationshipSource.chunk_id.in_(ids))
         ).scalars()
     )
     entity_ids = set(
-        db.execute(
-            select(EntitySource.entity_id).where(EntitySource.chunk_id == chunk_id)
-        ).scalars()
+        db.execute(select(EntitySource.entity_id).where(EntitySource.chunk_id.in_(ids))).scalars()
     )
 
-    db.execute(delete(RelationshipSource).where(RelationshipSource.chunk_id == chunk_id))
-    db.execute(delete(EntitySource).where(EntitySource.chunk_id == chunk_id))
+    db.execute(delete(RelationshipSource).where(RelationshipSource.chunk_id.in_(ids)))
+    db.execute(delete(EntitySource).where(EntitySource.chunk_id.in_(ids)))
     db.flush()
 
     return entity_ids, relationship_ids

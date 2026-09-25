@@ -19,6 +19,7 @@ import time
 
 from sqlalchemy.orm import Session
 
+from ragfabric_core.graph.extract import carry_graph_to_new_chunks
 from ragfabric_core.ingest import parser
 from ragfabric_core.ingest.chunk import chunk_text
 from ragfabric_core.ingest.clean import clean_text, document_type_for
@@ -75,12 +76,18 @@ def _index_content(
     *,
     chunk_size: int | None = None,
     chunk_overlap: int | None = None,
+    replaced_chunk_ids: list[int] | None = None,
 ) -> Document:
     """Parse/chunk/embed ``data`` into chunks for an already-persisted document.
 
     Shared by first ingest and re-ingest (versioning). The document row is
     assumed to exist and to already carry ``filename`` / ``format``; this
     function owns everything from parsing to committing and indexing.
+
+    ``replaced_chunk_ids`` (re-ingest only) are the previous revision's
+    chunks. They are deleted in the same transaction that writes the new
+    ones, on every exit path, after the graph state of each unchanged chunk
+    has been carried over to its replacement (``_retire_chunks``, R41).
 
     ``chunk_size``/``chunk_overlap`` of ``None`` (the default for every
     existing caller) means "use the configured value from
@@ -100,6 +107,7 @@ def _index_content(
             with trace("chunk", chunk_size=size, overlap=overlap):
                 chunks = chunk_text(text, chunk_size=size, overlap=overlap, sections=True)
         except Exception as exc:  # unsupported format, corrupt file, etc.
+            _retire_chunks(db, replaced_chunk_ids, [])
             document.status = "failed"
             document.error = str(exc)[:500]
             document.num_chunks = 0
@@ -111,6 +119,7 @@ def _index_content(
         if not chunks:
             # A parse that yields nothing is not a crash, but silently reporting
             # "ready, 0 chunks" hides why the document never shows up in search.
+            _retire_chunks(db, replaced_chunk_ids, [])
             document.status = "ready"
             document.num_chunks = 0
             document.error = EMPTY_TEXT_NOTE
@@ -123,6 +132,7 @@ def _index_content(
             embedder = get_embedder()
             vectors = embedder.embed([c["text"] for c in chunks])
 
+            new_rows: list[Chunk] = []
             for chunk_meta, vector in zip(chunks, vectors, strict=True):
                 chunk_row = Chunk(
                     document_id=document.id,
@@ -136,6 +146,9 @@ def _index_content(
                     section=chunk_meta.get("section"),
                 )
                 db.add(chunk_row)
+                new_rows.append(chunk_row)
+            db.flush()
+            _retire_chunks(db, replaced_chunk_ids, new_rows)
 
         document.status = "processing"
         document.num_chunks = len(chunks)
@@ -156,6 +169,22 @@ def _index_content(
         db.refresh(document)
         _record_ingestion_run(db, document, tracing, started, chunk_count=document.num_chunks)
         return document
+
+
+def _retire_chunks(db: Session, old_ids: list[int] | None, new_chunks: list[Chunk]) -> None:
+    """Delete a re-ingested document's previous chunks, carrying graph state over first.
+
+    Unchanged text keeps its extraction hash and graph links on the chunk
+    that replaces it, and whatever only the removed text sourced is garbage
+    collected with every survivor's confidence recomputed
+    (``carry_graph_to_new_chunks``, R41, R42), before the rows are deleted.
+    """
+    if not old_ids:
+        return
+    old_chunks = db.query(Chunk).filter(Chunk.id.in_(old_ids)).all()
+    carry_graph_to_new_chunks(db, old_chunks, new_chunks)
+    db.query(Chunk).filter(Chunk.id.in_(old_ids)).delete()
+    db.flush()
 
 
 def ingest_document(
@@ -209,15 +238,25 @@ def reingest_document(
 
     This is what "versioning" means here: the document keeps its id, owner and
     collection (so existing references stay valid) while its chunks are fully
-    replaced. Old chunks are removed from the database before the new ones are
-    written, otherwise stale text from the previous revision would keep
-    surfacing in search results forever. On PostgreSQL the ``ON DELETE
-    CASCADE`` from ``chunk_embeddings``/``chunk_search`` to ``chunks.id``
-    cleans the real vector/lexical rows too; on SQLite (no FK enforcement) or
-    a Chroma deployment (no FK at all) that cascade does not happen, which is
-    a pre-existing gap this task did not introduce and does not fix.
+    replaced. Old chunks are removed from the database in the same
+    transaction that writes the new ones, otherwise stale text from the
+    previous revision would keep surfacing in search results forever. The
+    ``ON DELETE CASCADE`` from ``chunk_embeddings``/``chunk_search`` to
+    ``chunks.id`` cleans the vector/lexical rows too, on PostgreSQL and on
+    SQLite alike (foreign keys are enforced on every SQLite connection; see
+    ``db/session.py``). A Chroma deployment has no foreign key at all, so
+    nothing cascades there; that is a pre-existing gap this does not fix.
+
+    The knowledge graph is carried across the replacement (R41): a new chunk
+    whose text equals an old chunk's inherits that chunk's extraction hash and
+    graph links, so an unchanged chunk is not extracted again, and only what
+    the removed text alone sourced is garbage collected, with the confidence
+    of everything it touched recomputed from the sources left (R42).
     """
-    db.query(Chunk).filter(Chunk.document_id == document.id).delete(synchronize_session=False)
+    replaced = [
+        chunk_id
+        for (chunk_id,) in db.query(Chunk.id).filter(Chunk.document_id == document.id).all()
+    ]
 
     document.filename = filename
     get_storage().delete(document.id)
@@ -230,4 +269,4 @@ def reingest_document(
     document.status = "processing"
     document.num_chunks = 0
     db.flush()
-    return _index_content(db, document, data)
+    return _index_content(db, document, data, replaced_chunk_ids=replaced)

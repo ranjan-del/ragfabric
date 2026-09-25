@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from ragfabric_core.db.session import get_db
+from ragfabric_core.graph.extract import detach_documents
 from ragfabric_core.ingest.parser import SUPPORTED_FORMATS
 from ragfabric_core.ingest.pipeline import reingest_document
 from ragfabric_core.ingest.storage import get_storage
@@ -238,6 +239,7 @@ def admin_delete_document(
     document = db.get(Document, document_id)
     if document is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+    detach_documents(db, [document.id])  # recompute the graph first (R42)
     db.delete(document)  # cascades to chunks
     db.commit()
     # As with the owner-facing delete route, the relational cascade does not
