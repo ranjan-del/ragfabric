@@ -24,13 +24,44 @@ name and alias only; ``embedding_calls`` is always 0, because none are made.
 **Counting honestly (ADR 0004).** ``llm_calls`` is 1 whenever the question call
 was made, whether or not the model's answer could be used: a call that came
 back as a contract violation still spent one call, and reporting 0 would hide
-that spend. Nothing here calls a model a second time to retry. ``retrieval_calls``
-counts one per store round trip this run actually made, not a fixed number per
-call shape: ``match_entities`` always runs one query once the question parsed;
-``traverse`` adds one only when there were matched seeds to walk from, since it
-returns without touching the database when its seed list is empty;
+that spend. It is 0 when coverage fails and no question call is made at all
+(ruling R22). Nothing here calls a model a second time to retry.
+``retrieval_calls`` counts one per store round trip this run actually made,
+not a fixed number per call shape: the coverage check always runs one query,
+first; ``match_entities`` adds one only when the question named at least one
+entity, since it returns without a query when there is nothing to look for;
+``traverse`` adds one only when there were matched seeds to walk from, since
+it too returns without touching the database when its seed list is empty;
 ``visible_entity_chunks`` and the chunk fetch each add one only when there was
 something to ask about.
+
+**The honest empty-graph path (ruling R22).** Three distinct empty cases are
+told apart rather than collapsed into "no chunks" with no reason:
+
+1. ``NO_GRAPH_COVERAGE``: nothing is visible to this caller at all, checked
+   first with ``graph.traverse.has_visible_entities`` before any LLM call is
+   made, so the one query this costs is cheaper than the call it saves. The
+   result carries an empty ``Subgraph`` with this reason, ``llm_calls=0`` and
+   ``retrieval_calls=1`` (the coverage check itself), and never differs,
+   in shape or counters, from what a truly empty graph would report: the
+   check only ever answers "is anything visible", never "does anything
+   exist".
+2. ``NO_ENTITY_MATCHED``: the question named no usable entity, or named some
+   but none matched a visible node. ``graph.traverse.traverse`` reports this
+   on an empty seed list, whichever way it became empty.
+3. ``NO_WALKABLE_EDGES``: at least one entity matched, but the walk kept no
+   edge. This also covers a walk that hit the node budget before it could
+   keep any edge: ``Subgraph.truncated`` is ``True`` in that case, and the
+   trace's ``traverse`` span records it, so a caller can tell a genuinely
+   isolated node from one whose neighbours existed but were cut off by the
+   budget. Neither is reported as the other; ``empty_reason`` is the same
+   string for both because the contract has no separate reason for it, but
+   ``truncated`` is what distinguishes them.
+
+Each case appears in the trace as itself, never folded into a generic empty
+result: the ``check_coverage`` span records whether coverage held, and the
+``extract_question`` and ``traverse`` spans record their own outcome, so the
+trace alone tells which of the three happened without inspecting ``subgraph``.
 
 **Ordering (ruling R18, depth per ruling R21).** A chunk carries no score: a
 traversal is not a similarity search and ADR 0004 forbids inventing one.
@@ -44,14 +75,6 @@ reported in the forwards reading, which is exactly why the contract carries
 depth instead of leaving callers to reconstruct it. An edge's depth is the
 max of its two endpoints' depths, since both ends of an edge must already be
 reached for the edge to be usable as a citation.
-
-**The three empty cases are not this task's.** A question with no matched
-entity, a match with no walkable edge and a walk with no visible chunk all
-currently fall out of the same code path and simply return no chunks with the
-``Subgraph`` traversal already produced (or ``None`` when the question call
-itself failed). Telling those apart for the caller is Task 9's job; this
-module only leaves the seam, which is that ``subgraph`` and the trace already
-carry everything that distinction needs.
 """
 
 from __future__ import annotations
@@ -63,6 +86,7 @@ from sqlalchemy.orm import Session
 
 from ragfabric_core.graph.contracts import (
     ContractViolation,
+    EmptyReason,
     EntityType,
     QuestionExtraction,
     RelationType,
@@ -71,6 +95,7 @@ from ragfabric_core.graph.contracts import (
 )
 from ragfabric_core.graph.traverse import (
     DEFAULT_NODE_BUDGET,
+    has_visible_entities,
     match_entities,
     traverse,
     visible_entity_chunks,
@@ -156,44 +181,70 @@ class GraphRAGStrategy:
                 )
             )
 
-        mark = time.perf_counter()
-        completion = self._llm.complete(
-            [
-                Message(role="system", content=GRAPH_QUESTION_SYSTEM),
-                Message(role="user", content=build_question_prompt(query)),
-            ],
-            temperature=0.0,
-        )
-        parsed = parse_question(completion.text)
-        span(
-            "extract_question",
-            mark,
-            model=completion.model,
-            violation=parsed.error if isinstance(parsed, ContractViolation) else None,
-            contract=parsed.contract if isinstance(parsed, ContractViolation) else None,
-        )
-
-        if isinstance(parsed, ContractViolation):
-            return RetrievalResult(
-                strategy=self.name,
-                chunks=[],
-                retrieval_calls=0,
-                embedding_calls=0,
-                llm_calls=1,
-                input_tokens=completion.input_tokens,
-                output_tokens=completion.output_tokens,
-                latency_ms=int((time.perf_counter() - started) * 1000),
-                trace=spans,
-                subgraph=None,
-            )
-
-        assert isinstance(parsed, QuestionExtraction)
-        retrieval_calls = 0
-
         with self._sf() as db:
             mark = time.perf_counter()
+            covered = has_visible_entities(db, ctx.access_filter, ctx.collection_ids)
+            span("check_coverage", mark, covered=covered)
+
+            if not covered:
+                return RetrievalResult(
+                    strategy=self.name,
+                    chunks=[],
+                    retrieval_calls=1,
+                    embedding_calls=0,
+                    llm_calls=0,
+                    input_tokens=0,
+                    output_tokens=0,
+                    latency_ms=int((time.perf_counter() - started) * 1000),
+                    trace=spans,
+                    subgraph=Subgraph(
+                        nodes=[],
+                        edges=[],
+                        truncated=False,
+                        empty_reason=EmptyReason.NO_GRAPH_COVERAGE,
+                    ),
+                )
+
+            mark = time.perf_counter()
+            completion = self._llm.complete(
+                [
+                    Message(role="system", content=GRAPH_QUESTION_SYSTEM),
+                    Message(role="user", content=build_question_prompt(query)),
+                ],
+                temperature=0.0,
+            )
+            parsed = parse_question(completion.text)
+            span(
+                "extract_question",
+                mark,
+                model=completion.model,
+                violation=parsed.error if isinstance(parsed, ContractViolation) else None,
+                contract=parsed.contract if isinstance(parsed, ContractViolation) else None,
+            )
+
+            if isinstance(parsed, ContractViolation):
+                return RetrievalResult(
+                    strategy=self.name,
+                    chunks=[],
+                    retrieval_calls=1,
+                    embedding_calls=0,
+                    llm_calls=1,
+                    input_tokens=completion.input_tokens,
+                    output_tokens=completion.output_tokens,
+                    latency_ms=int((time.perf_counter() - started) * 1000),
+                    trace=spans,
+                    subgraph=None,
+                )
+
+            assert isinstance(parsed, QuestionExtraction)
+            retrieval_calls = 1  # the coverage check above already made one round trip
+
+            mark = time.perf_counter()
+            # match_entities returns without a query when there is nothing usable
+            # to look for, so that call is not counted as a round trip either.
             matched_ids = match_entities(db, parsed.entities, ctx.access_filter)
-            retrieval_calls += 1
+            if parsed.entities:
+                retrieval_calls += 1
             span("match_entities", mark, mentions=len(parsed.entities), matched=len(matched_ids))
 
             mark = time.perf_counter()

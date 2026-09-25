@@ -103,9 +103,9 @@ def test_counters_report_actual_calls(graph):
     assert result.llm_calls == 1
     assert result.embedding_calls == 0
     assert llm.calls == 1
-    # match_entities, traverse, visible_entity_chunks and the chunk fetch: all
-    # four are real round trips this run actually made.
-    assert result.retrieval_calls == 4
+    # check_coverage, match_entities, traverse, visible_entity_chunks and the
+    # chunk fetch: all five are real round trips this run actually made.
+    assert result.retrieval_calls == 5
     assert result.subgraph is not None
     assert {node.name for node in result.subgraph.nodes if node.id == graph.ids["ada"]} == {"ada"}
 
@@ -118,7 +118,9 @@ def test_a_contract_violation_is_reported_honestly_with_no_chunks(graph):
 
     assert result.llm_calls == 1
     assert result.embedding_calls == 0
-    assert result.retrieval_calls == 0
+    # The coverage check ran (ada is visible) and made its one round trip
+    # before the question call that then came back unusable.
+    assert result.retrieval_calls == 1
     assert result.chunks == []
     assert result.subgraph is None
     violations = [span for span in result.trace if span.attributes.get("violation") is not None]
@@ -136,10 +138,11 @@ def test_no_entity_match_makes_no_traversal_calls_past_matching(graph):
     assert result.chunks == []
     assert result.subgraph is not None
     assert result.subgraph.nodes == []
-    # match_entities always runs; traverse makes no round trip when there are
-    # no matched seeds to walk from (it returns without touching the
-    # database), so only match_entities is counted.
-    assert result.retrieval_calls == 1
+    # check_coverage and match_entities both run (the question named a mention,
+    # even though it matched nothing); traverse makes no round trip when there
+    # are no matched seeds to walk from (it returns without touching the
+    # database), so only those two are counted.
+    assert result.retrieval_calls == 2
 
 
 # ---------------------------------------------------------------------------

@@ -131,6 +131,34 @@ def _relationship_visible(relationship_id, access: AccessFilter):
     return query.exists()
 
 
+def has_visible_entities(
+    db: Session, access: AccessFilter, collection_ids: Collection[int] | None = None
+) -> bool:
+    """Whether at least one entity is visible to this caller (ruling R22).
+
+    The predicate is exactly the one ``_entity_visible`` applies per entity,
+    checked here without correlating to any particular id: an entity is
+    visible iff some ``entity_sources`` row points at a chunk ``access``
+    admits. ``collection_ids`` narrows that further, to the caller's request
+    scope rather than their permissions, so the answer reflects exactly what
+    this request could reach, never more than ``access`` alone would allow.
+
+    This is the cheap check a graph request makes first, before any LLM call:
+    it tells "nothing is visible to you at all" apart from "your question
+    matched nothing", without walking the graph or revealing which entities
+    exist.
+    """
+    source = aliased(EntitySource)
+    chunk = aliased(Chunk)
+    query = select(literal_column("1")).select_from(source).join(chunk, chunk.id == source.chunk_id)
+    clause = access_clause(access, chunk.document_id, chunk.collection_id)
+    if clause is not None:
+        query = query.where(clause)
+    if collection_ids:
+        query = query.where(chunk.collection_id.in_(sorted(collection_ids)))
+    return bool(db.execute(select(query.exists())).scalar())
+
+
 def match_entities(
     db: Session, mentions: Sequence[EntityMention], access: AccessFilter
 ) -> list[int]:
