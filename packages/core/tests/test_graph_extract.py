@@ -271,6 +271,86 @@ def test_re_reporting_an_existing_entity_adds_a_source_link_not_a_duplicate_row(
     assert db.get(EntitySource, (entities[0].id, chunk_two.id)) is not None
 
 
+def test_the_entity_link_row_records_the_confidence_that_chunk_reported(db):
+    """R20: EntitySource carries the confidence and model that one chunk's
+
+    extraction reported, distinct from the entity's own aggregate confidence
+    (the max across every chunk that reports it).
+    """
+    chunk_one = _make_chunk(db, text="Ada Lovelace is a mathematician.")
+    chunk_two = _make_chunk(db, text="Ada Lovelace worked with Babbage.")
+    low_payload = {
+        "entities": [{"name": "Ada Lovelace", "entity_type": "person", "confidence": 0.6}],
+        "relationships": [],
+    }
+    high_payload = {
+        "entities": [{"name": "Ada Lovelace", "entity_type": "person", "confidence": 0.95}],
+        "relationships": [],
+    }
+
+    extract_chunk(db, chunk_one, _provider(low_payload), floor=FLOOR, model="model-a")
+    extract_chunk(db, chunk_two, _provider(high_payload), floor=FLOOR, model="model-b")
+
+    ada = db.execute(select(Entity).where(Entity.normalized_name == "ada lovelace")).scalar_one()
+    assert ada.confidence == 0.95
+    assert ada.extraction_model == "model-b"
+
+    link_one = db.get(EntitySource, (ada.id, chunk_one.id))
+    link_two = db.get(EntitySource, (ada.id, chunk_two.id))
+    assert link_one.confidence == 0.6
+    assert link_one.extraction_model == "model-a"
+    assert link_two.confidence == 0.95
+    assert link_two.extraction_model == "model-b"
+
+
+def test_the_relationship_link_row_records_the_confidence_that_chunk_reported(db):
+    """R20, relationship side: same rule as the entity link row."""
+    chunk_one = _make_chunk(db, text="Ada Lovelace works on Analytical Engine, barely.")
+    chunk_two = _make_chunk(db, text="Ada Lovelace clearly works on Analytical Engine.")
+    low_payload = {
+        "entities": [
+            {"name": "Ada Lovelace", "entity_type": "person", "confidence": 0.9},
+            {"name": "Analytical Engine", "entity_type": "product", "confidence": 0.9},
+        ],
+        "relationships": [
+            {
+                "source": "Ada Lovelace",
+                "target": "Analytical Engine",
+                "relation_type": "WORKS_ON",
+                "confidence": 0.55,
+            }
+        ],
+    }
+    high_payload = {
+        "entities": [
+            {"name": "Ada Lovelace", "entity_type": "person", "confidence": 0.9},
+            {"name": "Analytical Engine", "entity_type": "product", "confidence": 0.9},
+        ],
+        "relationships": [
+            {
+                "source": "Ada Lovelace",
+                "target": "Analytical Engine",
+                "relation_type": "WORKS_ON",
+                "confidence": 0.9,
+            }
+        ],
+    }
+
+    extract_chunk(db, chunk_one, _provider(low_payload), floor=FLOOR, model="model-a")
+    extract_chunk(db, chunk_two, _provider(high_payload), floor=FLOOR, model="model-b")
+
+    relationship = db.execute(select(Relationship)).scalar_one()
+    assert relationship.confidence == 0.9
+    assert relationship.extraction_model == "model-b"
+
+    link_one = db.get(RelationshipSource, (relationship.id, chunk_one.id))
+    link_two = db.get(RelationshipSource, (relationship.id, chunk_two.id))
+    assert link_one.confidence == 0.55
+    assert link_one.extraction_model == "model-a"
+    assert link_two.confidence == 0.9
+    assert link_two.extraction_model == "model-b"
+
+
 def test_extract_chunks_sums_reports(db):
     chunk_one = _make_chunk(db, text="Ada Lovelace is a mathematician.")
     chunk_two = _make_chunk(db, text="Charles Babbage designed engines.")

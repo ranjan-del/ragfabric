@@ -20,11 +20,15 @@ not a bug.
 
 Every stored entity and edge records the chunk it came from
 (``EntitySource`` / ``RelationshipSource``) and the model that produced it, so
-a wrong fact can be traced back to the sentence and the model behind it. A
-later chunk that re-reports an existing entity, or an existing edge (same
-source entity, target entity and relation type), adds a link row for that
-chunk rather than a duplicate, and keeps confidence at the maximum the model
-has actually reported for it, with the extraction model of that maximum (R9).
+a wrong fact can be traced back to the sentence and the model behind it. Each
+link row also carries the confidence and model *that chunk's* extraction
+reported (R20); the parent ``Entity`` / ``Relationship`` row's own confidence
+and extraction_model are recomputed after every link write as the maximum
+over all of its current sources, never a value nobody currently measured
+(ADR 0004). A later chunk that re-reports an existing entity, or an existing
+edge (same source entity, target entity and relation type), adds a link row
+for that chunk rather than a duplicate; the aggregate recomputation is what
+implements R9's "keep the maximum reported" rule.
 Entity identity is the exact match required by the unique constraint,
 ``(normalise(name), entity_type)`` (R5); anything beyond that, aliasing or
 embedding similarity, is Task 5's job, not this one's.
@@ -240,19 +244,21 @@ def _upsert_entities(
                 normalized_name=normalized_name,
                 entity_type=entity_type.value,
                 description=representative.description,
-                confidence=representative.confidence,
-                extraction_model=extraction_model,
             )
             db.add(row)
             db.flush()
             entity_id = row.id
         else:
             entity_id = existing.id
-            if existing.confidence is None or representative.confidence > existing.confidence:
-                existing.confidence = representative.confidence
-                existing.extraction_model = extraction_model
 
-        _link_entity_source(db, entity_id, chunk.id)
+        _link_entity_source(
+            db,
+            entity_id,
+            chunk.id,
+            confidence=representative.confidence,
+            extraction_model=extraction_model,
+        )
+        _recompute_entity_confidence(db, entity_id)
         entity_ids[key] = entity_id
 
     return entity_ids, len(grouped)
@@ -307,28 +313,99 @@ def _upsert_relationships(
                 target_entity_id=target_id,
                 relation_type=relation_type.value,
                 description=representative.description,
-                confidence=representative.confidence,
-                extraction_model=extraction_model,
             )
             db.add(row)
             db.flush()
             relationship_id = row.id
         else:
             relationship_id = existing.id
-            if existing.confidence is None or representative.confidence > existing.confidence:
-                existing.confidence = representative.confidence
-                existing.extraction_model = extraction_model
 
-        _link_relationship_source(db, relationship_id, chunk.id)
+        _link_relationship_source(
+            db,
+            relationship_id,
+            chunk.id,
+            confidence=representative.confidence,
+            extraction_model=extraction_model,
+        )
+        _recompute_relationship_confidence(db, relationship_id)
 
     return len(grouped), endpoint_discarded
 
 
-def _link_entity_source(db: Session, entity_id: int, chunk_id: int) -> None:
-    if db.get(EntitySource, (entity_id, chunk_id)) is None:
-        db.add(EntitySource(entity_id=entity_id, chunk_id=chunk_id))
+def _link_entity_source(
+    db: Session, entity_id: int, chunk_id: int, *, confidence: float, extraction_model: str
+) -> None:
+    """Add or refresh the (entity, chunk) provenance row with what this chunk reported."""
+    link = db.get(EntitySource, (entity_id, chunk_id))
+    if link is None:
+        db.add(
+            EntitySource(
+                entity_id=entity_id,
+                chunk_id=chunk_id,
+                confidence=confidence,
+                extraction_model=extraction_model,
+            )
+        )
+    else:
+        link.confidence = confidence
+        link.extraction_model = extraction_model
 
 
-def _link_relationship_source(db: Session, relationship_id: int, chunk_id: int) -> None:
-    if db.get(RelationshipSource, (relationship_id, chunk_id)) is None:
-        db.add(RelationshipSource(relationship_id=relationship_id, chunk_id=chunk_id))
+def _link_relationship_source(
+    db: Session, relationship_id: int, chunk_id: int, *, confidence: float, extraction_model: str
+) -> None:
+    """Add or refresh the (relationship, chunk) provenance row. See ``_link_entity_source``."""
+    link = db.get(RelationshipSource, (relationship_id, chunk_id))
+    if link is None:
+        db.add(
+            RelationshipSource(
+                relationship_id=relationship_id,
+                chunk_id=chunk_id,
+                confidence=confidence,
+                extraction_model=extraction_model,
+            )
+        )
+    else:
+        link.confidence = confidence
+        link.extraction_model = extraction_model
+
+
+def _recompute_entity_confidence(db: Session, entity_id: int) -> None:
+    """Set ``Entity.confidence``/``extraction_model`` to the max its current sources report.
+
+    Recomputed from ``EntitySource`` rows rather than compared incrementally
+    against the old value, so that removing a source or moving one (Task 5
+    merge/unmerge) cannot leave a number behind that no surviving source
+    actually reported (R20). ``None`` iff no surviving source has a measured
+    confidence (ADR 0004: never fabricate a number).
+    """
+    entity = db.get(Entity, entity_id)
+    if entity is None:
+        return
+    sources = db.execute(select(EntitySource).where(EntitySource.entity_id == entity_id)).scalars()
+    measured = [source for source in sources if source.confidence is not None]
+    if not measured:
+        entity.confidence = None
+        entity.extraction_model = None
+        return
+    best = max(measured, key=lambda source: source.confidence)
+    entity.confidence = best.confidence
+    entity.extraction_model = best.extraction_model
+
+
+def _recompute_relationship_confidence(db: Session, relationship_id: int) -> None:
+    """Relationship counterpart of ``_recompute_entity_confidence``."""
+    relationship = db.get(Relationship, relationship_id)
+    if relationship is None:
+        return
+    sources = db.execute(
+        select(RelationshipSource).where(RelationshipSource.relationship_id == relationship_id)
+    ).scalars()
+    measured = [source for source in sources if source.confidence is not None]
+    if not measured:
+        relationship.confidence = None
+        relationship.extraction_model = None
+        return
+    best = max(measured, key=lambda source: source.confidence)
+    relationship.confidence = best.confidence
+    relationship.extraction_model = best.extraction_model

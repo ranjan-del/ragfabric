@@ -178,6 +178,11 @@ def test_0008_adds_confidence_extraction_hash_and_provenance_tables(tmp_path):
     tables = set(inspect(engine).get_table_names())
     assert {"entity_sources", "relationship_sources", "entity_merges"} <= tables
 
+    escols = {c["name"] for c in inspect(engine).get_columns("entity_sources")}
+    assert {"confidence", "extraction_model"} <= escols
+    rscols = {c["name"] for c in inspect(engine).get_columns("relationship_sources")}
+    assert {"confidence", "extraction_model"} <= rscols
+
 
 def test_0008_downgrade_returns_to_0007(tmp_path):
     url = f"sqlite:///{tmp_path / 'm.db'}"

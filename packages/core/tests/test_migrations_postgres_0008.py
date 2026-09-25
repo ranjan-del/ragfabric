@@ -19,7 +19,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from ragfabric_core.db.migrate import downgrade, upgrade
-from ragfabric_core.models.graph import Entity
+from ragfabric_core.models.document import Chunk, Collection, Document
+from ragfabric_core.models.graph import Entity, EntitySource
 
 URL = os.environ.get("RAGFABRIC_TEST_DATABASE_URL", "")
 pytestmark = [
@@ -46,6 +47,11 @@ def test_0008_upgrade_creates_provenance_and_merge_tables(pg_at_head):
     ecols = {c["name"] for c in sa.inspect(engine).get_columns("entities")}
     assert {"confidence", "extraction_model"} <= ecols
     assert "source_chunk_ids" not in ecols
+
+    escols = {c["name"] for c in sa.inspect(engine).get_columns("entity_sources")}
+    assert {"confidence", "extraction_model"} <= escols
+    rscols = {c["name"] for c in sa.inspect(engine).get_columns("relationship_sources")}
+    assert {"confidence", "extraction_model"} <= rscols
 
 
 def test_0008_downgrade_restores_source_chunk_ids_and_drops_new_tables(pg_at_head):
@@ -91,3 +97,32 @@ def test_0008_confidence_check_constraint_allows_none_and_in_range_values(pg_at_
         db.commit()
         assert unmeasured.confidence is None
         assert measured.confidence == 0.9
+
+
+def test_0008_entity_sources_confidence_check_constraint_rejects_out_of_range_values(pg_at_head):
+    """R20: the per-source confidence column enforces the same [0, 1] range."""
+    engine = pg_at_head
+    factory = sessionmaker(bind=engine)
+    with factory() as db:
+        collection = Collection(name="c")
+        db.add(collection)
+        db.flush()
+        document = Document(
+            filename="a.txt", format="txt", collection_id=collection.id, status="ready"
+        )
+        db.add(document)
+        db.flush()
+        chunk = Chunk(
+            document_id=document.id,
+            collection_id=collection.id,
+            chunk_index=0,
+            text="Ada Lovelace",
+            embedding=[0.0],
+        )
+        entity = Entity(name="Ada", normalized_name="ada", entity_type="person")
+        db.add_all([chunk, entity])
+        db.flush()
+
+        db.add(EntitySource(entity_id=entity.id, chunk_id=chunk.id, confidence=1.5))
+        with pytest.raises(sa.exc.IntegrityError):
+            db.commit()

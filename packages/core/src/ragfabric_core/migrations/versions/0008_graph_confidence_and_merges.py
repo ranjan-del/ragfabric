@@ -16,7 +16,11 @@ owning row and to ``chunks`` both ON DELETE CASCADE, indexed on chunk_id so
 the access filter can join from a visible chunk set. The JSON columns are
 dropped rather than kept alongside, because nothing has read or written them
 yet and two provenance copies would only ever drift; downgrade restores them
-as empty JSON lists.
+as empty JSON lists. Each link row also carries its own ``confidence`` and
+``extraction_model`` (R20): what that one chunk's extraction reported, so the
+parent row's aggregate confidence can be recomputed as the max over its
+current sources instead of going stale the moment a contributing chunk is
+re-extracted or merged away. Same CHECK constraint as the parent rows.
 
 ``entity_merges`` records every entity resolution decision: the surviving
 entity, the merged-away entity's name, type, aliases and source chunk ids
@@ -60,9 +64,12 @@ def upgrade() -> None:
         "entity_sources",
         sa.Column("entity_id", sa.Integer(), nullable=False),
         sa.Column("chunk_id", sa.Integer(), nullable=False),
+        sa.Column("confidence", sa.Float(), nullable=True),
+        sa.Column("extraction_model", sa.String(), nullable=True),
         sa.ForeignKeyConstraint(["entity_id"], ["entities.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["chunk_id"], ["chunks.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("entity_id", "chunk_id"),
+        sa.CheckConstraint(_CONFIDENCE_RANGE, name="ck_entity_sources_confidence_range"),
     )
     op.create_index("ix_entity_sources_chunk_id", "entity_sources", ["chunk_id"])
 
@@ -70,9 +77,12 @@ def upgrade() -> None:
         "relationship_sources",
         sa.Column("relationship_id", sa.Integer(), nullable=False),
         sa.Column("chunk_id", sa.Integer(), nullable=False),
+        sa.Column("confidence", sa.Float(), nullable=True),
+        sa.Column("extraction_model", sa.String(), nullable=True),
         sa.ForeignKeyConstraint(["relationship_id"], ["relationships.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["chunk_id"], ["chunks.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("relationship_id", "chunk_id"),
+        sa.CheckConstraint(_CONFIDENCE_RANGE, name="ck_relationship_sources_confidence_range"),
     )
     op.create_index("ix_relationship_sources_chunk_id", "relationship_sources", ["chunk_id"])
 
