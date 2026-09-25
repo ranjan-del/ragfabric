@@ -219,6 +219,12 @@ class AgenticConfig(_Strict):
         }
 
 
+# An upper bound on ``strategies.graph.node_budget``. Untuned, like the other
+# graph limits until Phase 8 measures them: it only stops a configuration from
+# handing generation an effectively unbounded neighbourhood.
+NODE_BUDGET_CEILING = 1000
+
+
 class GraphStrategyConfig(_Strict):
     """Query-time bounds for the graph strategy, both passed to GraphRAGStrategy.
 
@@ -226,10 +232,12 @@ class GraphStrategyConfig(_Strict):
     above it and a config that validates but fails every query is worse than
     one that fails at startup. ``node_budget`` caps the reached set handed to
     generation; the walk's own work is bounded by the hop ceiling, not by it.
+    It stops at ``NODE_BUDGET_CEILING`` (1000), an untuned bound that exists so
+    a typo cannot pass an unbounded neighbourhood to the prompt.
     """
 
     max_hops: int = Field(default=2, ge=1, le=MAX_HOPS_CEILING)
-    node_budget: int = Field(default=DEFAULT_NODE_BUDGET, ge=1)
+    node_budget: int = Field(default=DEFAULT_NODE_BUDGET, ge=1, le=NODE_BUDGET_CEILING)
 
 
 class StrategiesConfig(_Strict):
