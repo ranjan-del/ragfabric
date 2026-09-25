@@ -583,11 +583,21 @@ def test_unmerging_restores_the_entity_and_its_edges(db):
     # An edge sourced only by its chunks moves back.
     assert works_on.source_entity_id == restored.id
     assert works_on.id in result.moved_relationship_ids
-    # The folded MEMBER_OF edge has a survivor chunk too, so it stays, and
-    # the result says so.
+    # The folded MEMBER_OF edge splits back out (R26): the survivor's edge
+    # keeps only its own report, and the merged entity's edge is recreated.
     assert survivor_member.source_entity_id == survivor.id
     assert result.shared_relationship_ids == [survivor_member.id]
-    assert _edge_sources(db, survivor_member.id) == {c1: 0.6, c2: 0.95}
+    assert _edge_sources(db, survivor_member.id) == {c1: 0.6}
+    assert survivor_member.confidence == 0.6
+    member = [
+        edge
+        for edge in _edges(db)
+        if edge.relation_type == "MEMBER_OF" and edge.source_entity_id == restored.id
+    ]
+    assert len(member) == 1
+    assert member[0].target_entity_id == team.id
+    assert _edge_sources(db, member[0].id) == {c2: 0.95}
+    assert member[0].id in result.restored_relationship_ids
     # The self-loop the merge dropped comes back between the two entities.
     related = [edge for edge in _edges(db) if edge.relation_type == "RELATED_TO"]
     assert len(related) == 1
@@ -641,6 +651,174 @@ def test_unmerging_hands_back_the_merges_the_restored_entity_had_absorbed(db):
     assert _entity_sources(db, restored_bobby.restored_entity_id) == {c3: 0.5}
     assert _entity_sources(db, restored_bob.restored_entity_id) == {c2: 0.7}
     assert len(_entities(db)) == 3
+
+
+def _snapshot(db) -> dict:
+    """The whole graph by name, so it compares across a change of ids."""
+    names = {entity.id: entity.name for entity in _entities(db)}
+    entities = {}
+    for entity in _entities(db):
+        rows = db.execute(select(EntitySource).where(EntitySource.entity_id == entity.id)).scalars()
+        entities[(entity.name, entity.entity_type)] = (
+            entity.normalized_name,
+            entity.description,
+            tuple(entity.aliases),
+            entity.confidence,
+            entity.extraction_model,
+            frozenset((row.chunk_id, row.confidence, row.extraction_model) for row in rows),
+        )
+    edges = {}
+    for edge in _edges(db):
+        rows = db.execute(
+            select(RelationshipSource).where(RelationshipSource.relationship_id == edge.id)
+        ).scalars()
+        key = (names[edge.source_entity_id], names[edge.target_entity_id], edge.relation_type)
+        assert key not in edges
+        edges[key] = (
+            edge.description,
+            edge.weight,
+            edge.confidence,
+            edge.extraction_model,
+            frozenset((row.chunk_id, row.confidence, row.extraction_model) for row in rows),
+        )
+    return {"entities": entities, "edges": edges}
+
+
+def test_merge_then_unmerge_gives_back_the_graph_it_started_from(db):
+    c1, c2, c3 = _chunks(db, 3)
+    # c1 names both Robert and Bob, which is exactly where provenance alone
+    # cannot say whose edge is whose.
+    survivor = _entity(db, "Robert Sharma", "person", {c1: 0.6, c3: 0.95}, aliases=["Bob Sharma"])
+    merged = _entity(
+        db,
+        "Bob Sharma",
+        "person",
+        {c1: 0.9, c2: 0.5},
+        aliases=["Bobby"],
+        description="On call engineer",
+    )
+    project = _entity(db, "Apollo", "project", {c1: 0.9})
+    team = _entity(db, "Platform", "team", {c1: 0.9, c2: 0.8})
+    city = _entity(db, "Pune", "location", {c2: 0.8})
+    wiki = _entity(db, "Runbook", "document", {c2: 0.8})
+    # The reviewer's probe: Robert's own edge, sourced only by the shared
+    # chunk. The merge never touches it, so the unmerge must not either.
+    own_edge = _edge(db, survivor, project, "WORKS_ON", {c1: 0.7})
+    # Folded on the shared chunk: Bob's 0.9 overwrites Robert's 0.6 on c1.
+    _edge(db, survivor, team, "MEMBER_OF", {c1: 0.6, c3: 0.8})
+    _edge(db, merged, team, "MEMBER_OF", {c1: 0.9, c2: 0.5})
+    # Repointed on either end.
+    _edge(db, merged, city, "LOCATED_IN", {c2: 0.7})
+    _edge(db, wiki, merged, "MENTIONS", {c2: 0.6})
+    # Would become a self-loop.
+    _edge(db, survivor, merged, "RELATED_TO", {c1: 0.5})
+    db.flush()
+    before = _snapshot(db)
+
+    report = resolve_entities(db, None, similarity_threshold=THRESHOLD)
+    assert [(m.survivor_id, m.merged_id) for m in report.merges] == [(survivor.id, merged.id)]
+    during = _snapshot(db)
+    assert ("Bob Sharma", "person") not in during["entities"]
+    assert during["edges"][("Robert Sharma", "Platform", "MEMBER_OF")][-1] == frozenset(
+        {(c1, 0.9, "test-extractor"), (c2, 0.5, "test-extractor"), (c3, 0.8, "test-extractor")}
+    )
+    # R27: Bob's own alias stays matchable on the survivor.
+    assert survivor.aliases == ["Bob Sharma", "Bobby"]
+
+    result = unmerge(db, report.merges[0].merge_id)
+
+    assert _snapshot(db) == before
+    assert own_edge.source_entity_id == survivor.id
+    assert own_edge.id not in result.moved_relationship_ids
+    assert own_edge.id not in result.shared_relationship_ids
+
+
+def test_an_absorbed_alias_matches_a_later_entity(db):
+    c1, c2, c3 = _chunks(db, 3)
+    robert = _entity(db, "Robert Sharma", "person", {c1: 0.9}, aliases=["Bob Sharma"])
+    _entity(db, "Bob Sharma", "person", {c2: 0.8}, aliases=["Bobby"])
+    first = resolve_entities(db, None, similarity_threshold=THRESHOLD)
+    assert len(first.merges) == 1
+    assert robert.aliases == ["Bob Sharma", "Bobby"]
+    record = db.get(EntityMerge, first.merges[0].merge_id)
+    assert record.evidence["restore"]["aliases_appended"] == ["Bobby"]
+
+    # A later extraction names Bobby on his own.
+    bobby = _entity(db, "Bobby", "person", {c3: 0.5})
+    second = resolve_entities(db, None, similarity_threshold=THRESHOLD, entity_ids=[bobby.id])
+
+    assert [(m.survivor_id, m.merged_id, m.method) for m in second.merges] == [
+        (robert.id, bobby.id, "alias")
+    ]
+    evidence = db.get(EntityMerge, second.merges[0].merge_id).evidence
+    assert (evidence["alias"], evidence["alias_of"]) == ("Bobby", "survivor")
+
+
+def test_stage_three_does_not_chain_when_the_middle_entity_survives(db):
+    c1, c2, c3 = _chunks(db, 3)
+    # Same geometry as the chaining test, but B is the higher-confidence
+    # survivor, so B stays live after absorbing A. A and C never met the
+    # threshold with each other, so B must not take C in the same pass.
+    a = _entity(db, "A", "product", {c1: 0.7})
+    b = _entity(db, "B", "product", {c2: 0.9})
+    c = _entity(db, "C", "product", {c3: 0.6})
+    s = math.sqrt(0.5)
+    embedder = ScriptedEmbedder({"A": [1.0, 0.0], "B": [0.95, 0.312], "C": [s, s]})
+
+    report = resolve_entities(db, embedder, similarity_threshold=0.8)
+
+    assert [(m.survivor_id, m.merged_id) for m in report.merges] == [(b.id, a.id)]
+    assert [entity.id for entity in _entities(db)] == [b.id, c.id]
+
+
+def test_an_out_of_order_unmerge_does_not_leak_aliases(db):
+    c1, c2, c3 = _chunks(db, 3)
+    robert = _entity(db, "Robert Sharma", "person", {c1: 0.9}, aliases=["Bob Sharma"])
+    _entity(db, "Bob Sharma", "person", {c2: 0.7}, aliases=["Bobby"])
+    bobby = _entity(db, "Bobby", "person", {c3: 0.5}, aliases=["B. S."])
+    report = resolve_entities(db, None, similarity_threshold=THRESHOLD, entity_ids=[bobby.id])
+    inner, outer = report.merges
+    assert robert.aliases == ["Bob Sharma", "Bobby", "B. S."]
+
+    # The older merge first, against the recommended order.
+    restored_bobby = unmerge(db, inner.merge_id)
+    restored_bob = unmerge(db, outer.merge_id)
+
+    assert db.get(Entity, restored_bobby.restored_entity_id).aliases == ["B. S."]
+    assert db.get(Entity, restored_bob.restored_entity_id).aliases == ["Bobby"]
+    assert robert.aliases == ["Bob Sharma"]
+    assert _entity_sources(db, restored_bobby.restored_entity_id) == {c3: 0.5}
+    assert _entity_sources(db, restored_bob.restored_entity_id) == {c2: 0.7}
+
+
+def test_an_out_of_order_unmerge_splits_a_later_fold_off_the_edge(db):
+    c1, c2, c3 = _chunks(db, 3)
+    robert = _entity(db, "Robert Sharma", "person", {c1: 0.9}, aliases=["Bob Sharma", "Rob"])
+    bob = _entity(db, "Bob Sharma", "person", {c2: 0.7})
+    rob = _entity(db, "Rob", "person", {c3: 0.6})
+    project = _entity(db, "Apollo", "project", {c1: 0.9})
+    edge = _edge(db, bob, project, "WORKS_ON", {c2: 0.8})
+    _edge(db, rob, project, "WORKS_ON", {c3: 0.5})
+    before = _snapshot(db)
+    report = resolve_entities(db, None, similarity_threshold=THRESHOLD)
+    first, second = report.merges
+    assert (first.merged_id, second.merged_id) == (bob.id, rob.id)
+    # Bob's edge was repointed to Robert, then Rob's folded into it.
+    assert _edge_sources(db, edge.id) == {c2: 0.8, c3: 0.5}
+
+    result = unmerge(db, first.merge_id)
+
+    # Bob's edge goes back to Bob with only his chunk; Rob's report is a
+    # claim about Robert for now, so it is split off, not handed to Bob.
+    assert _edge_sources(db, edge.id) == {c2: 0.8}
+    assert edge.source_entity_id == result.restored_entity_id
+    (split,) = [e for e in _edges(db) if e.source_entity_id == robert.id]
+    assert _edge_sources(db, split.id) == {c3: 0.5}
+    assert split.id in result.shared_relationship_ids
+
+    unmerge(db, second.merge_id)
+
+    assert _snapshot(db) == before
 
 
 def test_unmerging_an_unknown_merge_raises(db):
