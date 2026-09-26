@@ -1,10 +1,18 @@
 [project]
 name = "ragfabric-core"
-version = "0.3.0"
+version = "0.3.1"
 description = "RagFabric engine: retrieval strategies, providers, stores, ingestion, evaluation, access policy."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.13,<3.14"
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
   "pydantic>=2.13",
   "pydantic-settings>=2.15",
@@ -40,6 +48,13 @@ rerank = ["sentence-transformers>=5.1"]
 # LM Studio nor Ollama can skip it.
 openai = ["openai>=3.13"]
 anthropic = ["anthropic>=1.5"]
+
+[project.urls]
+Homepage = "https://github.com/ranjan-del/ragfabric"
+Repository = "https://github.com/ranjan-del/ragfabric"
+Documentation = "https://github.com/ranjan-del/ragfabric/tree/main/docs"
+Changelog = "https://github.com/ranjan-del/ragfabric/blob/main/CHANGELOG.md"
+Issues = "https://github.com/ranjan-del/ragfabric/issues"
 
 [build-system]
 requires = ["hatchling>=1.27"]

@@ -1,12 +1,27 @@
 [project]
 name = "ragfabric-sdk"
-version = "0.3.0"
+version = "0.3.1"
 description = "Python client for a RagFabric server."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
 license = "Apache-2.0"
 authors = [{ name = "Ranjan G", email = "ranjan.g@ispf.ngo" }]
 dependencies = ["httpx>=0.28", "pydantic>=2.13"]
+
+[project.urls]
+Homepage = "https://github.com/ranjan-del/ragfabric"
+Repository = "https://github.com/ranjan-del/ragfabric"
+Documentation = "https://github.com/ranjan-del/ragfabric/tree/main/docs"
+Changelog = "https://github.com/ranjan-del/ragfabric/blob/main/CHANGELOG.md"
+Issues = "https://github.com/ranjan-del/ragfabric/issues"
 
 [build-system]
 requires = ["hatchling>=1.27"]
