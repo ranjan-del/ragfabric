@@ -113,8 +113,8 @@ against it directly rather than left as a stale snapshot.
       (`strategies/registry_defaults.py`) and read by the loop
 - [x] An end to end run against a local model, written down in
       `docs/learning/agentic-first-run.md`
-- [ ] **Release v0.2.0** (publishing is gated; `CHANGELOG.md`'s `[0.2.0]` section is still headed
-      `unreleased`)
+- [x] **Release v0.2.0**: merged to main as f8bb012 (PR #39) on 2026-09-22, tagged `v0.2.0` with a
+      GitHub release and GHCR images on 2026-09-26
 
 ## v0.3.0 Graph retrieval
 
@@ -125,8 +125,7 @@ it: PostgreSQL could put the access filter inside the walk itself and Neo4j coul
 duplicating the access model or filtering after the fact, which ADR 0003 forbids. Recorded as
 [ADR 0011](docs/adr/0011-postgres-recursive-cte-over-neo4j.md).
 
-Phase 6 has landed on its own branch and is not yet merged to main; `[x]` below means merged into
-that branch.
+Phase 6 merged to main on 2026-09-25 as PR #40 (rebase-merge); `[x]` below means merged to main.
 
 - [x] `entities` and `relationships` gain nullable `confidence` and `extraction_model`;
       `entity_sources` / `relationship_sources` link tables (ruling R1) become the single source of
@@ -155,11 +154,11 @@ that branch.
 - [x] `graph` on `POST /api/ask`, `POST /api/search/query`, `ragfabric ask --strategy` and the
       Python SDK; `POST /api/search/hybrid` continues to refuse it; `ragfabric graph merges
       list|show|undo` for inspecting and reversing a merge
-- [~] A real extraction run against a local model, with what it actually got right, missed and
-      invented written down (Task 13, landing alongside this document)
+- [x] A real extraction run against a local model, with what it actually got right, missed and
+      invented written down in `docs/learning/graph-extraction-first-run.md`
 - [x] `docs/concepts/knowledge-graphs.md`, ADR 0011, ADR 0012, and `docs/graph-rag.md` rewritten to
       describe what shipped; the `GraphStore` protocol removed, nothing having ever implemented it
-- [ ] **Release v0.3.0**
+- [x] **Release v0.3.0**: tagged `v0.3.0` with a GitHub release and GHCR images on 2026-09-26
 
 ## v0.4.0 Adaptive router
 
