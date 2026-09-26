@@ -15,7 +15,7 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 | v0.5.0 | Evaluation framework | Corpus, question set, metrics, `make eval`, dashboards, generated benchmarks |
 | v1.0.0 | Production release | Reference UI with Compare and Trace, TypeScript SDK, connectors, hardening, docs site, deployment guides |
 
-## [0.3.0] - unreleased
+## [0.3.0] - 2026-09-26
 
 Graph retrieval. A knowledge graph extracted from ingested chunks, resolved and merged with a
 recorded, reversible history, and walked with a directed, access-checked traversal on PostgreSQL
@@ -146,7 +146,7 @@ Found by the whole-branch review before merge, fixed before release.
   mechanically checked.** Only that it cites a real, chunk-backed edge naming both endpoints it
   claims. Phase 8 measures this.
 
-## [0.2.0] - unreleased
+## [0.2.0] - 2026-09-22
 
 Agentic retrieval. An agent that decomposes a question, judges its own evidence, and when it comes
 up short chooses a repair move and tries again, stopping honestly when it is not making progress.
