@@ -43,7 +43,7 @@ jobs:
       # and the commit SHA, so an image in a running cluster can always be
       # traced back to the exact source it was built from.
       - name: Build and push the API and worker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deploy/docker/api.Dockerfile
@@ -58,7 +58,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push the UI image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: deploy/docker/ui.Dockerfile
