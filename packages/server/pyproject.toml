@@ -1,16 +1,32 @@
 [project]
 name = "ragfabric-server"
-version = "0.3.0"
+version = "0.3.1"
 description = "RagFabric HTTP API (FastAPI)."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.13,<3.14"
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+  "Framework :: FastAPI",
+  "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+]
 dependencies = [
-  "ragfabric-core",
+  "ragfabric-core==0.3.1",
   "fastapi>=0.141",
   "uvicorn[standard]>=0.52",
   "python-multipart>=0.0.32",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ranjan-del/ragfabric"
+Repository = "https://github.com/ranjan-del/ragfabric"
+Documentation = "https://github.com/ranjan-del/ragfabric/tree/main/docs"
+Changelog = "https://github.com/ranjan-del/ragfabric/blob/main/CHANGELOG.md"
+Issues = "https://github.com/ranjan-del/ragfabric/issues"
 
 [build-system]
 requires = ["hatchling>=1.27"]

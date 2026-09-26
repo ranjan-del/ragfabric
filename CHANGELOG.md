@@ -15,6 +15,21 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 | v0.5.0 | Evaluation framework | Corpus, question set, metrics, `make eval`, dashboards, generated benchmarks |
 | v1.0.0 | Production release | Reference UI with Compare and Trace, TypeScript SDK, connectors, hardening, docs site, deployment guides |
 
+## [0.3.1] - 2026-09-26
+
+Packaging only, so the release can be installed from PyPI. No code changes.
+
+### Fixed
+
+- The four packages now pin one another to the same version. Before this, `pip install
+  ragfabric==0.3.0` would have pulled whatever `ragfabric-core` was newest, so an old install
+  would break the day a newer core shipped. A test now fails if the versions or pins drift.
+
+### Changed
+
+- Package metadata gains an Alpha development status, Python 3.13 and topic classifiers, and
+  project links (repository, docs, changelog, issues).
+
 ## [0.3.0] - 2026-09-26
 
 Graph retrieval. A knowledge graph extracted from ingested chunks, resolved and merged with a
