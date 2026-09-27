@@ -166,6 +166,19 @@ Phase 6 merged to main on 2026-09-25 as PR #40 (rebase-merge); `[x]` below means
 - [ ] `RouterDecision` with confidence and user-safe reasoning
 - [ ] Feature signals plus classifier, AUTO and MANUAL modes
 - [ ] Fallback chain recorded on every run
+- [ ] Terminal experience for `pip install ragfabric` users (folded into this phase on 2026-09-27
+      rather than waiting for Phase 9 or 10, since the CLI is on PyPI from v0.3.1):
+  - [ ] A welcome screen for bare `ragfabric`, pointing to where to start
+  - [ ] `ragfabric quickstart`: guided setup from Docker and PostgreSQL through `init`, a sample
+        ingest and a first cited answer
+  - [ ] `ragfabric doctor`: a pass or fail check of Python, database, migrations, providers and
+        configuration, with the exact command that fixes each failure
+  - [ ] `ragfabric strategies`: the four retrieval strategies, what each is best at, and an example
+        question for each
+  - [ ] Examples in every `--help`, and errors that name the fix instead of a stack trace
+  - [ ] Progress during `ingest`
+  - [ ] `ask` output that shows the answer, numbered citations with document names, the strategy
+        the router chose and why, and the traversed path for graph answers
 - [ ] **Release v0.4.0**
 
 ## v0.5.0 Evaluation framework
