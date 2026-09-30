@@ -53,7 +53,8 @@ and the router's job is to spend the agent's cost only where it pays.
 | Trigger | Action |
 |---|---|
 | Any strategy other than Traditional returns no chunks (Graph with `no_graph_coverage`, `no_entity_matched` or `no_walkable_edges`, Vectorless with no term match, Agentic with zero usable evidence) | Traditional |
-| The chosen strategy (other than Traditional) raised an exception | Traditional with the remaining call budget. The router span records `fallback_reason: "error: <ExceptionType>: <message>"` |
+| A non-Traditional routed strategy raised an exception | Traditional with zero model calls (skipping LLM reranking). The router span records `fallback_reason: "error: <ExceptionType>: <message>"` (truncated to 200 characters) and `failed_attempt_calls: "unknown"` |
+| The Vectorless leg of a fused run raised an exception | Keep the Traditional leg's result. The router span records `fallback_reason: "error: <ExceptionType>: <message>"` (truncated to 200 characters); `fallback_from` stays unset |
 | Traditional was chosen and found nothing | None. An honest empty result |
 | The fallback also finds nothing | Stop. Empty, with both attempts in the trace |
 
@@ -77,8 +78,11 @@ Discarding answered evidence to run a simpler search would make the answer worse
   behaviour change and is recorded in the CHANGELOG.
 - A routed request is at most one classifier call, one strategy run and one fallback, so its cost
   is bounded by the caller's budget on every path.
-- If a routed strategy raises an exception, `auto` catches it, falls back to Traditional, and
-  records the error in the router span. If Traditional raises, the error surfaces as it would for a
-  direct request.
+- If a non-Traditional routed strategy raises an exception, `auto` catches it, falls back to
+  Traditional with zero model calls, and records the error in the router span as `fallback_reason:
+  "error: <ExceptionType>: <message>"` (truncated to 200 characters) and `failed_attempt_calls:
+  "unknown"`. If the Vectorless leg of a fused run raises, the Traditional leg's result is kept
+  and the error is recorded. If Traditional raises (chosen, fallback, or fused leg), the error
+  surfaces as it would for a direct request.
 - Whether the router picks the best strategy is a measurement, and none exists yet. Phase 8
   measures it (ADR 0004), and the first real run is written up in `docs/learning/`.

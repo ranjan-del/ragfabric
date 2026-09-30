@@ -106,7 +106,8 @@ One step, never a chain. Every fallback is recorded on the run as `fallback_from
 | Trigger | Action |
 |---|---|
 | Any strategy other than Traditional returns no chunks | Run Traditional. For Graph the recorded reason is one of `no_graph_coverage`, `no_entity_matched` or `no_walkable_edges`; for Vectorless no term match; for Agentic zero usable evidence |
-| The chosen strategy (other than Traditional) raised an exception | Run Traditional with the remaining call budget. The router span records `fallback_reason: "error: <ExceptionType>: <message>"` |
+| A non-Traditional routed strategy raised an exception | Run Traditional with zero model calls (skipping LLM reranking). The router span records `fallback_reason: "error: <ExceptionType>: <message>"` (truncated to 200 characters) and `failed_attempt_calls: "unknown"` |
+| The Vectorless leg of a fused run raised an exception | Keep the Traditional leg's result. The router span records `fallback_reason: "error: <ExceptionType>: <message>"` (truncated to 200 characters); `fallback_from` stays unset because no fallback strategy ran |
 | Traditional was chosen and found nothing | None. An honest empty result |
 | The fallback also finds nothing | Stop. Empty, with both attempts in the trace |
 | Classifier confidence below `router.min_confidence` | Not a fallback. Traditional and Vectorless are fused up front |
@@ -130,10 +131,10 @@ make the answer worse.
 | Step | Budget rule |
 |---|---|
 | The classifier call | Deducted before the chosen strategy runs |
-| A fallback | Gets only what is left after the first attempt |
+| A fallback | Runs with zero model calls (skipping LLM reranking) if the first attempt spent any calls; gets only what is left if it spent none |
 | The fused path | Vectorless gets what Traditional left |
 | Traditional with no calls left | Skips an LLM reranker when its call budget is zero |
-| Graph with no calls left | The graph strategy skips its entity-matching call when no call is left, returns nothing, and `auto` falls back to Traditional |
+| Graph with no calls left | The graph strategy skips its entity-matching call when no call is left, returns nothing with `fallback_reason: "no calls left"`, and `auto` falls back to Traditional with zero model calls |
 | Counters | Summed across every run made. Every trace is kept |
 
 ## Safety
@@ -142,7 +143,7 @@ make the answer worse.
 |---|---|
 | Access | `auto`, every fallback and `graph_search` pass the caller's principal and access filter untouched (ADR 0003). The context is a copy with a reduced budget and nothing else changed |
 | What the classifier sees | The question and the signals only, never chunk text |
-| Routing trouble | Never fails a request. A failed classifier becomes `signals_fallback`. If a routed strategy raises an exception, `auto` falls back to Traditional with the error recorded. If Traditional itself raises, the error surfaces as it would for a request naming traditional |
+| Routing trouble | Routing trouble never fails a request, except when Traditional itself raises. A failed classifier becomes `signals_fallback`. If a non-Traditional routed strategy raises, `auto` falls back to Traditional with zero model calls. If the Vectorless leg of a fused run raises, the Traditional leg's result is kept. If Traditional raises (chosen, fallback, or fused leg), the error surfaces as it would for a request naming traditional |
 | Cost | The classifier call counts in `llm_calls`, tokens and cost. The router has its own `router` span |
 
 ## What is recorded

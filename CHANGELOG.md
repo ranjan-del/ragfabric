@@ -33,14 +33,17 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
   requested strategy, the strategy that ran, `fallback_from`, router confidence and reasoning. No
   migration.
 - One fallback step, never a chain: Graph with no coverage, Vectorless with no term match,
-  Agentic with zero usable evidence, and a routed strategy that raises an exception all fall back
-  to Traditional. When a non-Traditional strategy raises, the router records the error in its span
-  as `fallback_reason: "error: <ExceptionType>: <message>"`. A fallback result carries none of the
-  failed attempt's sub-questions or sub-graph.
+  Agentic with zero usable evidence, and a non-Traditional routed strategy that raises an
+  exception all fall back to Traditional with zero model calls. The router records `fallback_reason:
+  "error: <ExceptionType>: <message>"` (truncated to 200 characters) and `failed_attempt_calls:
+  "unknown"`. If the Vectorless leg of a fused run raises, the Traditional leg's result is kept
+  and the error is recorded in `fallback_reason`; `fallback_from` stays unset. A fallback result
+  carries none of the failed attempt's sub-questions or sub-graph.
 - `auto` never exceeds the caller's `max_llm_calls`: the classifier call is deducted first, a
-  fallback gets what the first attempt left, Vectorless gets what Traditional left on the fused
-  path. Traditional skips an LLM reranker when its call budget is zero, and the graph strategy
-  skips its entity-matching call when no call is left, so `auto` falls back to Traditional.
+  fallback runs with zero model calls if the first attempt spent any calls. Vectorless gets what
+  Traditional left on the fused path. Traditional skips an LLM reranker when its call budget is
+  zero. Graph skips its entity-matching call when no call is left, returns nothing with
+  `fallback_reason: "no calls left"`, and `auto` falls back to Traditional with zero model calls.
 - Graph is left out of the candidates when `graph_store.enabled` is false or the request sets
   `document_id` or `format`.
 - **Agent.** A tool check between plan and retrieve lets decisive signals override the planner,
