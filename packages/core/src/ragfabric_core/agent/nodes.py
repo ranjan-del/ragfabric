@@ -35,6 +35,7 @@ from ragfabric_core.agent.state import (
     DEFAULT_ASSESS_STRICTNESS,
     AgentState,
     AssessStrictness,
+    BudgetExceeded,
     NodeName,
     SubQuestion,
     SubQuestionStatus,
@@ -180,6 +181,9 @@ class RetrieveOutcome(NodeOutcome):
     chunks_by_sub_question: dict[int, list[RetrievedChunk]] = Field(default_factory=dict)
     # The walks graph_search made this iteration, edgeless ones left out.
     subgraphs: list[Subgraph] = Field(default_factory=list)
+    # The budget refusal that cut this pass short, if one did. What was harvested
+    # before it is kept; the loop records the outcome and then stops on it.
+    budget_stop: str | None = None
 
     @property
     def made_progress(self) -> bool:
@@ -365,6 +369,7 @@ def retrieve(
     subgraphs: list[Subgraph] = []
     input_tokens = output_tokens = 0
     provider = model = ""
+    budget_stop: str | None = None
 
     open_indexes = _open_indexes(state)
     for index in open_indexes:
@@ -377,24 +382,39 @@ def retrieve(
             # not run. Returning nothing lets the next repair try something
             # else; raising would fail a request over a recoverable choice.
             continue
-        if hasattr(tool, "run_graph"):
-            # One model call to match entities, charged before it is made.
-            state.spend(NodeName.RETRIEVE, llm_calls=1)
-            graph_run = tool.run_graph(query, _with_override(ctx, override))
-            chunks = graph_run.chunks
-            input_tokens += graph_run.input_tokens
-            output_tokens += graph_run.output_tokens
-            if graph_run.subgraph is not None and graph_run.subgraph.edges:
-                subgraphs.append(graph_run.subgraph)
-            provider, model = tool.provider, tool.model
-        else:
-            chunks = tool.run(query, _with_override(ctx, override))
+        graph_calls = 0
+        try:
+            if hasattr(tool, "run_graph"):
+                # Room for the entity-matching call is checked before it is made
+                # and its real count recorded after, so a call the strategy did
+                # not make (no graph coverage) is never reported (ADR 0004).
+                state.ensure(NodeName.RETRIEVE, llm_calls=1)
+                graph_run = tool.run_graph(query, _with_override(ctx, override))
+                chunks = graph_run.chunks
+                graph_calls = graph_run.llm_calls
+                input_tokens += graph_run.input_tokens
+                output_tokens += graph_run.output_tokens
+                if graph_run.subgraph is not None and graph_run.subgraph.edges:
+                    subgraphs.append(graph_run.subgraph)
+                if graph_calls > 0:
+                    provider, model = tool.provider, tool.model
+            else:
+                chunks = tool.run(query, _with_override(ctx, override))
+        except BudgetExceeded as exc:
+            # Keep what earlier sub-questions already harvested; the loop stops.
+            budget_stop = str(exc)
+            break
         harvested.extend(chunks)
         returned_by_sub_question[index] = len(chunks)
         chunks_by_sub_question[index] = list(chunks)
         calls.append(
             ToolCall(tool=sq.tool, query=query, sub_question_index=index, returned=len(chunks))
         )
+        try:
+            state.spend(NodeName.RETRIEVE, llm_calls=graph_calls)
+        except BudgetExceeded as exc:
+            budget_stop = str(exc)
+            break
 
     new_ids = state.add_evidence(harvested)
     return RetrieveOutcome(
@@ -407,6 +427,7 @@ def retrieve(
             new_chunks=len(new_ids),
             pooled=len(state.evidence),
             progress=bool(new_ids),
+            budget_stop=budget_stop,
         ),
         new_chunk_ids=new_ids,
         tool_calls=calls,
@@ -417,6 +438,7 @@ def retrieve(
         provider=provider,
         model=model,
         subgraphs=subgraphs,
+        budget_stop=budget_stop,
     )
 
 

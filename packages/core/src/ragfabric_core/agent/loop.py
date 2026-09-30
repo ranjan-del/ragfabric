@@ -379,15 +379,14 @@ def run_agent(
             break
 
         state.iterations += 1
-        try:
-            retrieved = retrieve(state, tools=tools, ctx=ctx, overrides=overrides, origin=origin)
-        except BudgetExceeded as exc:
-            stop, detail = STOP_BUDGET, str(exc)
-            break
+        retrieved = retrieve(state, tools=tools, ctx=ctx, overrides=overrides, origin=origin)
         record(retrieved)
         walks.extend(retrieved.subgraphs)
         tool_calls.extend(retrieved.tool_calls)
         _group_evidence(grouped, retrieved.chunks_by_sub_question)
+        if retrieved.budget_stop is not None:
+            stop, detail = STOP_BUDGET, retrieved.budget_stop
+            break
 
         # Checked again here, between the retrieval and the assessment, because
         # retrieval is the slow half of an iteration and the assessment is the

@@ -67,14 +67,82 @@ def test_a_graph_call_is_charged_to_the_agents_budget(small_subgraph):
     assert outcome.subgraphs == [small_subgraph]
 
 
-def test_a_graph_call_over_budget_raises_budget_exceeded():
+def test_a_graph_call_over_budget_is_refused_and_reported_not_raised():
     tool = FakeGraphTool(
         GraphToolRun(chunks=[], subgraph=None, llm_calls=1, input_tokens=0, output_tokens=0)
     )
     state = _graph_state(max_llm_calls=0)
-    with pytest.raises(BudgetExceeded):
-        retrieve(state, tools={"graph_search": tool}, ctx=ctx())
+    outcome = retrieve(state, tools={"graph_search": tool}, ctx=ctx())
     assert tool.seen == []  # refused before the model call was made
+    assert outcome.budget_stop and "max_llm_calls" in outcome.budget_stop
+    assert state.llm_calls == 0
+
+
+def test_ensure_moves_no_counter_and_spending_nothing_never_raises():
+    state = AgentState(question="q", max_llm_calls=1)
+    state.ensure(NodeName.RETRIEVE, llm_calls=1)
+    assert state.llm_calls == 0
+    state.spend(NodeName.RETRIEVE, llm_calls=1)
+    with pytest.raises(BudgetExceeded):
+        state.ensure(NodeName.RETRIEVE, llm_calls=1)
+    state.spend(NodeName.RETRIEVE, llm_calls=0)
+    state.ensure(NodeName.RETRIEVE, llm_calls=0)
+    assert state.llm_calls == 1
+
+
+def test_a_no_coverage_graph_run_is_not_charged_and_adds_no_ledger_model():
+    tool = FakeGraphTool(
+        GraphToolRun(chunks=[], subgraph=None, llm_calls=0, input_tokens=0, output_tokens=0)
+    )
+    state = _graph_state()
+    outcome = retrieve(state, tools={"graph_search": tool}, ctx=ctx())
+    assert state.llm_calls == 0
+    assert (outcome.provider, outcome.model) == ("", "")
+    assert outcome.budget_stop is None
+
+
+def test_a_budget_refusal_part_way_keeps_what_was_already_harvested(small_subgraph):
+    first = FakeGraphTool(
+        GraphToolRun(
+            chunks=[chunk(1)],
+            subgraph=small_subgraph,
+            llm_calls=1,
+            input_tokens=7,
+            output_tokens=3,
+        )
+    )
+    second = FakeGraphTool(
+        GraphToolRun(chunks=[chunk(9)], subgraph=None, llm_calls=1, input_tokens=1, output_tokens=1)
+    )
+    sem = FakeTool("semantic_search", chunks=[chunk(2)])
+    llm = RecordingLLM(
+        _plan(("a", "semantic_search"), ("b", "graph_search"), ("c", "graph_search"))
+    )
+    # plan spends 1 of 2; the first graph call spends the last; the second is refused.
+    run = run_agent(
+        "q",
+        llm=llm,
+        tools={"semantic_search": sem, "graph_search": _Sequenced(first, second)},
+        ctx=ctx(max_llm_calls=2),
+    )
+    assert run.stop_reason == "budget"
+    assert {c.chunk_id for c in run.chunks} == {1, 2}
+    assert run.input_tokens >= 7 and run.subgraph is not None
+    assert [t.tool for t in run.tool_calls] == ["semantic_search", "graph_search"]
+    assert sum(1 for span in run.trace if span.name == "retrieve") == 1
+    assert run.state.llm_calls == 2
+
+
+class _Sequenced(FakeGraphTool):
+    """Answers each call with the next scripted run."""
+
+    def __init__(self, *tools):
+        super().__init__(None)
+        self._tools = list(tools)
+
+    def run_graph(self, query, ctx):
+        self.seen.append(ctx)
+        return self._tools[len(self.seen) - 1]._run
 
 
 def test_retrieve_has_no_per_node_cap_unless_one_is_configured():
