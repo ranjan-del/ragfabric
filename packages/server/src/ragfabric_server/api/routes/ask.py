@@ -74,7 +74,6 @@ from ragfabric_core.providers.base import LLMProvider, Message
 from ragfabric_core.strategies.base import (
     RetrievalContext,
     RetrievedChunk,
-    StrategyName,
     StrategyParams,
     StrategyRegistry,
     TraceSpan,
@@ -89,6 +88,7 @@ from ragfabric_server.api.routes.search import (
     _refuse_unapplied_filters,
     _strategy_for,
     _usage,
+    uses_graph_path,
 )
 from ragfabric_server.deps import (
     get_access_filter,
@@ -337,7 +337,7 @@ def ask(
             yield _event("token", {"text": text})
             llm_calls = result.llm_calls
             in_tokens = out_tokens = 0
-        elif result.strategy == StrategyName.GRAPH:
+        elif uses_graph_path(result):
             pieces = []
             for delta in llm.stream(
                 [

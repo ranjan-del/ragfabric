@@ -44,6 +44,7 @@ from ragfabric_core.runtime import get_config
 from ragfabric_core.stores.base import LexicalStore
 from ragfabric_core.strategies.base import (
     RetrievalContext,
+    RetrievalResult,
     RetrievedChunk,
     RetrieverStrategy,
     StrategyName,
@@ -251,6 +252,13 @@ def _refuse_unapplied_filters(strategy: str, document_id: int | None, fmt: str |
         )
 
 
+def uses_graph_path(result: RetrievalResult) -> bool:
+    """A result generated against its walk: the graph strategy's, or an agent's that walked one."""
+    return result.strategy == StrategyName.GRAPH or (
+        result.subgraph is not None and bool(result.subgraph.edges)
+    )
+
+
 def _generate(query: str, result, llm: LLMProvider) -> Generated:
     """Generate the answer this result deserves.
 
@@ -260,7 +268,7 @@ def _generate(query: str, result, llm: LLMProvider) -> Generated:
     nothing to regenerate for, because a claim the evidence does not support is
     the model saying more than it was given.
     """
-    if result.strategy == StrategyName.GRAPH:
+    if uses_graph_path(result):
         # Generated against the chunks and the walked sub-graph together, and
         # checked claim by claim: a relationship claim must cite a traversed
         # edge and a passage that backs it (graph citation contract, rulings
