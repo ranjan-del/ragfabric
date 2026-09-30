@@ -24,6 +24,7 @@ from ragfabric_core.strategies.base import (
     StrategyParams,
     StrategyRegistry,
 )
+from ragfabric_core.strategies.contract import assert_strategy_contract
 from ragfabric_core.strategies.graph import GraphRAGStrategy
 
 graph = traversal_tests.graph
@@ -39,13 +40,14 @@ def ctx(
     access: AccessFilter | None = None,
     top_k: int = 5,
     collection_ids: list[int] | None = None,
+    max_llm_calls: int | None = None,
 ) -> RetrievalContext:
     return RetrievalContext(
         principal=Principal(user_id=1, email="engineer@example.com"),
         access_filter=access or AccessFilter.unrestricted(),
         collection_ids=collection_ids,
         params=StrategyParams(top_k=top_k),
-        budget=Budget(),
+        budget=Budget() if max_llm_calls is None else Budget(max_llm_calls=max_llm_calls),
     )
 
 
@@ -404,3 +406,94 @@ def test_the_llm_call_runs_with_no_database_session_open(graph):
     assert before.count("session_open") >= 1
     # And a session was opened again afterwards, for the traversal proper.
     assert events[llm_index + 1 :].count("session_open") >= 1
+
+
+# ---------------------------------------------------------------------------
+# The call budget (ruling R22): no budget, no model call
+# ---------------------------------------------------------------------------
+
+
+class _CountingLLM:
+    name = "counting"
+    default_model = "counting"
+
+    def __init__(self):
+        self.calls = 0
+
+    def complete(self, messages, **kwargs):
+        self.calls += 1
+        raise AssertionError("the model must not be called with no budget")
+
+
+def test_a_zero_budget_makes_no_model_call_and_returns_no_chunks(graph):
+    graph.entity("ada", chunks=(graph.open_chunk,))
+    llm = _CountingLLM()
+    instance = strategy(graph, llm, max_hops=2)
+    result = assert_strategy_contract(instance, "who reports to ada", ctx(max_llm_calls=0))
+    assert llm.calls == 0
+    assert result.chunks == [] and result.llm_calls == 0
+    skipped = [s for s in result.trace if s.attributes.get("skipped") == "budget"]
+    assert len(skipped) == 1
+    assert result.subgraph is None
+
+
+def test_auto_falls_back_to_traditional_when_a_graph_pick_has_no_budget_left(graph):
+    import json
+
+    from agent_doubles import RecordingLLM, chunk
+
+    from ragfabric_core.strategies.auto import AutoStrategy
+    from ragfabric_core.strategies.base import RetrievalResult
+
+    graph.entity("ada", chunks=(graph.open_chunk,))
+
+    class _Traditional:
+        name = StrategyName.TRADITIONAL
+
+        def __init__(self, name=StrategyName.TRADITIONAL):
+            self.name = name
+
+        def retrieve(self, query, ctx):
+            return RetrievalResult(
+                strategy=self.name,
+                chunks=[chunk(9)],
+                retrieval_calls=1,
+                llm_calls=0,
+                input_tokens=0,
+                output_tokens=0,
+                latency_ms=1,
+            )
+
+    classifier = RecordingLLM(
+        json.dumps(
+            {
+                "query_type": "relationship",
+                "strategy": "graph",
+                "confidence": 0.95,
+                "reasoning": "Asks how entities relate.",
+            }
+        )
+    )
+    llm = _CountingLLM()
+    registry = StrategyRegistry()
+    registry.register(_Traditional())
+    registry.register(_Traditional(StrategyName.VECTORLESS))
+    registry.register(strategy(graph, llm, max_hops=2))
+    auto = AutoStrategy(
+        registry=registry,
+        llm=classifier,
+        min_confidence=0.6,
+        classifier_model=None,
+        graph_enabled=True,
+        relation_types=["REPORTS_TO"],
+    )
+    registry.register(auto)
+
+    # The classifier spends the caller's only call, so the graph pick has none left.
+    result = assert_strategy_contract(
+        auto, " ".join(["onboarding"] * 20) + "?", ctx(max_llm_calls=1)
+    )
+    assert result.router.selected_strategy == "graph"
+    assert result.strategy is StrategyName.TRADITIONAL
+    assert result.fallback_from is StrategyName.GRAPH
+    assert llm.calls == 0 and result.llm_calls == 1

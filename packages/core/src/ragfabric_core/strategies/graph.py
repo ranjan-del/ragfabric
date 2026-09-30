@@ -41,7 +41,9 @@ name and alias only; ``embedding_calls`` is always 0, because none are made.
 was made, whether or not the model's answer could be used: a call that came
 back as a contract violation still spent one call, and reporting 0 would hide
 that spend. It is 0 when coverage fails and no question call is made at all
-(ruling R22). Nothing here calls a model a second time to retry.
+(ruling R22). Nothing here calls a model a second time to retry. With ``ctx.budget.max_llm_calls``
+below 1 the question call is skipped (``llm_calls=0``, a span attributed
+``skipped="budget"``, no subgraph), so the strategy contract holds under ``auto``.
 ``retrieval_calls`` counts one per store round trip this run actually made,
 not a fixed number per call shape: the coverage check always runs one query,
 first; ``match_entities`` adds one only when the question named at least one
@@ -241,6 +243,34 @@ class GraphRAGStrategy:
                     truncated=False,
                     empty_reason=EmptyReason.NO_GRAPH_COVERAGE,
                 ),
+            )
+
+        if ctx.budget.max_llm_calls < 1:
+            # The strategy contract: llm_calls <= ctx.budget.max_llm_calls. The
+            # question call is the only model call this strategy makes, so with
+            # no budget there is nothing it can honestly do. No walk ran, so
+            # there is no subgraph to report (the same shape as a question the
+            # model answered unusably) and no EmptyReason: none of the three
+            # describes a run that never looked, and inventing one is out.
+            spans.append(
+                TraceSpan(
+                    name="extract_question",
+                    started_ms=int((time.perf_counter() - started) * 1000),
+                    duration_ms=0,
+                    attributes={"skipped": "budget"},
+                )
+            )
+            return RetrievalResult(
+                strategy=self.name,
+                chunks=[],
+                retrieval_calls=1,
+                embedding_calls=0,
+                llm_calls=0,
+                input_tokens=0,
+                output_tokens=0,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                trace=spans,
+                subgraph=None,
             )
 
         # The coverage check's session is already closed by this point, so the
