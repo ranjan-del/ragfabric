@@ -169,9 +169,11 @@ def _record(
 
     ``access_stats`` (candidate counts before/after the access filter, for the
     audit row's ``sources_filtered``) is read through ``_access_stats`` off
-    the exact strategy that just retrieved, so the count is measured against
-    the same candidates this request actually searched, the same as
-    ``search.py``'s three endpoints, whichever store that strategy uses.
+    the strategy that actually answered, not the ``strategy`` argument: under
+    ``auto`` that argument has no store, so ``_counted_strategy`` takes the
+    registry entry for ``result.strategy`` instead. The count is therefore
+    measured against the same candidates this request actually searched, the
+    same as ``search.py``'s three endpoints, whichever store that strategy uses.
     """
     used = {c["chunk_id"] for c in answer["citations"] if c["used"]}
     before, after = _access_stats(

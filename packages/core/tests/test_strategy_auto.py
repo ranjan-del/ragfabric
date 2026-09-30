@@ -3,8 +3,8 @@ import json
 import pytest
 from agent_doubles import RecordingLLM, chunk, ctx
 
-from ragfabric_core.providers.base import ProviderError
 from ragfabric_core.graph.contracts import EmptyReason, Subgraph
+from ragfabric_core.providers.base import ProviderError
 from ragfabric_core.strategies.auto import AutoStrategy
 from ragfabric_core.strategies.base import (
     RetrievalResult,

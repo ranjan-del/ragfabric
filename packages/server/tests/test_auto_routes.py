@@ -18,8 +18,9 @@ from ragfabric_core.config_file import RouterConfig
 from ragfabric_core.db.session import SessionLocal
 from ragfabric_core.models.access import AuditLog
 from ragfabric_core.models.runs import RetrievalRun
-from ragfabric_core.providers.base import Completion, Message
+from ragfabric_core.providers.base import Completion, Message, ProviderError
 from ragfabric_core.strategies.auto import AutoStrategy
+from ragfabric_core.strategies.base import StrategyName
 from ragfabric_core.strategies.graph import GraphRAGStrategy
 from ragfabric_server.api.routes import ask as ask_route
 from ragfabric_server.api.routes import search as search_route
@@ -286,3 +287,65 @@ def test_access_stats_are_measured_on_the_strategy_that_ran(client, admin_token,
     assert counted == [registry.get("vectorless")] * 2
     with SessionLocal() as db:
         assert db.query(AuditLog).filter(AuditLog.action == "query").count() == 2
+
+
+@pytest.mark.parametrize("path", ["query", "semantic", "hybrid"])
+def test_a_bad_strategy_name_is_a_422_on_every_search_route(client, admin_token, auto, path):
+    r = client.post(
+        f"/api/search/{path}",
+        json={"query": PLAIN, "strategy": "bogus"},
+        headers=auth(admin_token),
+    )
+
+    assert r.status_code == 422
+
+
+def test_semantic_with_auto_reports_and_counts_the_strategy_that_ran(
+    client, admin_token, auto, monkeypatch
+):
+    registry = client.app.state.strategy_registry
+    counted: list[object] = []
+    real = search_route._access_stats
+
+    def spy(strategy, filters, access):
+        counted.append(strategy)
+        return real(strategy, filters, access)
+
+    monkeypatch.setattr(search_route, "_access_stats", spy)
+
+    r = client.post(
+        "/api/search/semantic",
+        json={"query": OPEN, "strategy": "auto"},
+        headers=auth(admin_token),
+    )
+
+    assert r.status_code == 200, r.text
+    assert r.json()["strategy"] == "vectorless"
+    assert counted == [registry.get("vectorless")]
+    assert not any(isinstance(item, AutoStrategy) for item in counted)
+
+
+class _Unreachable:
+    """A strategy whose model cannot be reached."""
+
+    def __init__(self, name) -> None:
+        self.name = name
+
+    def retrieve(self, query, ctx):
+        raise ProviderError("graph-llm", "connection refused")
+
+
+def test_auto_contains_a_routed_strategys_failure(client, admin_token, auto, router_mode):
+    router_mode("auto")
+    client.app.state.strategy_registry.register(_Unreachable(StrategyName.GRAPH))
+
+    asked = _ask(client, admin_token, query=RELATIONSHIP)
+    queried = _query(client, admin_token, query=RELATIONSHIP)
+
+    assert asked.status_code == 200, asked.text
+    assert queried.status_code == 200, queried.text
+    assert asked.json()["strategy"] == "traditional"
+    assert asked.json()["fallback_from"] == "graph"
+    assert queried.json()["strategy"] == "traditional"
+    run = _last_run()
+    assert run.selected_strategy == "traditional" and run.fallback_from == "graph"
