@@ -151,11 +151,11 @@ def test_every_sub_question_of_a_decomposed_question_is_reported() -> None:
     llm = RecordingLLM(
         plan_json(
             ("what is the retry limit", "semantic_search"),
-            ("who signs off the change", "lexical_search"),
+            ("who signs off change CHG_4419", "lexical_search"),
         ),
         assess_json(
             ("what is the retry limit", True, None),
-            ("who signs off the change", False, "the approver"),
+            ("who signs off change CHG_4419", False, "the approver"),
         ),
         repair_json("broaden"),
     )
@@ -163,14 +163,16 @@ def test_every_sub_question_of_a_decomposed_question_is_reported() -> None:
         llm=llm, tools={"semantic_search": semantic, "lexical_search": lexical}
     )
 
-    result = strategy.retrieve("what is the retry limit and who signs off the change", make_ctx())
+    result = strategy.retrieve(
+        "what is the retry limit and who signs off change CHG_4419", make_ctx()
+    )
 
     assert [r.text for r in result.sub_questions] == [
         "what is the retry limit",
-        "who signs off the change",
+        "who signs off change CHG_4419",
     ]
     assert report_for(result.sub_questions, "what is the retry limit").status == "answered"
-    unanswered = report_for(result.sub_questions, "who signs off the change")
+    unanswered = report_for(result.sub_questions, "who signs off change CHG_4419")
     assert unanswered.status == "open"
     assert unanswered.reason
     assert unanswered.chunk_ids == [2]

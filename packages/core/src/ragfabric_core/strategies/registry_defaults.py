@@ -112,6 +112,7 @@ def _build_agentic(
         max_latency_ms=settings.max_latency_ms,
         max_cost_usd=settings.max_cost_usd,
         assess_strictness=settings.assess_strictness,
+        relation_types=cfg.graph_store.relation_types,
     )
 
 

@@ -36,6 +36,7 @@ it here keeps the import one way round instead of making a cycle.
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -47,6 +48,7 @@ from ragfabric_core.agent.nodes import (
     ToolCall,
     _span,
     assess,
+    check_tools,
     plan,
     retrieve,
 )
@@ -324,6 +326,7 @@ def run_agent(
     max_latency_ms: int | None = None,
     max_cost_usd: float | None = None,
     assess_strictness: AssessStrictness = DEFAULT_ASSESS_STRICTNESS,
+    relation_types: Sequence[str] = (),
 ) -> AgentRun:
     """Plan once, then retrieve, assess and repair until one of three stops fires.
 
@@ -362,6 +365,7 @@ def run_agent(
 
     try:
         record(plan(state, llm=llm, tools=tools, origin=origin))
+        record(check_tools(state, tools=tools, relation_types=relation_types, origin=origin))
     except BudgetExceeded as exc:
         stop, detail = STOP_BUDGET, str(exc)
 

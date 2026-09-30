@@ -26,7 +26,7 @@ call made under the wrong filter contaminates everything downstream.
 from __future__ import annotations
 
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -43,6 +43,7 @@ from ragfabric_core.agent.state import (
 from ragfabric_core.agent.tools import ToolRegistry
 from ragfabric_core.graph.contracts import Subgraph
 from ragfabric_core.providers.base import LLMProvider, Message
+from ragfabric_core.router.signals import TOOL_FOR_STRATEGY, extract_signals, propose
 from ragfabric_core.strategies.base import RetrievalContext, RetrievedChunk, TraceSpan
 
 # A model asked to decompose will sometimes decompose forever. Each sub-question
@@ -236,6 +237,48 @@ def _span(name: str, *, origin: float, begin: float, **attributes) -> TraceSpan:
         started_ms=max(0, int((begin - origin) * 1000)),
         duration_ms=max(0, int((time.perf_counter() - begin) * 1000)),
         attributes=attributes,
+    )
+
+
+def check_tools(
+    state: AgentState,
+    *,
+    tools: ToolRegistry,
+    relation_types: Sequence[str],
+    origin: float | None = None,
+) -> NodeOutcome:
+    """Correct the planner's tool choice where the signals are decisive (ADR 0014).
+
+    No model call. The planner's choice stands unless a rule fired
+    unambiguously for a different tool this run actually has. ``fetch_document``
+    is left alone: it names a document, and no signal knows better.
+    """
+    begin = time.perf_counter()
+    origin = begin if origin is None else origin
+    available = [strategy for strategy, tool in TOOL_FOR_STRATEGY.items() if tool in tools]
+    changed: list[str] = []
+    # propose() refuses an empty list, and with none of the routable tools
+    # there is nothing to override to.
+    if available:
+        for index, sub_question in enumerate(state.sub_questions):
+            if sub_question.tool == "fetch_document":
+                continue
+            proposal = propose(
+                extract_signals(sub_question.text, relation_types=relation_types),
+                available=available,
+            )
+            wanted = TOOL_FOR_STRATEGY.get(proposal.strategy)
+            if proposal.decisive and wanted and wanted in tools and wanted != sub_question.tool:
+                changed.append(f"{index}:{sub_question.tool}->{wanted}({proposal.query_type})")
+                sub_question.tool = wanted
+    return NodeOutcome(
+        span=_span(
+            "tool_check",
+            origin=origin,
+            begin=begin,
+            overrides=len(changed),
+            detail=";".join(changed) or None,
+        )
     )
 
 

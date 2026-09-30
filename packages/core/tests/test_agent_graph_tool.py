@@ -116,7 +116,11 @@ def test_a_budget_refusal_part_way_keeps_what_was_already_harvested(small_subgra
     )
     sem = FakeTool("semantic_search", chunks=[chunk(2)])
     llm = RecordingLLM(
-        _plan(("a", "semantic_search"), ("b", "graph_search"), ("c", "graph_search"))
+        _plan(
+            ("a", "semantic_search"),
+            ("Who does Ravi Sharma report to?", "graph_search"),
+            ("Who does Asha Rao report to?", "graph_search"),
+        )
     )
     # plan spends 1 of 2; the first graph call spends the last; the second is refused.
     run = run_agent(
@@ -124,6 +128,7 @@ def test_a_budget_refusal_part_way_keeps_what_was_already_harvested(small_subgra
         llm=llm,
         tools={"semantic_search": sem, "graph_search": _Sequenced(first, second)},
         ctx=ctx(max_llm_calls=2),
+        relation_types=["REPORTS_TO"],
     )
     assert run.stop_reason == "budget"
     assert {c.chunk_id for c in run.chunks} == {1, 2}
@@ -238,10 +243,22 @@ def test_the_agent_strategy_hides_graph_search_from_a_filtered_request(small_sub
         )
     )
     sem = FakeTool("semantic_search", chunks=[chunk(2)])
-    plan_text = _plan(("q", "graph_search"))
-    assess = json.dumps({"verdicts": [{"sub_question": "q", "answered": True, "missing": None}]})
+    plan_text = _plan(("Who does Ravi Sharma report to?", "graph_search"))
+    assess = json.dumps(
+        {
+            "verdicts": [
+                {
+                    "sub_question": "Who does Ravi Sharma report to?",
+                    "answered": True,
+                    "missing": None,
+                }
+            ]
+        }
+    )
     strategy = AgenticRAGStrategy(
-        llm=RecordingLLM(plan_text, assess), tools={"semantic_search": sem, "graph_search": tool}
+        llm=RecordingLLM(plan_text, assess),
+        tools={"semantic_search": sem, "graph_search": tool},
+        relation_types=["REPORTS_TO"],
     )
     result = strategy.retrieve("q", ctx())
     assert result.subgraph is not None and tool.seen
@@ -251,7 +268,11 @@ def test_the_agent_strategy_hides_graph_search_from_a_filtered_request(small_sub
         update={"params": StrategyParams(metadata_filters={"document_id": 4})}
     )
     llm = RecordingLLM(plan_text, assess)
-    strategy = AgenticRAGStrategy(llm=llm, tools={"semantic_search": sem, "graph_search": tool})
+    strategy = AgenticRAGStrategy(
+        llm=llm,
+        tools={"semantic_search": sem, "graph_search": tool},
+        relation_types=["REPORTS_TO"],
+    )
     result = strategy.retrieve("q", filtered)
     assert tool.seen == [] and result.subgraph is None
     assert "graph_search:" not in llm.prompts[0][-1].content
