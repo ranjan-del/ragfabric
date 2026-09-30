@@ -31,6 +31,8 @@ from ragfabric_core.generate.cited import (
     CitedAnswer,
     DatedSubQuestion,
     DroppedClaim,
+    dated_sources_note,
+    dated_sub_questions,
     generate_agentic_answer,
     generate_cited_answer,
     generate_graph_answer,
@@ -274,8 +276,21 @@ def _generate(query: str, result, llm: LLMProvider) -> Generated:
         # edge and a passage that backs it (graph citation contract, rulings
         # R32 and R33), a chunk claim the Phase 3 contract. One call, no retry.
         graph = generate_graph_answer(query, result.chunks, result.subgraph, llm)
+        text = graph.text
+        reports: list[DatedSubQuestion] = []
+        if result.sub_questions:
+            # An agent that walked a graph keeps what the agentic path gives it:
+            # sub-questions whose sources carry differing effective dates are
+            # reported, and the answer says so in the same words.
+            reports = dated_sub_questions(
+                sub_question_evidence_from(result.sub_questions, result.chunks), result.chunks
+            )
+            note = dated_sources_note(reports)
+            if note:
+                text = f"{text} {note}"
         return Generated(
-            text=graph.text,
+            text=text,
+            dated_sources=reports,
             input_tokens=graph.input_tokens,
             output_tokens=graph.output_tokens,
             # Exactly one call, or none at all when there were no chunks.
