@@ -52,8 +52,8 @@ the sub-question text as the query, because the working query was the bare docum
 ## A signal has no confidence number
 
 A signal is a rule that fired, not a measurement. Giving it a confidence of 0.9 would be a number
-nobody measured, which ADR 0004 forbids. A signals decision carries `decisive: true` and
-`confidence: null`. Only the classifier reports a confidence, recorded as what the model said and
+nobody measured, which ADR 0004 forbids. A signals decision carries `confidence: null`, and
+`decisive: true` (a `signals_fallback` decision has `decisive: false`). Only the classifier reports a confidence, recorded as what the model said and
 uncalibrated until Phase 8 measures it.
 
 ## Consequences

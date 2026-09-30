@@ -54,7 +54,7 @@ reached, the signals' own proposal is used.
 A rule that matches an error-code pattern might be right most of the time, but "most" was never
 counted. Attaching 0.9 to it would put a figure in the decision that nobody measured, which
 [ADR 0004](../adr/0004-measurement-first-no-fabricated-numbers.md) forbids. So a signals decision
-says `decisive: true` and `confidence: null`. Even the classifier's number is only a model's
+says `confidence: null`, with `decisive: true` when it came from the signals (a `signals_fallback` decision is not decisive). Even the classifier's number is only a model's
 self-report, and models are often more sure than they are right. That is why the threshold
 `router.min_confidence` is an untuned starting value.
 
@@ -64,8 +64,8 @@ self-report, and models are often more sure than they are right. That is why the
 |---|---|---|---|
 | Traditional | An exact identifier | The exact code can be missed, because a near-identical code looks almost the same to vector search | The identifier rule sends these to Vectorless before any model is asked |
 | Vectorless | A paraphrase match | The passage in other words is not found, so the result is empty | An empty result falls back to Traditional |
-| Graph | No entities in the corpus | An empty walk, plus one wasted entity-matching call | The graph reasons (`no_graph_coverage`, `no_entity_matched`, `no_walkable_edges`) fall back to Traditional |
-| Agentic | A simple lookup | Several model calls, more latency, same evidence | Only a comparison, aggregation or compound question fires the agentic rule |
+| Graph | No entities in the corpus | An empty walk, plus one wasted entity-matching call | Any empty result, including the graph reasons `no_graph_coverage`, `no_entity_matched` and `no_walkable_edges`, falls back to Traditional |
+| Agentic | A simple lookup | Several model calls, more latency, same evidence | Only a comparison, aggregation or compound question fires the agentic rule. The classifier can also choose it, and nothing limits that beyond its confidence threshold |
 | Traditional | A multi-part comparison | One retrieval answers part of it | Not caught by a fallback, since some evidence was returned |
 
 | Direction of error | Looks like | Recoverable by the router |

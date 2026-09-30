@@ -38,13 +38,13 @@ and the router's job is to spend the agent's cost only where it pays.
 
 | Rule | Why |
 |---|---|
-| Naming a strategy always bypasses the router. An unset strategy is resolved by the server from `router.mode` (`auto` gives `auto`, `manual` gives `traditional`) | Comparing the strategies fairly needs a way to ask for exactly one |
+| Naming a strategy always bypasses the router. An unset strategy is resolved by the server from `router.mode` (`auto` gives `auto`, `manual` gives `traditional`) on `/api/ask`, `/api/search/query` and `/api/search/semantic`. `/api/search/hybrid` does not route: unset means `traditional` there and `auto` is a 422 | Comparing the strategies fairly needs a way to ask for exactly one |
 | `auto` is never a routing target, never a fallback target and never an agent tool | A router that can route to itself can loop |
-| `auto` passes the caller's own `RetrievalContext` to everything it runs, fallbacks included | ADR 0003. Nothing rebuilds a context |
+| `auto` passes the caller's principal and access filter untouched to everything it runs, fallbacks included. The context is a copy with a reduced budget | ADR 0003. Nothing rebuilds a context |
 | Graph is left out of the candidates when `graph_store.enabled` is false, or when the request sets `document_id` or `format` | The graph walk applies access and collection scope only, so it cannot honour those filters. `/api/ask` already refuses them with a 422 when a caller names `graph` |
 | The classifier sees the question and the signals, never chunk text | Its one sentence of reasoning cannot repeat content from a document the caller may not read |
 | A failed classifier call does not fail the request | The signals' own proposal is used and the decision says `source: signals_fallback` |
-| Every path stays within the caller's `max_llm_calls` | The classifier call is deducted before the chosen strategy runs, a fallback gets only what is left after the first attempt, and on the fused path Vectorless gets what Traditional left |
+| Every path stays within the caller's `max_llm_calls` | The classifier call is deducted before the chosen strategy runs, a fallback gets only what is left after the first attempt, and on the fused path Vectorless gets what Traditional left. The graph strategy skips its entity-matching call when no call is left, returns nothing, and `auto` falls back to Traditional |
 | A fallback result carries none of the failed attempt's `sub_questions` or `subgraph`; the failed attempt stays in the trace | Generation picks its path from those fields. A Traditional fallback that kept an agent's reports would be answered on the agentic path |
 | Counters are summed across every run made and every trace is kept | The cost shown is the cost incurred (ADR 0004) |
 
@@ -52,9 +52,7 @@ and the router's job is to spend the agent's cost only where it pays.
 
 | Trigger | Action |
 |---|---|
-| Graph returns `no_graph_coverage`, `no_entity_matched` or `no_walkable_edges` | Traditional |
-| Vectorless finds no term match | Traditional |
-| Agentic returns zero usable evidence | Traditional |
+| Any strategy other than Traditional returns no chunks (Graph with `no_graph_coverage`, `no_entity_matched` or `no_walkable_edges`, Vectorless with no term match, Agentic with zero usable evidence) | Traditional |
 | Traditional was chosen and found nothing | None. An honest empty result |
 | The fallback also finds nothing | Stop. Empty, with both attempts in the trace |
 

@@ -73,9 +73,9 @@ strategies:
   graph:       { max_hops: 2, max_nodes: 200 }
 
 router:
-  mode: auto                  # auto | manual
-  min_confidence: 0.6
-  classifier_model: null      # defaults to llm.model
+  mode: auto                  # auto | manual. Read when a request names no strategy: auto routes it, manual uses traditional
+  min_confidence: 0.6         # a classifier confidence below this fuses Traditional and Vectorless. Untuned until Phase 8
+  classifier_model: null      # read by the router classifier; null uses llm.model
 
 limits:                       # enforced, not just read: upload rejects an over-size or wrong-type file,
   max_upload_mb: 50            # the rate limiter uses rate_limit_per_minute as its window

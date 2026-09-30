@@ -20,7 +20,7 @@ CLI and SDK accept it with no separate wiring, and it returns an ordinary `Retri
 |---|---|
 | `strategy: auto` | The router, then the chosen strategy, then at most one fallback |
 | A named strategy | That strategy only. The router is bypassed |
-| Nothing | The server resolves it from `router.mode`: `auto` gives `auto`, `manual` gives `traditional` |
+| Nothing | The server resolves it from `router.mode`: `auto` gives `auto`, `manual` gives `traditional`. This holds on `/api/ask`, `/api/search/query` and `/api/search/semantic`. `/api/search/hybrid` does not route: unset means `traditional` there whatever `router.mode` says, and `auto` is a 422 |
 
 ## The decision object
 
@@ -46,9 +46,9 @@ call per step is high), not measurements.
 
 | `source` | Meaning | `confidence` |
 |---|---|---|
-| `signals` | A rule fired, or a short plain question fired nothing | `null` |
+| `signals` | A rule fired, or a short plain question fired nothing. `decisive` is true | `null` |
 | `classifier` | The signals were not decisive and one model call chose | What the model reported, uncalibrated until Phase 8 |
-| `signals_fallback` | The classifier could not be used, so the signals' own proposal stood | `null` |
+| `signals_fallback` | The classifier could not be used, so the signals' own proposal stood. `decisive` is false | `null` |
 
 ## How it works internally
 
@@ -71,11 +71,11 @@ Two stages, cheap first.
 
 ### The decisive rule
 
-A decision is **decisive** when exactly one usable strategy's signal fired (`from_rule` is true),
-or when nothing fired and the question is short (`from_rule` is false, because that is a default
-and not a rule). Conflicting signals, or a long question with nothing usable, are not decisive and
-go to the classifier. A signal that points at a strategy unavailable for this request is noted in
-the reasons and not counted.
+A decision is **decisive** when exactly one usable signal fired (`from_rule` is true), or when
+nothing usable fired and either the question is short or a signal fired that could not be used
+(`from_rule` is false, because that is a default and not a rule). Conflicting usable signals, or a
+long question with no signal at all, are not decisive and go to the classifier. A signal that
+points at a strategy unavailable for this request is noted in the reasons and not counted.
 
 ### What the router does when
 
@@ -105,9 +105,7 @@ One step, never a chain. Every fallback is recorded on the run as `fallback_from
 
 | Trigger | Action |
 |---|---|
-| Graph returns `no_graph_coverage`, `no_entity_matched` or `no_walkable_edges` | Run Traditional |
-| Vectorless finds no term match | Run Traditional |
-| Agentic returns zero usable evidence | Run Traditional |
+| Any strategy other than Traditional returns no chunks | Run Traditional. For Graph the recorded reason is one of `no_graph_coverage`, `no_entity_matched` or `no_walkable_edges`; for Vectorless no term match; for Agentic zero usable evidence |
 | Traditional was chosen and found nothing | None. An honest empty result |
 | The fallback also finds nothing | Stop. Empty, with both attempts in the trace |
 | Classifier confidence below `router.min_confidence` | Not a fallback. Traditional and Vectorless are fused up front |
@@ -134,13 +132,14 @@ make the answer worse.
 | A fallback | Gets only what is left after the first attempt |
 | The fused path | Vectorless gets what Traditional left |
 | Traditional with no calls left | Skips an LLM reranker when its call budget is zero |
+| Graph with no calls left | The graph strategy skips its entity-matching call when no call is left, returns nothing, and `auto` falls back to Traditional |
 | Counters | Summed across every run made. Every trace is kept |
 
 ## Safety
 
 | Concern | Behaviour |
 |---|---|
-| Access | `auto`, every fallback and `graph_search` pass the caller's own `RetrievalContext` unchanged (ADR 0003) |
+| Access | `auto`, every fallback and `graph_search` pass the caller's principal and access filter untouched (ADR 0003). The context is a copy with a reduced budget and nothing else changed |
 | What the classifier sees | The question and the signals only, never chunk text |
 | Routing trouble | Never fails a request. A failed classifier becomes `signals_fallback` |
 | Cost | The classifier call counts in `llm_calls`, tokens and cost. The router has its own `router` span |
@@ -151,7 +150,8 @@ make the answer worse.
 |---|---|
 | `RetrievalResult.router` | The decision above. `RetrievalResult.strategy` is the strategy that ran, never `auto` |
 | `RetrievalResult.fallback_from` | The strategy that found nothing, when a fallback ran |
-| API responses | `strategy`, `router` and `fallback_from` |
+| `/api/ask` and `/api/search/query` responses | `strategy`, `router` and `fallback_from`. The ask stream's `retrieval` event carries them too |
+| `/api/search/semantic` response | `strategy` only |
 | The `retrieval_runs` row | The requested strategy, the strategy that ran, `fallback_from`, router confidence and reasoning (no migration, the columns exist since 0002) |
 | CLI | One line, `Strategy: <ran> (<source>). <reasoning>`, plus a fallback note |
 

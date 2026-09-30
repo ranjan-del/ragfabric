@@ -27,15 +27,17 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
   proposal. ADR 0013.
 - `RouterDecision` on the result: strategy, `source` (`signals`, `classifier`, `signals_fallback`),
   `decisive`, `confidence` (null for signals, uncalibrated for the classifier), one-sentence
-  reasoning, query type, and engineering level estimates. Responses carry `strategy`, `router` and
-  `fallback_from`, and the `retrieval_runs` row records the requested strategy, the strategy that
+  reasoning, query type, and engineering level estimates. `/api/ask` and `/api/search/query`
+  responses carry `strategy`, `router` and `fallback_from` (the ask stream's `retrieval` event too;
+  `/api/search/semantic` returns `strategy` only), and the `retrieval_runs` row records the requested strategy, the strategy that
   ran, `fallback_from`, router confidence and reasoning. No migration.
 - One fallback step, never a chain: Graph with no coverage, Vectorless with no term match, and
   Agentic with zero usable evidence fall back to Traditional. A fallback result carries none of the
   failed attempt's sub-questions or sub-graph.
 - `auto` never exceeds the caller's `max_llm_calls`: the classifier call is deducted first, a
   fallback gets what the first attempt left, Vectorless gets what Traditional left on the fused
-  path, and Traditional skips an LLM reranker when its call budget is zero.
+  path. Traditional skips an LLM reranker when its call budget is zero, and the graph strategy
+  skips its entity-matching call when no call is left, so `auto` falls back to Traditional.
 - Graph is left out of the candidates when `graph_store.enabled` is false or the request sets
   `document_id` or `format`.
 - **Agent.** A tool check between plan and retrieve lets decisive signals override the planner,

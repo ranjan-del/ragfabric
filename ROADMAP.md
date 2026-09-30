@@ -164,8 +164,8 @@ Phase 6 merged to main on 2026-09-25 as PR #40 (rebase-merge); `[x]` below means
 
 ### Phase 7: Query Router [~]
 
-7a (the router and the agent's reach to all four strategies) is built on the `feat/phase-7a-clients`
-track; 7b (the terminal experience) is not done, so the phase stays partial. See
+7a (the router and the agent's reach to all four strategies) is built; 7b (the terminal experience)
+is not, so the phase stays partial. See
 [ADR 0013](docs/adr/0013-router-as-a-strategy.md) and
 [ADR 0014](docs/adr/0014-signals-override-the-planner.md). Router quality is not measured yet.
 

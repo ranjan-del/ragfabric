@@ -1,6 +1,6 @@
 # Agentic RAG
 
-> Status: **core implementation merged for v0.2.0** (Phase 5), release not yet cut.
+> Status: **shipped** (Phase 5, released in v0.2.0; Phase 7a additions are in v0.4.0, unreleased).
 > `AgenticRAGStrategy` (`packages/core/src/ragfabric_core/strategies/agentic.py`) runs a bounded
 > loop over the agent package (`packages/core/src/ragfabric_core/agent/`) and is registered as
 > `agentic` in `strategies/registry_defaults.py`, wrapping the same Traditional and Vectorless
@@ -36,7 +36,7 @@ applies it, and the loop retrieves again. It stops for one of exactly three reas
 which.
 
 A question that resolves on the first pass costs two model calls in the loop today, one to plan
-and one to assess, and a third when the generation node lands. Each further iteration adds one
+and one to assess, and one more outside the loop to write the cited answer. Each further iteration adds one
 assessment and one repair call per sub-question still open. The textbook design this replaced
 spent six or more on the same question, and the saving comes from merging two nodes and
 removing two others, described under "What was deliberately not built" below.
@@ -111,10 +111,9 @@ stateDiagram-v2
   reason, its detail, the iteration count, the size of the evidence pool and how many
   sub-questions ended answered or abandoned.
 
-There is no `generate` node yet. `NodeName.GENERATE` and a `generate` per-node call cap exist
-in the state and the configuration, and the node that writes a cited answer over the pooled
-evidence is the remaining Phase 5 work. Until it lands, the strategy returns the evidence and
-the trace, and generation happens in the same place it does for every other strategy.
+Generation is not a node. It happens outside the loop, over the pooled evidence, in
+`generate_agentic_answer` (`generate/cited.py`), which the server's `_generate` calls. The
+strategy itself returns the evidence and the trace.
 
 ### The tools
 
@@ -208,11 +207,9 @@ A refused spend leaves the state exactly as it was, so the loop finalizes on the
 already has rather than on a half-applied step.
 
 `strategies.agentic` in `ragfabric.yaml` also carries `max_cost_usd`, `max_latency_ms` and
-`assess_strictness`. They are typed, validated and reported by `ragfabric config validate`, and
-**the loop does not read them yet**. The same is true of `strategies.agentic.max_llm_calls`:
-the cap the loop enforces is the one on the caller's `Budget`. Stated here rather than implied,
-because a limit documented as enforced and not enforced is worse than one documented as
-pending.
+`max_llm_calls`, and the loop reads and enforces them (`agent/loop.py`, `strategies/agentic.py`):
+a run stops with `budget` when the wall clock passes `max_latency_ms` or the estimated spend passes
+`max_cost_usd`, alongside the call caps above.
 
 ## What is tracked
 
@@ -250,11 +247,11 @@ was a reasonable skeleton and it is not what shipped.
 
 Conflict detection between passages was deferred on purpose. Semantic contradiction is a hard
 inference task, a confident "these sources disagree" that is wrong is worse than silence, and
-it cannot be tuned without measurement, which is Phase 8. What Phase 5 will carry instead is
-the honest metadata subset, landing with the generation work: where two chunks answering the
-same sub-question come from documents with different effective dates, both are surfaced with
-their dates. That is a fact about metadata, not a judgement about meaning, and no part of it
-is in the loop today.
+it cannot be tuned without measurement, which is Phase 8. What Phase 5 carries instead is
+the honest metadata subset: where two chunks answering the same sub-question come from
+documents with different effective dates, both are surfaced with their dates (`dated_sub_questions`
+and `dated_sources_note` in the generation step, and the `dated_sources` response field). That is a
+fact about metadata, not a judgement about meaning, and it is computed outside the loop.
 
 ## Alternatives and trade offs
 
