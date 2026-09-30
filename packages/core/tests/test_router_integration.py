@@ -3,7 +3,7 @@
 **This is a record, not a benchmark.** Per ADR 0004, what this module reports is what
 happened on this fixture corpus, with the model named in ``RAGFABRIC_TEST_OLLAMA_MODEL``,
 on the day it was run, on one machine. It is a single run of a non deterministic system
-over a dozen chunks and four questions. Nothing here may be quoted as a measurement of the
+over fifteen chunks and four questions. Nothing here may be quoted as a measurement of the
 router, compared against another strategy, or used to claim that any model routes well or
 badly in general. The corpus and the questions were fixed before the run and are not to be
 edited until the output looks good: a surprising decision is a finding to write down in

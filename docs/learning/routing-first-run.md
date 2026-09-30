@@ -30,7 +30,12 @@ and `llm_calls` equals the number of model calls counted by a wrapper around the
 All of those held. One note on the run itself: the first execution of the test printed and
 saved the record below and then stopped on a leftover assertion that referenced a module not
 imported (a mistake in the test, not a finding about the router). The assertion was removed
-and the test was not re-run with Ollama afterwards, so the record is from that execution.
+and the committed test was then run a second time with Ollama and passed. Every routing decision,
+planned tool, tool_check override, repair move, stop reason and call counter in that second run
+was identical to the record below; only latencies differed (the compound question took 33102ms
+instead of 44841ms, and stopped on the same latency budget). The tables below are from the first
+execution and are unchanged. The second run shows the decisions repeated on this machine; it
+is still one model and one corpus.
 
 ## The corpus and the questions
 
@@ -43,7 +48,8 @@ question.
 
 Extraction and resolution, from the same run: `entities_stored=31, relationships_stored=19,
 entities_discarded=0, relationships_discarded=0, contract_violation=True, chunks_skipped=0`,
-and twelve of fifteen chunks stored something (chunks 4, 6 and 15 stored nothing). One
+and twelve of fifteen extraction calls completed. Chunks 4, 6 and 15 did not: with
+`chunks_skipped=0`, each of those responses violated the extraction contract and was rolled back. One
 entity merge, by embedding. Extraction quality is not the subject of this record; it is
 reported because the graph path below depends on it.
 
@@ -113,8 +119,9 @@ and it is the branch that ran. Second, the outcome looks like Phase 5's. Sub-que
 answered and sub-question 1 was not, the repair node again proposed `decompose` and the policy
 again applied `narrow`, and the run again stopped on the latency budget. The leave answer lives
 in a document the filter denies, so no tool choice could have answered it, and the pooled
-chunks for it are the same kind of distractors as Phase 5 (chunks 7, 8 and 9 of the onboarding
-notes, which talk about leave without stating the number). This run has no counterfactual
+chunks for it are the same kind of distractors as Phase 5 (chunks 8, 9, 7 and 1: two onboarding
+chunks that mention leave without stating the number, the handbook index line, and a runbook
+chunk about the job queue). This run has no counterfactual
 (the same question with the check disabled), so it cannot say whether `semantic_search` found
 the retry answer more reliably than `lexical_search` would have. The check corrected the
 choice; whether the correction helped is not something one run can show.
@@ -126,7 +133,7 @@ mean?" was routed to `traditional` by the plain short-question default, with rea
 short question about one concept", not to `vectorless` as the exact-match rule intends. The
 cause is in the existing identifier detection, not in the router: `RF-4312` is letters, a
 hyphen and digits, and none of the four documented patterns in
-`ragfabric_core.stores.boosting` match it (the digit-and-letter pattern forbids a hyphen and
+`ragfabric_core.stores.boosting` (`is_identifier`) match it (the `_DIGIT_AND_LETTER` pattern forbids a hyphen and
 the version pattern needs a leading digit). Checked directly: the signals extractor reports
 `identifiers=()` and `entities=('RF-4312',)`. The same code written `RF4312` is detected. The
 router is correct given what it was told, and it inherits a gap in a Phase 3 heuristic. The
@@ -155,8 +162,8 @@ decisions came from signals with no model call. The classifier spent one call an
 **5. The graph path found the answer chunk but only matched one of two names.** The
 relationship question returned chunk 10 ("Ravi Sharma ... reports to Meera Iyer") and chunk 12
 (Anjali Sharma, who is not the subject). The walk matched one of two extracted mentions, found
-2 nodes and 1 edge, and was not truncated. Extraction had one contract violation and three
-chunks stored nothing, including the chunk that carries the second reporting hop (chunk 15), so
+2 nodes and 1 edge, and was not truncated. Three chunks (4, 6 and 15) failed extraction on a contract
+violation, including chunk 15, which carries the second reporting hop, so
 a two-hop version of this question would have been answered from a thinner graph than the
 fixture intends. That is a Phase 6 finding that this run re-observes.
 
