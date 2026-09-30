@@ -218,7 +218,7 @@ def test_switch_never_returns_the_current_tool():
         working=RetrievalOverride(query=sq.text),
         available_tools=("semantic_search", "lexical_search", "graph_search"),
     )
-    assert sq.tool != "lexical_search"
+    assert sq.tool == "semantic_search"
 
 
 def test_switch_without_graph_keeps_the_phase_5_pairing():
@@ -240,3 +240,16 @@ def test_switch_with_no_search_tool_available_falls_back_to_semantic():
         available_tools=("fetch_document",),
     )
     assert sq.tool == "semantic_search"
+
+
+def test_switch_from_fetch_document_restores_the_question_and_drops_the_document():
+    sq = SubQuestion(text="What is the refund policy?", tool="fetch_document")
+    outcome = apply_move(
+        sq,
+        RepairMove.SWITCH_STRATEGY,
+        working=RetrievalOverride(query="42", top_k=7, document_id=42),
+    )
+    assert sq.tool in ("semantic_search", "lexical_search")
+    assert outcome.working.query == sq.text
+    assert outcome.working.document_id is None
+    assert outcome.working.top_k == 7

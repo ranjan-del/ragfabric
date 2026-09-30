@@ -216,6 +216,10 @@ def apply_move(
     if move is RepairMove.SWITCH_STRATEGY:
         previous = sub_question.tool
         sub_question.tool = _next_tool(sub_question.text, previous, available_tools, relation_types)
+        if previous == "fetch_document":
+            # The working query is the bare document id; a search tool needs the
+            # question, and the document pin no longer applies.
+            working = RetrievalOverride(query=sub_question.text, top_k=working.top_k)
         return RepairOutcome(
             move=move,
             working=working,
