@@ -57,3 +57,40 @@ def test_classifier_model_null_uses_the_llm_model(session_factory):
         }
     )
     assert default_registry(cfg, session_factory).get(S.AUTO).classifier_model == "m1"
+
+
+@pytest.mark.parametrize(
+    ("provider", "env_key"), [("openai", "OPENAI_API_KEY"), ("anthropic", "ANTHROPIC_API_KEY")]
+)
+def test_unset_llm_model_leaves_the_classifier_on_the_provider_default(
+    session_factory, monkeypatch, provider, env_key
+):
+    monkeypatch.setenv(env_key, "test-key")
+    cfg = RagFabricConfig.model_validate(
+        {"llm": {"provider": provider}, "embeddings": {"provider": "offline", "dim": 768}}
+    )
+    assert "model" not in cfg.llm.model_fields_set
+    assert default_registry(cfg, session_factory).get(S.AUTO).classifier_model is None
+
+
+def test_an_explicit_llm_model_reaches_the_classifier(session_factory, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    cfg = RagFabricConfig.model_validate(
+        {
+            "llm": {"provider": "openai", "model": "gpt-x"},
+            "embeddings": {"provider": "offline", "dim": 768},
+        }
+    )
+    assert default_registry(cfg, session_factory).get(S.AUTO).classifier_model == "gpt-x"
+
+
+def test_router_classifier_model_wins_over_the_llm_model(session_factory, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    cfg = RagFabricConfig.model_validate(
+        {
+            "llm": {"provider": "openai", "model": "gpt-x"},
+            "embeddings": {"provider": "offline", "dim": 768},
+            "router": {"classifier_model": "tiny"},
+        }
+    )
+    assert default_registry(cfg, session_factory).get(S.AUTO).classifier_model == "tiny"

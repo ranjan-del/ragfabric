@@ -69,12 +69,28 @@ def default_registry(
             registry=registry,
             llm=llm if llm is not None else build_llm_provider(cfg.llm),
             min_confidence=cfg.router.min_confidence,
-            classifier_model=cfg.router.classifier_model or cfg.llm.model,
+            classifier_model=_classifier_model(cfg),
             graph_enabled=cfg.graph_store.enabled,
             relation_types=cfg.graph_store.relation_types,
         )
     )
     return registry
+
+
+def _classifier_model(cfg: RagFabricConfig) -> str | None:
+    """The model the router's classifier asks for, or None for the provider default.
+
+    ``LLMConfig.model`` carries a pydantic default even when the operator never
+    wrote one, while ``build_llm_provider`` falls back to the provider's own
+    default in that case. Reading the field unconditionally would send an
+    OpenAI or Anthropic deployment with no model set a request for the local
+    default model, so the LLM's model is used only when it was actually set.
+    """
+    if cfg.router.classifier_model:
+        return cfg.router.classifier_model
+    if "model" in cfg.llm.model_fields_set:
+        return cfg.llm.model
+    return None
 
 
 def _build_agentic(
