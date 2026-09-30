@@ -127,3 +127,23 @@ def test_no_available_strategy_raises():
 
 def test_the_bare_word_own_is_not_a_graph_signal():
     assert run("What is our own leave policy for Pune?").strategy is not S.GRAPH
+
+
+def test_from_rule_is_true_for_exactly_one_fired_signal():
+    assert run("What does ERR_QUOTA_4419 mean?").from_rule is True
+
+
+def test_from_rule_is_false_for_the_plain_short_default():
+    proposal = run("What is the retry limit?")
+    assert proposal.decisive is True and proposal.from_rule is False
+
+
+def test_from_rule_is_false_for_a_fired_but_unavailable_fallback():
+    proposal = run("Who does Ravi Sharma report to?", available=ALL - {S.GRAPH})
+    assert proposal.from_rule is False
+
+
+def test_from_rule_is_false_when_not_decisive():
+    long_text = " ".join(["onboarding"] * 20) + "?"
+    proposal = run(long_text)
+    assert proposal.decisive is False and proposal.from_rule is False

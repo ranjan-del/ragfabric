@@ -263,14 +263,31 @@ def check_tools(
         for index, sub_question in enumerate(state.sub_questions):
             if sub_question.tool == "fetch_document":
                 continue
-            proposal = propose(
-                extract_signals(sub_question.text, relation_types=relation_types),
-                available=available,
-            )
+            signals = extract_signals(sub_question.text, relation_types=relation_types)
+            proposal = propose(signals, available=available)
             wanted = TOOL_FOR_STRATEGY.get(proposal.strategy)
-            if proposal.decisive and wanted and wanted in tools and wanted != sub_question.tool:
+            # Only a rule that fired overrides. The plain-short default is a
+            # guess about what to do with no signal, and a guess must not
+            # overrule the planner (R12).
+            if (
+                proposal.decisive
+                and proposal.from_rule
+                and wanted
+                and wanted in tools
+                and wanted != sub_question.tool
+            ):
                 changed.append(f"{index}:{sub_question.tool}->{wanted}({proposal.query_type})")
                 sub_question.tool = wanted
+            elif (
+                sub_question.tool == "lexical_search"
+                and not signals.identifiers
+                and not signals.phrases
+                and "semantic_search" in tools
+            ):
+                # Lexical search matches exact terms; with none in the text it
+                # can only miss a paraphrase (R13).
+                changed.append(f"{index}:lexical_search->semantic_search(no_exact_terms)")
+                sub_question.tool = "semantic_search"
     return NodeOutcome(
         span=_span(
             "tool_check",

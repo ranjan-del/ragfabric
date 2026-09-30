@@ -24,6 +24,33 @@ def test_a_decisive_signal_overrides_the_planner_and_is_traced():
     assert "semantic_search->lexical_search" in outcome.span.attributes["detail"]
 
 
+def test_a_paraphrase_planned_to_lexical_is_corrected_to_semantic():
+    state = state_with(("How many days of unused annual leave carry forward?", "lexical_search"))
+    outcome = check_tools(state, tools=TOOLS, relation_types=RELATIONS, origin=time.perf_counter())
+    assert state.sub_questions[0].tool == "semantic_search"
+    assert outcome.span.attributes["detail"] == "0:lexical_search->semantic_search(no_exact_terms)"
+
+
+def test_an_identifier_planned_to_lexical_is_left_alone():
+    state = state_with(("What does ERR_QUOTA_4419 mean?", "lexical_search"))
+    outcome = check_tools(state, tools=TOOLS, relation_types=RELATIONS, origin=time.perf_counter())
+    assert state.sub_questions[0].tool == "lexical_search"
+    assert outcome.span.attributes["overrides"] == 0
+
+
+def test_a_plain_question_planned_to_graph_is_left_alone():
+    state = state_with(("What is the retry limit?", "graph_search"))
+    check_tools(state, tools=TOOLS, relation_types=RELATIONS, origin=time.perf_counter())
+    assert state.sub_questions[0].tool == "graph_search"
+
+
+def test_a_plain_question_planned_to_lexical_is_not_moved_by_the_short_default_alone():
+    # Moved by R13 (no exact terms), not by a fired signal.
+    state = state_with(("What is the retry limit?", "lexical_search"))
+    outcome = check_tools(state, tools=TOOLS, relation_types=RELATIONS, origin=time.perf_counter())
+    assert "no_exact_terms" in outcome.span.attributes["detail"]
+
+
 def test_a_relationship_sub_question_goes_to_the_graph():
     state = state_with(("Who does Ravi Sharma report to?", "semantic_search"))
     check_tools(state, tools=TOOLS, relation_types=RELATIONS, origin=time.perf_counter())
@@ -32,9 +59,9 @@ def test_a_relationship_sub_question_goes_to_the_graph():
 
 def test_an_undecided_sub_question_keeps_the_planners_tool():
     long_text = " ".join(["onboarding"] * 20) + "?"
-    state = state_with((long_text, "lexical_search"))
+    state = state_with((long_text, "graph_search"))
     outcome = check_tools(state, tools=TOOLS, relation_types=RELATIONS, origin=time.perf_counter())
-    assert state.sub_questions[0].tool == "lexical_search"
+    assert state.sub_questions[0].tool == "graph_search"
     assert outcome.span.attributes["overrides"] == 0
     assert outcome.span.attributes["detail"] is None
 

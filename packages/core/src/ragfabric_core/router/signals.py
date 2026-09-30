@@ -78,6 +78,9 @@ class Proposal:
     reasons: tuple[str, ...]
     query_type: QueryType
     ranking: tuple[StrategyName, ...]
+    # True only when exactly one fired, usable signal chose the strategy. The plain
+    # short default and every fallback are False: they are a default, not a rule.
+    from_rule: bool
 
 
 def entity_mentions(question: str) -> tuple[str, ...]:
@@ -161,6 +164,7 @@ def propose(signals: Signals, *, available: Collection[StrategyName]) -> Proposa
         raise ValueError("propose needs at least one available strategy")
     fired = _fired(signals)
     reasons: list[str] = []
+    from_rule = False
     usable = [item for item in fired if item[0] in available]
     for skipped, _, _ in fired:
         if skipped not in available:
@@ -172,6 +176,7 @@ def propose(signals: Signals, *, available: Collection[StrategyName]) -> Proposa
     if len(usable) == 1:
         strategy, query_type, reason = usable[0]
         decisive = True
+        from_rule = True
         reasons.insert(0, reason)
     elif not usable and (fired or signals.words <= PLAIN_MAX_WORDS):
         strategy, query_type, decisive = fallback, "simple_factual", True
@@ -195,4 +200,5 @@ def propose(signals: Signals, *, available: Collection[StrategyName]) -> Proposa
         reasons=tuple(reasons),
         query_type=query_type,
         ranking=tuple(ranking),
+        from_rule=from_rule,
     )
