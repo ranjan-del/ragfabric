@@ -1,0 +1,86 @@
+import pytest
+
+from ragfabric_core.router.signals import extract_signals, propose
+from ragfabric_core.strategies.base import StrategyName as S
+
+RELATIONS = [
+    "REPORTS_TO",
+    "MEMBER_OF",
+    "BELONGS_TO",
+    "OWNS",
+    "WORKS_ON",
+    "LOCATED_IN",
+    "AUTHORED",
+    "MENTIONS",
+    "RELATED_TO",
+]
+ALL = {S.TRADITIONAL, S.VECTORLESS, S.AGENTIC, S.GRAPH}
+
+
+def run(question, available=ALL):
+    return propose(extract_signals(question, relation_types=RELATIONS), available=available)
+
+
+@pytest.mark.parametrize(
+    ("question", "strategy", "query_type"),
+    [
+        ("What does ERR_QUOTA_4419 mean?", S.VECTORLESS, "exact_match"),
+        ('Where is "annual leave carry forward" defined?', S.VECTORLESS, "exact_match"),
+        ("ERR_QUOTA_4419", S.VECTORLESS, "exact_match"),
+        ("Who does Ravi Sharma report to?", S.GRAPH, "relationship"),
+        ("Which team owns Billing?", S.GRAPH, "relationship"),
+        ("Compare the leave policy for Pune and Delhi", S.AGENTIC, "comparison"),
+        ("How many offices does the company have?", S.AGENTIC, "aggregation"),
+        ("What is our refund policy?", S.TRADITIONAL, "simple_factual"),
+    ],
+)
+def test_a_single_signal_is_decisive(question, strategy, query_type):
+    proposal = run(question)
+    assert (proposal.strategy, proposal.decisive, proposal.query_type) == (
+        strategy,
+        True,
+        query_type,
+    )
+
+
+def test_conflicting_signals_are_not_decisive():
+    proposal = run("Compare ERR_QUOTA_4419 with ERR_QUOTA_4420 for Billing")
+    assert not proposal.decisive
+
+
+def test_a_long_question_with_no_signal_is_not_decisive():
+    question = " ".join(["policy"] * 20) + "?"
+    assert not run(question).decisive
+
+
+def test_a_relation_phrase_without_an_entity_is_not_a_graph_signal():
+    assert run("who do people report to?").strategy is not S.GRAPH
+
+
+def test_an_unconfigured_relation_type_is_not_a_graph_signal():
+    signals = extract_signals("Who does Ravi Sharma report to?", relation_types=["OWNS"])
+    assert propose(signals, available=ALL).strategy is S.TRADITIONAL
+
+
+def test_graph_unavailable_resolves_to_traditional_and_says_why():
+    proposal = run("Who does Ravi Sharma report to?", available=ALL - {S.GRAPH})
+    assert proposal.strategy is S.TRADITIONAL
+    assert any("graph" in reason for reason in proposal.reasons)
+    assert S.GRAPH not in proposal.ranking
+
+
+def test_the_ranking_puts_the_proposal_first_and_lists_every_available_strategy_once():
+    proposal = run("What does ERR_QUOTA_4419 mean?")
+    assert proposal.ranking[0] is S.VECTORLESS
+    assert sorted(proposal.ranking) == sorted(ALL)
+
+
+@pytest.mark.parametrize("question", ["", "   ", "?"])
+def test_an_empty_question_proposes_traditional_without_raising(question):
+    assert run(question).strategy is S.TRADITIONAL
+
+
+def test_extraction_is_pure():
+    first = extract_signals("Who owns Billing?", relation_types=RELATIONS)
+    second = extract_signals("Who owns Billing?", relation_types=RELATIONS)
+    assert first == second
