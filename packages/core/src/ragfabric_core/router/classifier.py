@@ -110,4 +110,10 @@ def classify(
         )
         return ClassifierOutcome(violation=violation, **common)
     parsed.reasoning = one_sentence(parsed.reasoning)
+    if not parsed.reasoning:
+        # RouterDecision.reasoning is never empty, so a blank one cannot become a decision.
+        violation = ContractViolation(
+            contract=CONTRACT, raw=completion.text, error="the reasoning was empty"
+        )
+        return ClassifierOutcome(violation=violation, **common)
     return ClassifierOutcome(reply=parsed, **common)

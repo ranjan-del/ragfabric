@@ -75,3 +75,9 @@ def test_a_multi_sentence_reasoning_is_trimmed_to_one_sentence():
 
 def test_an_empty_outcome_is_valid():
     assert ClassifierOutcome().llm_calls == 0
+
+
+def test_a_reasoning_that_is_blank_is_a_violation_not_a_reply():
+    outcome = classify("q", signals(), llm=RecordingLLM(reply(reasoning="   ")), available=ALL)
+    assert outcome.reply is None and outcome.llm_calls == 1
+    assert outcome.violation is not None and "reasoning was empty" in outcome.violation.error
