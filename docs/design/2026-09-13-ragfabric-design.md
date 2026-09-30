@@ -155,7 +155,7 @@ is empty or confidence is low; `fallback_from` is recorded.
 | v0.3.0 | Graph retrieval | 6 |
 | v0.4.0 | Adaptive router | 7 |
 | v0.5.0 | Evaluation framework | 8 |
-| v1.0.0 | Production release | 9 and 10 |
+| v1.0.0 | Production release | 9, 10 and 11 (Phase 11, public benchmarks and a fix wave, added 2026-09-30) |
 
 Semantic versioning, tagged releases with generated changelogs, container images on GHCR.
 

@@ -126,6 +126,11 @@ one BM25 implementation and one vector implementation in the codebase.
 | `lexical_search` | `VectorlessRAGStrategy` | Identifiers, error codes, versions, file names, quoted phrases, anything where a character out of place changes the answer | Paraphrase. A passage answering the question in different words is not found |
 | `fetch_document` | `stores/document_chunks.py` | Returning one document whole, in reading order, when the fragments a search returns are not enough | Finding a document by describing it. It needs an id |
 
+There is no graph tool yet. The agent shipped in Phase 5, before Graph RAG existed in Phase 6, so a
+relationship sub-question is answered from chunk text alone. Phase 7 adds `graph_search` over
+`GraphRAGStrategy` and runs the router's signals per sub-question to propose each tool (see
+[ROADMAP.md](../ROADMAP.md)).
+
 **Every tool is handed the caller's own `RetrievalContext`, filter included.** Nothing in the
 agent rebuilds one. This matters more here than anywhere else in the system, because the agent
 retrieves repeatedly and pools what it finds, and a single call made under the wrong filter
