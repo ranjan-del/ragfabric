@@ -162,10 +162,18 @@ Phase 6 merged to main on 2026-09-25 as PR #40 (rebase-merge); `[x]` below means
 
 ## v0.4.0 Adaptive router
 
-### Phase 7: Query Router
-- [ ] `RouterDecision` with confidence and user-safe reasoning
-- [ ] Feature signals plus classifier, AUTO and MANUAL modes
-- [ ] Fallback chain recorded on every run
+### Phase 7: Query Router [~]
+
+7a (the router and the agent's reach to all four strategies) is built on the `feat/phase-7a-clients`
+track; 7b (the terminal experience) is not done, so the phase stays partial. See
+[ADR 0013](docs/adr/0013-router-as-a-strategy.md) and
+[ADR 0014](docs/adr/0014-signals-override-the-planner.md). Router quality is not measured yet.
+
+- [x] `RouterDecision` with user-safe reasoning, and a confidence only when a classifier reported one
+- [x] Feature signals plus classifier, AUTO and MANUAL modes
+- [x] Fallback chain recorded on every run
+- [x] The agent: signals correct the planner's tool choice where a rule fired, `graph_search` is an
+      opt-in fourth tool, and `switch_strategy` chooses among all three search tools
 - [ ] Terminal experience for `pip install ragfabric` users (folded into this phase on 2026-09-27
       rather than waiting for Phase 9 or 10, since the CLI is on PyPI from v0.3.1):
   - [ ] A welcome screen for bare `ragfabric`, pointing to where to start

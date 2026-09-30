@@ -163,25 +163,35 @@ and records every fallback, so the hybrid behaviour is observable rather than as
 
 ## Query router
 
-The router chooses a strategy per question in AUTO mode, or is bypassed in MANUAL mode so every strategy
-can be tested independently. It combines cheap signals (identifiers, quoted phrases, entity count,
-comparison and aggregation words, question length) with a small classification call, and returns:
+`strategy: auto` chooses a strategy per question. Naming a strategy bypasses the router, so every
+strategy can be tested independently. Two stages, cheap first. Free signals (identifiers, quoted
+phrases, relation phrases with a named entity, comparison and aggregation words, question length)
+decide when exactly one rule fires, with no model call. Otherwise one small classification call
+decides, and when it is unsure the router fuses Traditional and Vectorless instead of guessing.
+It returns:
 
 ```json
 {
-  "selected_strategy": "agentic_rag",
+  "selected_strategy": "agentic",
+  "source": "classifier",
+  "decisive": false,
   "confidence": 0.87,
   "reasoning": "The question compares two policies across documents and may need more than one retrieval.",
   "query_type": "comparison",
   "estimated_complexity": "high",
   "expected_cost_level": "high",
-  "expected_latency_level": "high"
+  "expected_latency_level": "high",
+  "fused": false
 }
 ```
 
-The reasoning is a short, user safe explanation. Hidden chain of thought is never exposed. When a strategy
-returns no usable evidence or the confidence is low, a fallback chain runs (for example Graph to
-Traditional, Vectorless to Traditional) and the run records `fallback_from`.
+The reasoning is a short, user safe explanation. A signals decision has `confidence: null`, because a
+rule that fired is not a measurement. A classifier confidence is what the model reported and is
+uncalibrated until Phase 8. When a strategy returns no usable evidence, one fallback to Traditional
+runs and the run records `fallback_from`. `auto` never exceeds the caller's `max_llm_calls`. The
+agent also uses the signals to correct its planner's tool choice, and can reach the graph through an
+opt-in `graph_search` tool. Whether the router chooses well is not yet measured. See
+[docs/routing.md](docs/routing.md).
 
 ## Architecture
 
@@ -289,7 +299,7 @@ is generated, never typed. Until v0.5.0 ships it stays empty on purpose.
 | [docs/getting-started.md](docs/getting-started.md) | Install and first question |
 | [docs/architecture.md](docs/architecture.md) | Layers, request flow, data model |
 | [docs/traditional-rag.md](docs/traditional-rag.md), [vectorless-rag.md](docs/vectorless-rag.md), [agentic-rag.md](docs/agentic-rag.md), [graph-rag.md](docs/graph-rag.md) | One document per strategy: what, why, internals, trade offs, failure modes |
-| [docs/routing.md](docs/routing.md) | Router decision, signals, fallbacks |
+| [docs/routing.md](docs/routing.md) | Router decision, signals, fallbacks, budget |
 | [docs/evaluation.md](docs/evaluation.md) | Dataset, metrics, `make eval`, complexity score |
 | [docs/configuration.md](docs/configuration.md), [providers.md](docs/providers.md) | `ragfabric.yaml`, environment, provider and store matrix |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Symptoms, causes, fixes |
@@ -338,7 +348,7 @@ graph_store:   { kind: postgres, enabled: false }
 strategies:
   traditional: { top_k: 5, similarity_threshold: 0.25, rerank: none }
   agentic:     { max_iterations: 4 }
-router: { mode: auto, min_confidence: 0.6 }
+router: { mode: auto, min_confidence: 0.6 }   # mode resolves an unset strategy; min_confidence is the fuse threshold
 limits: { max_cost_per_query_usd: 0.05, max_latency_ms: 20000 }
 ```
 
