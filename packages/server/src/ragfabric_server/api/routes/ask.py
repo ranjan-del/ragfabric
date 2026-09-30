@@ -71,8 +71,6 @@ from ragfabric_core.models.access import AuditLog
 from ragfabric_core.models.document import QueryLog
 from ragfabric_core.models.runs import RetrievalRun, Source
 from ragfabric_core.providers.base import LLMProvider, Message
-from ragfabric_core.router.mode import resolve_requested
-from ragfabric_core.runtime import get_config
 from ragfabric_core.strategies.base import (
     RetrievalContext,
     RetrievedChunk,
@@ -90,6 +88,7 @@ from ragfabric_server.api.routes.search import (
     _counted_strategy,
     _generate,
     _refuse_unapplied_filters,
+    _requested_strategy,
     _strategy_for,
     _usage,
     uses_graph_path,
@@ -269,7 +268,7 @@ def ask(
     # per-request strategy around the shared store/embedder rather than
     # mutating the shared one when a reranker override is present (the
     # rerank override applies to the traditional strategy only).
-    name = resolve_requested(payload.strategy, get_config().router)
+    name = _requested_strategy(payload.strategy, payload.rerank)
     _refuse_unapplied_filters(name, payload.document_id, payload.format)
     strategy = _strategy_for(payload.rerank, registry, llm, name)
 

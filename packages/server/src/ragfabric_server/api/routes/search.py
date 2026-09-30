@@ -102,6 +102,29 @@ def _context(
     )
 
 
+def _requested_strategy(
+    strategy: str | None, rerank: str | None, *, unset: StrategyName | None = None
+) -> StrategyName:
+    """The strategy a request asked for, once the unset case is settled.
+
+    A named strategy is always honoured, ``auto`` included. When none is named:
+
+    - a request that sets ``rerank`` resolves to traditional whatever
+      ``router.mode`` says, because traditional is the only strategy the
+      override applies to; routing it would drop the rerank silently (R31);
+    - otherwise ``unset`` wins when the route has a fixed default (``/semantic``
+      keeps traditional, as ``/hybrid`` does, R30), and ``router.mode``
+      decides everywhere else.
+    """
+    if strategy:
+        return StrategyName(strategy)
+    if rerank is not None:
+        return StrategyName.TRADITIONAL
+    if unset is not None:
+        return unset
+    return resolve_requested(None, get_config().router)
+
+
 def _configured_max_context_tokens(cfg) -> int:
     """Mirrors ``registry_defaults.default_registry``'s own coercion, so a per
     request strategy built around a different reranker keeps the exact same
@@ -460,7 +483,7 @@ def query(
     embedding_model: str = Depends(get_embedding_model),
 ) -> AnswerResponse:
     """Ask a question and get a cited, grounded answer."""
-    name = resolve_requested(payload.strategy, get_config().router)
+    name = _requested_strategy(payload.strategy, payload.rerank)
     _refuse_unapplied_filters(name, payload.document_id, payload.format)
     started = time.perf_counter()
     strategy = _strategy_for(payload.rerank, registry, llm, name)
@@ -570,7 +593,7 @@ def semantic_search(
 ) -> SearchResults:
     """Return the most semantically similar chunks for a query."""
     payload.mode = "semantic"
-    name = resolve_requested(payload.strategy, get_config().router)
+    name = _requested_strategy(payload.strategy, payload.rerank, unset=StrategyName.TRADITIONAL)
     _refuse_unapplied_filters(name, payload.document_id, payload.format)
     strategy = _strategy_for(payload.rerank, registry, llm, name)
     result = strategy.retrieve(payload.query, _context(payload, principal, access))

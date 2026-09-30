@@ -349,3 +349,57 @@ def test_auto_contains_a_routed_strategys_failure(client, admin_token, auto, rou
     assert queried.json()["strategy"] == "traditional"
     run = _last_run()
     assert run.selected_strategy == "traditional" and run.fallback_from == "graph"
+
+
+def _semantic(client, token: str, **body):
+    return client.post("/api/search/semantic", json={"query": PLAIN, **body}, headers=auth(token))
+
+
+@pytest.mark.parametrize("send", [_ask, _query, _semantic])
+def test_rerank_with_no_strategy_resolves_to_traditional_under_auto(
+    client, admin_token, auto, router_mode, send
+):
+    # R31: a caller asking for a reranker is asking for the one strategy that
+    # applies it, so an unset strategy must not be handed to the router.
+    router_mode("auto")
+
+    r = send(client, admin_token, query=OPEN, rerank="none")
+
+    assert r.status_code == 200, r.text
+    assert r.json()["strategy"] == "traditional"
+    assert auto.calls == 0
+
+
+def test_rerank_with_no_strategy_records_traditional_as_requested(
+    client, admin_token, auto, router_mode
+):
+    router_mode("auto")
+
+    assert _ask(client, admin_token, query=OPEN, rerank="none").status_code == 200
+    assert _query(client, admin_token, query=OPEN, rerank="none").status_code == 200
+
+    assert [run.requested_strategy for run in _runs()] == ["traditional", "traditional"]
+
+
+@pytest.mark.parametrize("mode", ["auto", "manual"])
+def test_semantic_with_no_strategy_is_traditional_whatever_the_router_mode(
+    client, admin_token, auto, router_mode, mode
+):
+    # R30: /semantic, like /hybrid, keeps traditional when no strategy is named.
+    router_mode(mode)
+
+    r = _semantic(client, admin_token, query=OPEN)
+
+    assert r.status_code == 200, r.text
+    assert r.json()["strategy"] == "traditional"
+    assert auto.calls == 0
+
+
+def test_semantic_still_accepts_an_explicit_auto(client, admin_token, auto, router_mode):
+    router_mode("manual")
+
+    r = _semantic(client, admin_token, query=OPEN, strategy="auto")
+
+    assert r.status_code == 200, r.text
+    assert r.json()["strategy"] == "vectorless"
+    assert auto.calls == 1
