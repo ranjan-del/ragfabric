@@ -27,6 +27,7 @@ from ragfabric_core.stores.document_chunks import SqlDocumentChunkReader
 from ragfabric_core.stores.postgres_fts import PostgresLexicalStore
 from ragfabric_core.stores.registry import build_vector_store
 from ragfabric_core.strategies.agentic import AgenticRAGStrategy
+from ragfabric_core.strategies.auto import AutoStrategy
 from ragfabric_core.strategies.base import StrategyRegistry
 from ragfabric_core.strategies.graph import GraphRAGStrategy
 from ragfabric_core.strategies.traditional import TraditionalRAGStrategy
@@ -63,6 +64,16 @@ def default_registry(
         _build_agentic(cfg, traditional, vectorless, session_factory, llm=llm, graph=graph)
     )
     registry.register(graph)
+    registry.register(
+        AutoStrategy(
+            registry=registry,
+            llm=llm if llm is not None else build_llm_provider(cfg.llm),
+            min_confidence=cfg.router.min_confidence,
+            classifier_model=cfg.router.classifier_model or cfg.llm.model,
+            graph_enabled=cfg.graph_store.enabled,
+            relation_types=cfg.graph_store.relation_types,
+        )
+    )
     return registry
 
 
