@@ -91,23 +91,46 @@ class AutoStrategy:
 
         inner = _deduct_calls(ctx, outcome.llm_calls if outcome else 0)
         chosen = StrategyName(decision.selected_strategy)
+        failure: str | None = None  # why the routed strategy's attempt was replaced, if it was
+        next_strategy = None
         if decision.fused:
             traditional = self._run(StrategyName.TRADITIONAL, query, inner)
-            vectorless = self._run(
-                StrategyName.VECTORLESS, query, _deduct_calls(inner, traditional.llm_calls)
-            )
-            result = fuse(traditional, vectorless, top_k=ctx.params.top_k)
+            try:
+                vectorless = self._run(
+                    StrategyName.VECTORLESS, query, _deduct_calls(inner, traditional.llm_calls)
+                )
+            except Exception as exc:
+                # Keep the Traditional leg. The failed leg's spend is unknown,
+                # so it is counted as 0 (see _attempt).
+                failure = _describe(exc)
+                result = traditional
+            else:
+                result = fuse(traditional, vectorless, top_k=ctx.params.top_k)
+            reason = failure or ""
         else:
-            result = self._run(chosen, query, inner)
-
-        next_strategy = None if decision.fused else fallback_for(chosen, result)
-        reason = empty_reason(result) if next_strategy else ""
-        if next_strategy is not None:
-            # What the first attempt spent is gone, so the fallback gets only the rest.
-            remaining = _deduct_calls(inner, result.llm_calls)
-            result = combine(
-                result, self._run(next_strategy, query, remaining), fallback_from=chosen
-            )
+            attempt = self._attempt(chosen, query, inner)
+            if isinstance(attempt, Exception):
+                failure = _describe(attempt)
+                # Nothing to add to the fallback's counters: an exception carries
+                # no result, so what the failed strategy spent cannot be known.
+                # Only what can be counted is counted, which here is 0 for it;
+                # the fallback still gets the full remaining budget, so the
+                # caller's limit is held by the classifier deduction alone.
+                next_strategy = StrategyName.TRADITIONAL
+                result = self._run(next_strategy, query, inner).model_copy(
+                    update={"fallback_from": chosen}
+                )
+                reason = failure
+            else:
+                result = attempt
+                next_strategy = fallback_for(chosen, result)
+                reason = empty_reason(result) if next_strategy else ""
+                if next_strategy is not None:
+                    # What the first attempt spent is gone, so the fallback gets only the rest.
+                    remaining = _deduct_calls(inner, result.llm_calls)
+                    result = combine(
+                        result, self._run(next_strategy, query, remaining), fallback_from=chosen
+                    )
 
         span = TraceSpan(
             name="router",
@@ -139,6 +162,22 @@ class AutoStrategy:
                 "latency_ms": int((time.perf_counter() - started) * 1000),
             }
         )
+
+    def _attempt(
+        self, name: StrategyName, query: str, ctx: RetrievalContext
+    ) -> RetrievalResult | Exception:
+        """Run a routed strategy, returning its failure instead of raising it.
+
+        Traditional is the floor everything falls back to, so its failure is
+        the request's failure and propagates, as it would if the caller had
+        named it.
+        """
+        if name is StrategyName.TRADITIONAL:
+            return self._run(name, query, ctx)
+        try:
+            return self._run(name, query, ctx)
+        except Exception as exc:
+            return exc
 
     def _run(self, name: StrategyName, query: str, ctx: RetrievalContext) -> RetrievalResult:
         if name is StrategyName.AUTO:
@@ -184,6 +223,11 @@ def _from_proposal(proposal: Proposal, *, source: str) -> RouterDecision:
         query_type=proposal.query_type,
         **levels_for(strategy),
     )
+
+
+def _describe(exc: Exception) -> str:
+    """``error: <Type>: <message>``, at most 200 characters, for the router span."""
+    return f"error: {type(exc).__name__}: {exc}"[:200]
 
 
 def _deduct_calls(ctx: RetrievalContext, calls: int) -> RetrievalContext:

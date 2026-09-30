@@ -3,6 +3,7 @@ import json
 import pytest
 from agent_doubles import RecordingLLM, chunk, ctx
 
+from ragfabric_core.providers.base import ProviderError
 from ragfabric_core.graph.contracts import EmptyReason, Subgraph
 from ragfabric_core.strategies.auto import AutoStrategy
 from ragfabric_core.strategies.base import (
@@ -35,6 +36,16 @@ class Fake:
             output_tokens=0,
             latency_ms=1,
         )
+
+
+class Boom:
+    """A strategy whose model is unreachable."""
+
+    def __init__(self, name):
+        self.name = name
+
+    def retrieve(self, query, ctx):
+        raise ProviderError("fake", "model unreachable " + "x" * 400)
 
 
 def build(*, found=None, llm=None, graph_enabled=True, min_confidence=0.6, spend=None, extra=None):
@@ -232,3 +243,59 @@ def test_a_fallback_result_carries_nothing_from_the_failed_attempt():
     result = auto.retrieve("What does ERR_QUOTA_4419 mean?", ctx())
     assert result.fallback_from is S.VECTORLESS
     assert result.sub_questions == [] and result.subgraph is None
+
+
+def _break(auto, name):
+    auto._registry.register(Boom(name))
+
+
+def test_a_routed_strategy_that_raises_falls_back_to_traditional():
+    auto, fakes = build(llm=classifier())
+    _break(auto, S.AGENTIC)
+    result = assert_strategy_contract(auto, UNDECIDED, ctx())
+    assert result.strategy is S.TRADITIONAL and result.fallback_from is S.AGENTIC
+    assert result.chunks and len(fakes[S.TRADITIONAL].seen) == 1
+    span = next(s for s in result.trace if s.name == "router")
+    assert span.attributes["fallback_from"] == "agentic"
+    reason = span.attributes["fallback_reason"]
+    assert reason.startswith("error: ProviderError: ") and len(reason) <= 200
+
+
+def test_the_fallback_after_a_raise_keeps_to_the_callers_budget():
+    auto, fakes = build(llm=classifier(), spend={S.TRADITIONAL: _spend_one})
+    _break(auto, S.AGENTIC)
+    result = assert_strategy_contract(auto, UNDECIDED, ctx(max_llm_calls=5))
+    assert result.fallback_from is S.AGENTIC and result.llm_calls <= 5
+    assert fakes[S.TRADITIONAL].seen[0].budget.max_llm_calls == 4
+
+
+def test_traditional_raising_as_the_chosen_strategy_propagates():
+    auto, _ = build()
+    _break(auto, S.TRADITIONAL)
+    with pytest.raises(ProviderError):
+        auto.retrieve("What is the onboarding process?", ctx())
+
+
+def test_traditional_raising_as_the_fallback_propagates():
+    auto, _ = build(llm=classifier())
+    _break(auto, S.AGENTIC)
+    _break(auto, S.TRADITIONAL)
+    with pytest.raises(ProviderError):
+        auto.retrieve(UNDECIDED, ctx())
+
+
+def test_a_vectorless_leg_that_raises_keeps_the_traditional_leg():
+    auto, fakes = build(llm=classifier(confidence=0.2))
+    _break(auto, S.VECTORLESS)
+    result = assert_strategy_contract(auto, UNDECIDED, ctx())
+    assert result.router.fused and result.strategy is S.TRADITIONAL
+    assert result.chunks == fakes[S.TRADITIONAL]._chunks
+    span = next(s for s in result.trace if s.name == "router")
+    assert span.attributes["fallback_reason"].startswith("error: ProviderError")
+
+
+def test_a_traditional_leg_that_raises_on_the_fused_path_propagates():
+    auto, _ = build(llm=classifier(confidence=0.2))
+    _break(auto, S.TRADITIONAL)
+    with pytest.raises(ProviderError):
+        auto.retrieve(UNDECIDED, ctx())
