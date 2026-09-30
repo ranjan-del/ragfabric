@@ -36,7 +36,7 @@ it here keeps the import one way round instead of making a cycle.
 from __future__ import annotations
 
 import time
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -236,6 +236,8 @@ def repair(
     returned: int,
     evidence: list[RetrievedChunk],
     origin: float | None = None,
+    available_tools: Collection[str] = ("semantic_search", "lexical_search"),
+    relation_types: Sequence[str] = (),
 ) -> RepairStep:
     """Ask for a move, decide whether it is usable, and apply it.
 
@@ -288,6 +290,8 @@ def repair(
         missing=missing,
         why=why if move is RepairMove.ABANDON else "",
         evidence=evidence,
+        available_tools=available_tools,
+        relation_types=relation_types,
     )
 
     return RepairStep(
@@ -435,6 +439,8 @@ def run_agent(
             retrieved=retrieved,
             assessed=assessed,
             origin=origin,
+            available_tools=tuple(tools),
+            relation_types=relation_types,
         )
         if stop is None and state.all_resolved():
             stop = STOP_RESOLVED
@@ -549,6 +555,8 @@ def _repair_open_sub_questions(
     retrieved,
     assessed,
     origin: float,
+    available_tools: Collection[str],
+    relation_types: Sequence[str],
 ) -> tuple[str | None, str]:
     """Repair every sub-question the assessment left open.
 
@@ -573,6 +581,8 @@ def _repair_open_sub_questions(
                 returned=retrieved.returned_by_sub_question.get(index, 0),
                 evidence=retrieved.chunks_by_sub_question.get(index, []),
                 origin=origin,
+                available_tools=available_tools,
+                relation_types=relation_types,
             )
         except BudgetExceeded as exc:
             state.sub_questions.extend(added)

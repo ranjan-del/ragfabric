@@ -196,3 +196,47 @@ def test_applying_a_move_records_the_attempt_with_its_failure():
 
     assert question.attempts[-1].move is RepairMove.BROADEN
     assert question.attempts[-1].failure == "the number of retries"
+
+
+def test_switch_goes_to_the_graph_when_the_signals_rank_it_next():
+    sq = SubQuestion(text="Who does Ravi Sharma report to?", tool="lexical_search")
+    outcome = apply_move(
+        sq,
+        RepairMove.SWITCH_STRATEGY,
+        working=RetrievalOverride(query=sq.text),
+        available_tools=("semantic_search", "lexical_search", "graph_search"),
+        relation_types=("REPORTS_TO",),
+    )
+    assert sq.tool == "graph_search" and "lexical_search to graph_search" in outcome.note
+
+
+def test_switch_never_returns_the_current_tool():
+    sq = SubQuestion(text="What does ERR_QUOTA_4419 mean?", tool="lexical_search")
+    apply_move(
+        sq,
+        RepairMove.SWITCH_STRATEGY,
+        working=RetrievalOverride(query=sq.text),
+        available_tools=("semantic_search", "lexical_search", "graph_search"),
+    )
+    assert sq.tool != "lexical_search"
+
+
+def test_switch_without_graph_keeps_the_phase_5_pairing():
+    for start, expected in (
+        ("semantic_search", "lexical_search"),
+        ("lexical_search", "semantic_search"),
+    ):
+        sq = SubQuestion(text="anything", tool=start)
+        apply_move(sq, RepairMove.SWITCH_STRATEGY, working=RetrievalOverride(query=sq.text))
+        assert sq.tool == expected
+
+
+def test_switch_with_no_search_tool_available_falls_back_to_semantic():
+    sq = SubQuestion(text="anything", tool="fetch_document")
+    apply_move(
+        sq,
+        RepairMove.SWITCH_STRATEGY,
+        working=RetrievalOverride(query=sq.text),
+        available_tools=("fetch_document",),
+    )
+    assert sq.tool == "semantic_search"
