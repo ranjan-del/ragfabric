@@ -136,7 +136,7 @@ hyphen and digits, and none of the four documented patterns in
 `ragfabric_core.stores.boosting` (`is_identifier`) match it (the `_DIGIT_AND_LETTER` pattern forbids a hyphen and
 the version pattern needs a leading digit). Checked directly: the signals extractor reports
 `identifiers=()` and `entities=('RF-4312',)`. The same code written `RF4312` is detected. The
-router is correct given what it was told, and it inherits a gap in a Phase 3 heuristic. The
+router is correct given what it was told, and it inherits a gap in the Phase 4 boosting rule. The
 traditional strategy did return the right chunk first (chunk 3, the runbook's RF-4312 line),
 so this run does not show a wrong answer, only that the exact-match rule did not fire on the
 most identifier-shaped question in the set. It is recorded, not fixed here.

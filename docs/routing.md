@@ -20,7 +20,9 @@ CLI and SDK accept it with no separate wiring, and it returns an ordinary `Retri
 |---|---|
 | `strategy: auto` | The router, then the chosen strategy, then at most one fallback |
 | A named strategy | That strategy only. The router is bypassed |
-| Nothing | The server resolves it from `router.mode`: `auto` gives `auto`, `manual` gives `traditional`. This holds on `/api/ask`, `/api/search/query` and `/api/search/semantic`. `/api/search/hybrid` does not route: unset means `traditional` there whatever `router.mode` says, and `auto` is a 422 |
+| Nothing | The server resolves it from `router.mode`: `auto` gives `auto`, `manual` gives `traditional`. This holds on `/api/ask` and `/api/search/query`. `/api/search/semantic` keeps `traditional` when unset whatever `router.mode` says, and still accepts an explicit `auto`. `/api/search/hybrid` does not route: unset means `traditional` there whatever `router.mode` says, and `auto` is a 422 |
+| `rerank` and no strategy | `traditional` on `/api/ask`, `/api/search/query` and `/api/search/semantic`, whatever `router.mode` says, because Traditional is the only strategy the override applies to |
+| `strategy: auto` and `rerank` | The router runs as usual and the `rerank` override is **not applied**, whichever strategy is chosen. Name `traditional`, or leave the strategy unset, to rerank |
 
 ## The decision object
 
@@ -66,7 +68,7 @@ Two stages, cheap first.
 | Identifier | `identifiers()` in `stores/boosting.py`, the same function the identifier boost uses | Vectorless |
 | Quoted phrase | `phrases()` in `stores/boosting.py` | Vectorless |
 | Relation phrase | A spoken form of a configured relation type ("reports to", "owns") together with at least one named entity | Graph |
-| Comparison, aggregation or several questions | Words such as compare, versus, how many, total, or more than one question mark | Agentic |
+| Comparison, aggregation or several questions | Whole words or phrases such as compare, versus, vs, how many, total, or more than one question mark. "Totally" and "subtotal" do not count | Agentic |
 | None of these, and 15 words or fewer | The default | The first available of Traditional, Vectorless, Graph, Agentic |
 
 ### The decisive rule
@@ -75,7 +77,10 @@ A decision is **decisive** when exactly one usable signal fired (`from_rule` is 
 nothing usable fired and either the question is short or a signal fired that could not be used
 (`from_rule` is false, because that is a default and not a rule). Conflicting usable signals, or a
 long question with no signal at all, are not decisive and go to the classifier. A signal that
-points at a strategy unavailable for this request is noted in the reasons and not counted.
+points at a strategy unavailable for this request is noted in the reasons and not counted. When
+that leaves nothing usable, the decision's `reasoning` names the signal and what ran instead ("The
+question asks how named things are related, but the graph is not available here, so meaning
+search was used.") and `query_type` stays the fired signal's (`relationship` in that example).
 
 ### What the router does when
 
@@ -106,8 +111,8 @@ One step, never a chain. Every fallback is recorded on the run as `fallback_from
 | Trigger | Action |
 |---|---|
 | Any strategy other than Traditional returns no chunks | Run Traditional. For Graph the recorded reason is one of `no_graph_coverage`, `no_entity_matched` or `no_walkable_edges`; for Vectorless no term match; for Agentic zero usable evidence |
-| A non-Traditional routed strategy raised an exception | Run Traditional with zero model calls (skipping LLM reranking). The router span records `fallback_reason: "error: <ExceptionType>: <message>"` (truncated to 200 characters) and `failed_attempt_calls: "unknown"` |
-| The Vectorless leg of a fused run raised an exception | Keep the Traditional leg's result. The router span records `fallback_reason: "error: <ExceptionType>: <message>"` (truncated to 200 characters); `fallback_from` stays unset because no fallback strategy ran |
+| A non-Traditional routed strategy raised an exception | Run Traditional with zero model calls (skipping LLM reranking). The router span records `fallback_reason: "error: <ExceptionType>: <message>"` (truncated to 200 characters) and `failed_attempt_calls: "unknown"`. Reported `llm_calls` is a lower bound on this path: what the failed strategy spent before it raised is not known and is counted as 0 |
+| The Vectorless leg of a fused run raised an exception | Keep the Traditional leg's result. The router span records `fallback_reason: "error: <ExceptionType>: <message>"` (truncated to 200 characters); `fallback_from` stays unset because no fallback strategy ran, and the decision's `fused` stays true because fusion was what the router chose. Reported `llm_calls` is a lower bound here too |
 | Traditional was chosen and found nothing | None. An honest empty result |
 | The fallback also finds nothing | Stop. Empty, with both attempts in the trace |
 | Classifier confidence below `router.min_confidence` | Not a fallback. Traditional and Vectorless are fused up front |
@@ -131,7 +136,8 @@ make the answer worse.
 | Step | Budget rule |
 |---|---|
 | The classifier call | Deducted before the chosen strategy runs |
-| A fallback | Runs with zero model calls (skipping LLM reranking) if the first attempt spent any calls; gets only what is left if it spent none |
+| A fallback after an empty result | Runs with what is left of the budget after the first attempt's calls |
+| A fallback after an error | Runs with zero model calls (skipping LLM reranking), because what the failed attempt spent is unknown. Reported `llm_calls` is a lower bound |
 | The fused path | Vectorless gets what Traditional left |
 | Traditional with no calls left | Skips an LLM reranker when its call budget is zero |
 | Graph with no calls left | The graph strategy skips its entity-matching call when no call is left, returns nothing with `fallback_reason: "no calls left"`, and `auto` falls back to Traditional with zero model calls |
@@ -151,11 +157,12 @@ make the answer worse.
 | Where | What |
 |---|---|
 | `RetrievalResult.router` | The decision above. `RetrievalResult.strategy` is the strategy that ran, never `auto` |
-| `RetrievalResult.fallback_from` | The strategy that found nothing, when a fallback ran |
+| `RetrievalResult.fallback_from` | The strategy that was replaced, because it found nothing or raised, when a fallback ran |
 | `/api/ask` and `/api/search/query` responses | `strategy`, `router` and `fallback_from`. The ask stream's `retrieval` event carries them too |
 | `/api/search/semantic` response | `strategy` only |
+| The audit row's candidate counts | Measured on the index of the strategy that ran. On the fused path that is Traditional's index, since the fused result is reported as Traditional |
 | The `retrieval_runs` row | The requested strategy, the strategy that ran, `fallback_from`, router confidence and reasoning (no migration, the columns exist since 0002) |
-| CLI | One line, `Strategy: <ran> (<source>). <reasoning>`, plus a fallback note |
+| CLI | One line, `Strategy: <ran> (<source>). <reasoning>`, plus `Fell back from <strategy>.` after a fallback |
 
 ## Configuration
 
@@ -163,7 +170,7 @@ make the answer worse.
 |---|---|
 | `router.mode` | Default strategy resolution when the caller names none |
 | `router.min_confidence` | The fuse threshold. A classifier confidence below it fuses Traditional and Vectorless |
-| `router.classifier_model` | The classifier. `null` uses `llm.model` |
+| `router.classifier_model` | The classifier. `null` uses `llm.model` when it is set in the file, and otherwise the provider's own default model |
 
 A test fails if any `RouterConfig` field is not read.
 

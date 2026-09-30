@@ -76,7 +76,9 @@ untuned starting value.
 
 The asymmetry is the main design fact. An empty result announces itself and can be retried. A
 partial result does not, so the router cannot tell a good answer from a half answer. That is why
-the fallback rule is written on emptiness only.
+the quality fallback is written on emptiness only. The one other trigger is not about quality: a
+routed strategy that raises an exception is replaced by Traditional, run with zero model calls
+because what the failed attempt spent is unknown.
 
 ## One step, never a chain
 

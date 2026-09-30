@@ -32,18 +32,21 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
   too; `/api/search/semantic` returns `strategy` only). The `retrieval_runs` row records the
   requested strategy, the strategy that ran, `fallback_from`, router confidence and reasoning. No
   migration.
-- One fallback step, never a chain: Graph with no coverage, Vectorless with no term match,
-  Agentic with zero usable evidence, and a non-Traditional routed strategy that raises an
-  exception all fall back to Traditional with zero model calls. The router records `fallback_reason:
-  "error: <ExceptionType>: <message>"` (truncated to 200 characters) and `failed_attempt_calls:
-  "unknown"`. If the Vectorless leg of a fused run raises, the Traditional leg's result is kept
-  and the error is recorded in `fallback_reason`; `fallback_from` stays unset. A fallback result
-  carries none of the failed attempt's sub-questions or sub-graph.
+- One fallback step, never a chain: Graph with no coverage, Vectorless with no term match and
+  Agentic with zero usable evidence fall back to Traditional with what is left of the budget. A
+  non-Traditional routed strategy that raises an exception falls back to Traditional with zero
+  model calls. The router records `fallback_reason: "error: <ExceptionType>: <message>"`
+  (truncated to 200 characters) and `failed_attempt_calls: "unknown"`, and reported `llm_calls`
+  is a lower bound on that path. If the Vectorless leg of a fused run raises, the Traditional
+  leg's result is kept and the error is recorded in `fallback_reason`; `fallback_from` stays unset
+  and `fused` stays true. A fallback result carries none of the failed attempt's sub-questions or
+  sub-graph.
 - `auto` never exceeds the caller's `max_llm_calls`: the classifier call is deducted first, a
-  fallback runs with zero model calls if the first attempt spent any calls. Vectorless gets what
-  Traditional left on the fused path. Traditional skips an LLM reranker when its call budget is
-  zero. Graph skips its entity-matching call when no call is left, returns nothing with
-  `fallback_reason: "no calls left"`, and `auto` falls back to Traditional with zero model calls.
+  fallback after an empty result gets what the first attempt left, and a fallback after an error
+  runs with zero model calls. Vectorless gets what Traditional left on the fused path. Traditional
+  skips an LLM reranker when its call budget is zero. Graph skips its entity-matching call when no
+  call is left, returns nothing with `fallback_reason: "no calls left"`, and `auto` falls back to
+  Traditional with what is left, which is nothing.
 - Graph is left out of the candidates when `graph_store.enabled` is false or the request sets
   `document_id` or `format`.
 - **Agent.** A tool check between plan and retrieve lets decisive signals override the planner,
@@ -57,7 +60,10 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
   graph edges is generated on the graph path (ADR 0012) and keeps its dated-sources note.
 - `switch_strategy` chooses among all three search tools from the signals' ranking. Switching away
   from `fetch_document` restores the sub-question text as the query.
-- `ragfabric ask` prints `Strategy: <ran> (<source>). <reasoning>` plus a fallback note.
+- The agent's `semantic_search` charges an LLM reranker's call to the agent's budget: it is
+  refused when no call is left, like `graph_search`, and counted once in `llm_calls` when made.
+- `ragfabric ask` prints `Strategy: <ran> (<source>). <reasoning>` plus `Fell back from
+  <strategy>.` after a fallback.
 - Docs: ADR 0013, ADR 0014, `docs/concepts/routing-as-classification.md`, and `docs/routing.md`
   and `docs/agentic-rag.md` rewritten to what shipped. Router quality is not measured.
 
@@ -67,6 +73,13 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
   server's `router.mode` resolves it, which defaults to `auto`. `ragfabric ask` accepts
   `--strategy auto` and prints one line after the answer naming the strategy that ran, why, and
   any fallback. `Answer` gains optional `strategy`, `router` and `fallback_from` fields.
+- Raw HTTP callers that send no strategy to `/api/ask` or `/api/search/query` now get `auto`,
+  because `router.mode` defaults to `auto`. Set `router.mode: manual` to keep `traditional`.
+- `/api/search/semantic` keeps `traditional` when no strategy is sent, whatever `router.mode`
+  says, as `/api/search/hybrid` does. An explicit `auto` is still accepted there.
+- A request that sets `rerank` and names no strategy resolves to `traditional` on `/api/ask`,
+  `/api/search/query` and `/api/search/semantic`, whatever `router.mode` says, so the rerank is
+  applied. A request naming `auto` with `rerank` is routed and the rerank is not applied.
 
 ## [0.3.1] - 2026-09-26
 

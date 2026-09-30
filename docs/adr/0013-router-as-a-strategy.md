@@ -38,7 +38,7 @@ and the router's job is to spend the agent's cost only where it pays.
 
 | Rule | Why |
 |---|---|
-| Naming a strategy always bypasses the router. An unset strategy is resolved by the server from `router.mode` (`auto` gives `auto`, `manual` gives `traditional`) on `/api/ask`, `/api/search/query` and `/api/search/semantic`. `/api/search/hybrid` does not route: unset means `traditional` there and `auto` is a 422 | Comparing the strategies fairly needs a way to ask for exactly one |
+| Naming a strategy always bypasses the router. An unset strategy is resolved by the server from `router.mode` (`auto` gives `auto`, `manual` gives `traditional`) on `/api/ask` and `/api/search/query`. `/api/search/semantic` keeps `traditional` when unset and accepts an explicit `auto`. `/api/search/hybrid` does not route: unset means `traditional` there and `auto` is a 422. A request that sets `rerank` and names no strategy is `traditional` on all three routing routes; `auto` with `rerank` is routed and the rerank is not applied | Comparing the strategies fairly needs a way to ask for exactly one |
 | `auto` is never a routing target, never a fallback target and never an agent tool | A router that can route to itself can loop |
 | `auto` passes the caller's principal and access filter untouched to everything it runs, fallbacks included. The context is a copy with a reduced budget | ADR 0003. Nothing rebuilds a context |
 | Graph is left out of the candidates when `graph_store.enabled` is false, or when the request sets `document_id` or `format` | The graph walk applies access and collection scope only, so it cannot honour those filters. `/api/ask` already refuses them with a 422 when a caller names `graph` |
@@ -53,8 +53,8 @@ and the router's job is to spend the agent's cost only where it pays.
 | Trigger | Action |
 |---|---|
 | Any strategy other than Traditional returns no chunks (Graph with `no_graph_coverage`, `no_entity_matched` or `no_walkable_edges`, Vectorless with no term match, Agentic with zero usable evidence) | Traditional |
-| A non-Traditional routed strategy raised an exception | Traditional with zero model calls (skipping LLM reranking). The router span records `fallback_reason: "error: <ExceptionType>: <message>"` (truncated to 200 characters) and `failed_attempt_calls: "unknown"` |
-| The Vectorless leg of a fused run raised an exception | Keep the Traditional leg's result. The router span records `fallback_reason: "error: <ExceptionType>: <message>"` (truncated to 200 characters); `fallback_from` stays unset |
+| A non-Traditional routed strategy raised an exception | Traditional with zero model calls (skipping LLM reranking). The router span records `fallback_reason: "error: <ExceptionType>: <message>"` (truncated to 200 characters) and `failed_attempt_calls: "unknown"`. Reported `llm_calls` is a lower bound: the failed attempt's spend is unknown and counted as 0 |
+| The Vectorless leg of a fused run raised an exception | Keep the Traditional leg's result. The router span records `fallback_reason: "error: <ExceptionType>: <message>"` (truncated to 200 characters); `fallback_from` stays unset and `fused` stays true. Reported `llm_calls` is a lower bound |
 | Traditional was chosen and found nothing | None. An honest empty result |
 | The fallback also finds nothing | Stop. Empty, with both attempts in the trace |
 
@@ -81,8 +81,9 @@ Discarding answered evidence to run a simpler search would make the answer worse
 - If a non-Traditional routed strategy raises an exception, `auto` catches it, falls back to
   Traditional with zero model calls, and records the error in the router span as `fallback_reason:
   "error: <ExceptionType>: <message>"` (truncated to 200 characters) and `failed_attempt_calls:
-  "unknown"`. If the Vectorless leg of a fused run raises, the Traditional leg's result is kept
-  and the error is recorded. If Traditional raises (chosen, fallback, or fused leg), the error
+  "unknown"`; reported `llm_calls` is then a lower bound. If the Vectorless leg of a fused run
+  raises, the Traditional leg's result is kept, the error is recorded and `fused` stays true. If
+  Traditional raises (chosen, fallback, or fused leg), the error
   surfaces as it would for a direct request.
 - Whether the router picks the best strategy is a measurement, and none exists yet. Phase 8
   measures it (ADR 0004), and the first real run is written up in `docs/learning/`.

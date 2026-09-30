@@ -91,7 +91,9 @@ stateDiagram-v2
 - **tool check** (`check_tools` in `agent/nodes.py`, no model call): looks at each sub-question
   once, between plan and retrieve, and corrects the planner's tool where the signals know better.
   Rules in the next section.
-- **retrieve** (`agent/nodes.py`, no model call except `graph_search`): runs each **open** sub-question's tool and
+- **retrieve** (`agent/nodes.py`, no model call except `graph_search`, and `semantic_search`
+  when `reranker.kind` is `llm`; each such call is checked against the budget before it is made
+  and charged after): runs each **open** sub-question's tool and
   pools what comes back by chunk id. Answered sub-questions are not retrieved for again, which
   is the entire reason the ledger exists. The outcome carries the chunk ids that were genuinely
   new, which is the progress signal.
