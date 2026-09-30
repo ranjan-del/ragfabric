@@ -54,9 +54,10 @@ reached, the signals' own proposal is used.
 A rule that matches an error-code pattern might be right most of the time, but "most" was never
 counted. Attaching 0.9 to it would put a figure in the decision that nobody measured, which
 [ADR 0004](../adr/0004-measurement-first-no-fabricated-numbers.md) forbids. So a signals decision
-says `confidence: null`, with `decisive: true` when it came from the signals (a `signals_fallback` decision is not decisive). Even the classifier's number is only a model's
-self-report, and models are often more sure than they are right. That is why the threshold
-`router.min_confidence` is an untuned starting value.
+says `confidence: null`, with `decisive: true` when it came from the signals (a `signals_fallback`
+decision is not decisive). Even the classifier's number is only a model's self-report, and models
+are often more sure than they are right. That is why the threshold `router.min_confidence` is an
+untuned starting value.
 
 ## The cost of a wrong route
 

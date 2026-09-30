@@ -106,6 +106,7 @@ One step, never a chain. Every fallback is recorded on the run as `fallback_from
 | Trigger | Action |
 |---|---|
 | Any strategy other than Traditional returns no chunks | Run Traditional. For Graph the recorded reason is one of `no_graph_coverage`, `no_entity_matched` or `no_walkable_edges`; for Vectorless no term match; for Agentic zero usable evidence |
+| The chosen strategy (other than Traditional) raised an exception | Run Traditional with the remaining call budget. The router span records `fallback_reason: "error: <ExceptionType>: <message>"` |
 | Traditional was chosen and found nothing | None. An honest empty result |
 | The fallback also finds nothing | Stop. Empty, with both attempts in the trace |
 | Classifier confidence below `router.min_confidence` | Not a fallback. Traditional and Vectorless are fused up front |
@@ -141,7 +142,7 @@ make the answer worse.
 |---|---|
 | Access | `auto`, every fallback and `graph_search` pass the caller's principal and access filter untouched (ADR 0003). The context is a copy with a reduced budget and nothing else changed |
 | What the classifier sees | The question and the signals only, never chunk text |
-| Routing trouble | Never fails a request. A failed classifier becomes `signals_fallback` |
+| Routing trouble | Never fails a request. A failed classifier becomes `signals_fallback`. If a routed strategy raises an exception, `auto` falls back to Traditional with the error recorded. If Traditional itself raises, the error surfaces as it would for a request naming traditional |
 | Cost | The classifier call counts in `llm_calls`, tokens and cost. The router has its own `router` span |
 
 ## What is recorded

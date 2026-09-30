@@ -53,6 +53,7 @@ and the router's job is to spend the agent's cost only where it pays.
 | Trigger | Action |
 |---|---|
 | Any strategy other than Traditional returns no chunks (Graph with `no_graph_coverage`, `no_entity_matched` or `no_walkable_edges`, Vectorless with no term match, Agentic with zero usable evidence) | Traditional |
+| The chosen strategy (other than Traditional) raised an exception | Traditional with the remaining call budget. The router span records `fallback_reason: "error: <ExceptionType>: <message>"` |
 | Traditional was chosen and found nothing | None. An honest empty result |
 | The fallback also finds nothing | Stop. Empty, with both attempts in the trace |
 
@@ -76,5 +77,8 @@ Discarding answered evidence to run a simpler search would make the answer worse
   behaviour change and is recorded in the CHANGELOG.
 - A routed request is at most one classifier call, one strategy run and one fallback, so its cost
   is bounded by the caller's budget on every path.
+- If a routed strategy raises an exception, `auto` catches it, falls back to Traditional, and
+  records the error in the router span. If Traditional raises, the error surfaces as it would for a
+  direct request.
 - Whether the router picks the best strategy is a measurement, and none exists yet. Phase 8
   measures it (ADR 0004), and the first real run is written up in `docs/learning/`.

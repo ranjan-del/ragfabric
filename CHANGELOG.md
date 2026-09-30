@@ -28,11 +28,14 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 - `RouterDecision` on the result: strategy, `source` (`signals`, `classifier`, `signals_fallback`),
   `decisive`, `confidence` (null for signals, uncalibrated for the classifier), one-sentence
   reasoning, query type, and engineering level estimates. `/api/ask` and `/api/search/query`
-  responses carry `strategy`, `router` and `fallback_from` (the ask stream's `retrieval` event too;
-  `/api/search/semantic` returns `strategy` only), and the `retrieval_runs` row records the requested strategy, the strategy that
-  ran, `fallback_from`, router confidence and reasoning. No migration.
-- One fallback step, never a chain: Graph with no coverage, Vectorless with no term match, and
-  Agentic with zero usable evidence fall back to Traditional. A fallback result carries none of the
+  responses carry `strategy`, `router` and `fallback_from` (the ask stream's `retrieval` event
+  too; `/api/search/semantic` returns `strategy` only). The `retrieval_runs` row records the
+  requested strategy, the strategy that ran, `fallback_from`, router confidence and reasoning. No
+  migration.
+- One fallback step, never a chain: Graph with no coverage, Vectorless with no term match,
+  Agentic with zero usable evidence, and a routed strategy that raises an exception all fall back
+  to Traditional. When a non-Traditional strategy raises, the router records the error in its span
+  as `fallback_reason: "error: <ExceptionType>: <message>"`. A fallback result carries none of the
   failed attempt's sub-questions or sub-graph.
 - `auto` never exceeds the caller's `max_llm_calls`: the classifier call is deducted first, a
   fallback gets what the first attempt left, Vectorless gets what Traditional left on the fused
