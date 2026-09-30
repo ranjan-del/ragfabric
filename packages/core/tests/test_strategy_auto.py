@@ -3,11 +3,13 @@ import json
 import pytest
 from agent_doubles import RecordingLLM, chunk, ctx
 
+from ragfabric_core.graph.contracts import EmptyReason, Subgraph
 from ragfabric_core.strategies.auto import AutoStrategy
 from ragfabric_core.strategies.base import (
     RetrievalResult,
     StrategyParams,
     StrategyRegistry,
+    SubQuestionReport,
 )
 from ragfabric_core.strategies.base import StrategyName as S
 from ragfabric_core.strategies.contract import assert_strategy_contract
@@ -17,26 +19,28 @@ UNDECIDED = " ".join(["onboarding"] * 20) + "?"
 
 
 class Fake:
-    def __init__(self, name, chunks=()):
+    def __init__(self, name, chunks=(), *, spend=None, extra=None):
         self.name, self._chunks, self.seen = name, list(chunks), []
+        self._spend, self._extra = spend, extra or {}
 
     def retrieve(self, query, ctx):
         self.seen.append(ctx)
         return RetrievalResult(
+            **self._extra,
             strategy=self.name,
             chunks=self._chunks,
             retrieval_calls=1,
-            llm_calls=0,
+            llm_calls=self._spend(ctx) if self._spend else 0,
             input_tokens=0,
             output_tokens=0,
             latency_ms=1,
         )
 
 
-def build(*, found=None, llm=None, graph_enabled=True, min_confidence=0.6):
-    found = found or {}
+def build(*, found=None, llm=None, graph_enabled=True, min_confidence=0.6, spend=None, extra=None):
+    found, spend, extra = found or {}, spend or {}, extra or {}
     fakes = {
-        name: Fake(name, found.get(name, [chunk(9)]))
+        name: Fake(name, found.get(name, [chunk(9)]), spend=spend.get(name), extra=extra.get(name))
         for name in (S.TRADITIONAL, S.VECTORLESS, S.AGENTIC, S.GRAPH)
     }
     registry = StrategyRegistry()
@@ -116,6 +120,9 @@ def test_an_empty_choice_falls_back_once_and_records_it():
     result = auto.retrieve("What does ERR_QUOTA_4419 mean?", ctx())
     assert result.strategy is S.TRADITIONAL and result.fallback_from is S.VECTORLESS
     assert len(fakes[S.TRADITIONAL].seen) == 1
+    span = next(s for s in result.trace if s.name == "router")
+    assert span.attributes["fallback_from"] == "vectorless"
+    assert span.attributes["fallback_reason"] == "no evidence"
 
 
 def test_a_fallback_that_also_finds_nothing_stops():
@@ -151,3 +158,77 @@ def test_every_strategy_receives_the_callers_own_access_filter():
 def test_auto_is_never_a_routing_target():
     auto, _ = build()
     assert S.AUTO not in auto.available(ctx())
+
+
+def _spend_all(ctx):
+    return ctx.budget.max_llm_calls
+
+
+def _spend_one(ctx):
+    return min(1, ctx.budget.max_llm_calls)
+
+
+def test_the_classifier_path_keeps_to_the_callers_budget():
+    auto, _ = build(llm=classifier(), spend={S.AGENTIC: _spend_all})
+    result = assert_strategy_contract(auto, UNDECIDED, ctx(max_llm_calls=5))
+    assert result.llm_calls == 5 and result.router.source == "classifier"
+
+
+def test_the_fused_path_keeps_to_the_callers_budget():
+    auto, _ = build(
+        llm=classifier(confidence=0.2),
+        spend={S.TRADITIONAL: _spend_one, S.VECTORLESS: _spend_one},
+    )
+    result = assert_strategy_contract(auto, UNDECIDED, ctx(max_llm_calls=2))
+    assert result.router.fused and result.llm_calls <= 2
+
+
+def test_classifier_then_fallback_keeps_to_the_callers_budget():
+    auto, fakes = build(
+        llm=classifier(),
+        found={S.AGENTIC: []},
+        spend={S.AGENTIC: _spend_all, S.TRADITIONAL: _spend_one},
+    )
+    result = assert_strategy_contract(auto, UNDECIDED, ctx(max_llm_calls=5))
+    assert result.fallback_from is S.AGENTIC and result.llm_calls <= 5
+    assert fakes[S.TRADITIONAL].seen[0].budget.max_llm_calls == 0
+
+
+def test_a_fallback_after_a_decisive_choice_keeps_to_the_callers_budget():
+    auto, _ = build(
+        found={S.VECTORLESS: []},
+        spend={S.VECTORLESS: _spend_all, S.TRADITIONAL: _spend_one},
+    )
+    result = assert_strategy_contract(auto, "What does ERR_QUOTA_4419 mean?", ctx(max_llm_calls=3))
+    assert result.llm_calls <= 3
+
+
+def test_the_access_filter_survives_the_deducted_context_on_the_classifier_path():
+    auto, fakes = build(llm=classifier())
+    caller = ctx(max_llm_calls=5)
+    auto.retrieve(UNDECIDED, caller)
+    seen = fakes[S.AGENTIC].seen[0]
+    assert seen.budget.max_llm_calls == 4
+    assert seen.access_filter == caller.access_filter and seen.principal == caller.principal
+
+
+def test_the_access_filter_survives_the_deducted_context_on_the_fused_path():
+    auto, fakes = build(llm=classifier(confidence=0.2))
+    caller = ctx(max_llm_calls=5)
+    auto.retrieve(UNDECIDED, caller)
+    for name in (S.TRADITIONAL, S.VECTORLESS):
+        seen = fakes[name].seen[0]
+        assert seen.access_filter == caller.access_filter and seen.principal == caller.principal
+
+
+def test_a_fallback_result_carries_nothing_from_the_failed_attempt():
+    failed = {
+        "sub_questions": [SubQuestionReport(text="part", status="open", reason="stalled")],
+        "subgraph": Subgraph(
+            nodes=[], edges=[], truncated=False, empty_reason=EmptyReason.NO_ENTITY_MATCHED
+        ),
+    }
+    auto, _ = build(found={S.VECTORLESS: []}, extra={S.VECTORLESS: failed})
+    result = auto.retrieve("What does ERR_QUOTA_4419 mean?", ctx())
+    assert result.fallback_from is S.VECTORLESS
+    assert result.sub_questions == [] and result.subgraph is None

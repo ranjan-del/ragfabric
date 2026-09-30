@@ -92,18 +92,22 @@ class AutoStrategy:
         inner = _deduct_calls(ctx, outcome.llm_calls if outcome else 0)
         chosen = StrategyName(decision.selected_strategy)
         if decision.fused:
-            result = fuse(
-                self._run(StrategyName.TRADITIONAL, query, inner),
-                self._run(StrategyName.VECTORLESS, query, inner),
-                top_k=ctx.params.top_k,
+            traditional = self._run(StrategyName.TRADITIONAL, query, inner)
+            vectorless = self._run(
+                StrategyName.VECTORLESS, query, _deduct_calls(inner, traditional.llm_calls)
             )
+            result = fuse(traditional, vectorless, top_k=ctx.params.top_k)
         else:
             result = self._run(chosen, query, inner)
 
         next_strategy = None if decision.fused else fallback_for(chosen, result)
         reason = empty_reason(result) if next_strategy else ""
         if next_strategy is not None:
-            result = combine(result, self._run(next_strategy, query, inner), fallback_from=chosen)
+            # What the first attempt spent is gone, so the fallback gets only the rest.
+            remaining = _deduct_calls(inner, result.llm_calls)
+            result = combine(
+                result, self._run(next_strategy, query, remaining), fallback_from=chosen
+            )
 
         span = TraceSpan(
             name="router",

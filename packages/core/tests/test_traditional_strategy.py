@@ -244,3 +244,24 @@ def test_llm_calls_is_zero_when_the_threshold_filters_everything_out():
     result = strategy(store, reranker=Named()).retrieve("q", ctx(threshold=0.5))
     assert result.chunks == []
     assert result.llm_calls == 0
+
+
+def test_an_llm_reranker_with_no_call_budget_makes_no_call_and_keeps_retrieval_order():
+    from ragfabric_core.rerank.noop import NoopReranker
+    from ragfabric_core.strategies.base import Budget
+
+    class Counting(NoopReranker):
+        name = "llm"
+        calls = 0
+
+        def rerank(self, query, chunks, top_k):
+            type(self).calls += 1
+            return list(reversed(chunks))[:top_k]
+
+    store = StubStore([chunk(1, 0.9), chunk(2, 0.8)])
+    broke = ctx(top_k=2).model_copy(update={"budget": Budget(max_llm_calls=0)})
+    result = strategy(store, reranker=Counting()).retrieve("q", broke)
+    assert Counting.calls == 0 and result.llm_calls == 0
+    assert [c.chunk_id for c in result.chunks] == [1, 2]
+    rerank = next(s for s in result.trace if s.name == "rerank")
+    assert rerank.attributes["skipped"] == "budget"
