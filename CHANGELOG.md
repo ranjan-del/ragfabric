@@ -15,6 +15,15 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 | v0.5.0 | Evaluation framework | Corpus, question set, metrics, `make eval`, dashboards, generated benchmarks |
 | v1.0.0 | Production release | Reference UI with Compare and Trace, TypeScript SDK, connectors, hardening, docs site, deployment guides |
 
+## [0.4.0] - unreleased
+
+### Changed
+
+- The SDK and CLI no longer default to `traditional`. An unset strategy is not sent, and the
+  server's `router.mode` resolves it, which defaults to `auto`. `ragfabric ask` accepts
+  `--strategy auto` and prints one line after the answer naming the strategy that ran, why, and
+  any fallback. `Answer` gains optional `strategy`, `router` and `fallback_from` fields.
+
 ## [0.3.1] - 2026-09-26
 
 Packaging only, so the release can be installed from PyPI. No code changes.
