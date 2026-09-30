@@ -71,9 +71,12 @@ from ragfabric_core.models.access import AuditLog
 from ragfabric_core.models.document import QueryLog
 from ragfabric_core.models.runs import RetrievalRun, Source
 from ragfabric_core.providers.base import LLMProvider, Message
+from ragfabric_core.router.mode import resolve_requested
+from ragfabric_core.runtime import get_config
 from ragfabric_core.strategies.base import (
     RetrievalContext,
     RetrievedChunk,
+    StrategyName,
     StrategyParams,
     StrategyRegistry,
     TraceSpan,
@@ -84,6 +87,7 @@ from ragfabric_server.api.routes.search import (
     _agent_fields,
     _chunk_to_row,
     _cited_llm_calls,
+    _counted_strategy,
     _generate,
     _refuse_unapplied_filters,
     _strategy_for,
@@ -142,9 +146,11 @@ def _rows(chunks: list[RetrievedChunk]) -> list[dict]:
 def _record(
     *,
     payload: AskRequest,
+    name: StrategyName,
     principal: Principal,
     access: AccessFilter,
     strategy,
+    registry: StrategyRegistry,
     result,
     answer: dict,
     spans: list[dict],
@@ -169,7 +175,7 @@ def _record(
     """
     used = {c["chunk_id"] for c in answer["citations"] if c["used"]}
     before, after = _access_stats(
-        strategy,
+        _counted_strategy(name, strategy, result, registry),
         {
             "collection_id": payload.collection_id,
             "document_id": payload.document_id,
@@ -182,9 +188,12 @@ def _record(
             user_id=principal.user_id,
             api_key_id=principal.api_key_id,
             question=payload.query,
-            mode="manual",
-            requested_strategy=payload.strategy,
-            selected_strategy=payload.strategy,
+            mode="auto" if name is StrategyName.AUTO else "manual",
+            requested_strategy=str(name),
+            selected_strategy=str(result.strategy),
+            fallback_from=str(result.fallback_from) if result.fallback_from else None,
+            router_confidence=result.router.confidence if result.router else None,
+            router_reasoning=result.router.reasoning if result.router else None,
             answer=answer["answer"],
             latency_ms=total_ms,
             retrieval_latency_ms=retrieval_ms,
@@ -217,7 +226,7 @@ def _record(
                 api_key_id=principal.api_key_id,
                 action="query",
                 question=payload.query,
-                strategy=payload.strategy,
+                strategy=str(result.strategy),
                 retrieval_run_id=run.id,
                 sources_returned=len(result.chunks),
                 sources_filtered=max(before - after, 0),
@@ -258,8 +267,9 @@ def ask(
     # per-request strategy around the shared store/embedder rather than
     # mutating the shared one when a reranker override is present (the
     # rerank override applies to the traditional strategy only).
-    _refuse_unapplied_filters(payload.strategy, payload.document_id, payload.format)
-    strategy = _strategy_for(payload.rerank, registry, llm, payload.strategy)
+    name = resolve_requested(payload.strategy, get_config().router)
+    _refuse_unapplied_filters(name, payload.document_id, payload.format)
+    strategy = _strategy_for(payload.rerank, registry, llm, name)
 
     if not payload.stream:
         started = time.perf_counter()
@@ -272,9 +282,11 @@ def ask(
         total_ms = int((time.perf_counter() - started) * 1000)
         _record(
             payload=payload,
+            name=name,
             principal=principal,
             access=access,
             strategy=strategy,
+            registry=registry,
             result=result,
             answer=answer,
             spans=[s.model_dump() for s in result.trace] + [s.model_dump() for s in tracing.spans],
@@ -324,6 +336,11 @@ def ask(
                 "subgraph": result.subgraph.model_dump(mode="json")
                 if result.subgraph is not None
                 else None,
+                # What routed here; null unless auto served the request.
+                "router": result.router.model_dump(mode="json")
+                if result.router is not None
+                else None,
+                "fallback_from": str(result.fallback_from) if result.fallback_from else None,
             },
         )
 
@@ -437,9 +454,11 @@ def ask(
 
         run_id = _record(
             payload=payload,
+            name=name,
             principal=principal,
             access=access,
             strategy=strategy,
+            registry=registry,
             result=result,
             answer=answer,
             spans=spans,

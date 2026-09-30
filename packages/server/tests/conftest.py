@@ -66,6 +66,9 @@ def pytest_configure(config: pytest.Config) -> None:
         # collisions dominate at that width); 128 is still fast and offline
         # but stops "unrelated query" tests from scoring a false positive.
         "embeddings:\n  provider: offline\n  dim: 128\n"
+        # Requests that name no strategy mean traditional in these tests, as they did
+        # before the router existed; test_auto_routes.py sets the mode it needs.
+        "router:\n  mode: manual\n"
     )
     os.environ["RAGFABRIC_CONFIG"] = str(cfg_path)
 
