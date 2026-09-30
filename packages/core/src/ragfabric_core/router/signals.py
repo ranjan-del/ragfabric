@@ -24,7 +24,7 @@ DEFAULT_RELATION_PHRASES: dict[str, tuple[str, ...]] = {
     "REPORTS_TO": ("report to", "reports to", "reporting to", "manager of", "managed by"),
     "MEMBER_OF": ("member of", "members of", "part of the team", "on the team"),
     "BELONGS_TO": ("belong to", "belongs to"),
-    "OWNS": ("own", "owns", "owner of", "owned by"),
+    "OWNS": ("owns", "owner of", "owned by"),
     "WORKS_ON": ("work on", "works on", "working on"),
     "LOCATED_IN": ("located in", "based in", "based out of"),
     "AUTHORED": ("wrote", "author of", "authored"),
@@ -156,6 +156,9 @@ def _fired(signals: Signals) -> list[tuple[StrategyName, QueryType, str]]:
 
 
 def propose(signals: Signals, *, available: Collection[StrategyName]) -> Proposal:
+    fallback = next((s for s in _DEFAULT_ORDER if s in available), None)
+    if fallback is None:
+        raise ValueError("propose needs at least one available strategy")
     fired = _fired(signals)
     reasons: list[str] = []
     usable = [item for item in fired if item[0] in available]
@@ -171,7 +174,7 @@ def propose(signals: Signals, *, available: Collection[StrategyName]) -> Proposa
         decisive = True
         reasons.insert(0, reason)
     elif not usable and (fired or signals.words <= PLAIN_MAX_WORDS):
-        strategy, query_type, decisive = StrategyName.TRADITIONAL, "simple_factual", True
+        strategy, query_type, decisive = fallback, "simple_factual", True
         reasons.insert(0, "A short question about one concept.")
     else:
         # Conflicting signals or a long question: the classifier decides. The
@@ -179,7 +182,7 @@ def propose(signals: Signals, *, available: Collection[StrategyName]) -> Proposa
         # case where the classifier cannot be reached.
         strategy = next(
             (s for s, _, _ in usable if s is StrategyName.AGENTIC),
-            usable[0][0] if usable else StrategyName.TRADITIONAL,
+            usable[0][0] if usable else fallback,
         )
         query_type, decisive = "ambiguous", False
         reasons.insert(0, "The signals disagree or the question is long and open.")

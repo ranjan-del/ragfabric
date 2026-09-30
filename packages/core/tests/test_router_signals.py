@@ -84,3 +84,46 @@ def test_extraction_is_pure():
     first = extract_signals("Who owns Billing?", relation_types=RELATIONS)
     second = extract_signals("Who owns Billing?", relation_types=RELATIONS)
     assert first == second
+
+
+def test_a_plain_question_falls_back_to_an_available_strategy():
+    proposal = run("What is our refund policy?", available={S.VECTORLESS, S.AGENTIC})
+    assert proposal.strategy is S.VECTORLESS
+    assert S.TRADITIONAL not in proposal.ranking
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "What is our refund policy?",
+        "Who does Ravi Sharma report to?",
+        "What does ERR_QUOTA_4419 mean?",
+        "Compare ERR_QUOTA_4419 with ERR_QUOTA_4420 for Billing",
+        " ".join(["policy"] * 20) + "?",
+        "",
+    ],
+)
+@pytest.mark.parametrize(
+    "available",
+    [
+        {S.VECTORLESS},
+        {S.AGENTIC},
+        {S.GRAPH, S.AGENTIC},
+        {S.VECTORLESS, S.AGENTIC},
+        {S.TRADITIONAL, S.GRAPH},
+    ],
+)
+def test_the_proposal_and_ranking_stay_inside_the_available_set(question, available):
+    proposal = run(question, available=available)
+    assert proposal.strategy in available
+    assert set(proposal.ranking) <= available
+    assert proposal.ranking[0] is proposal.strategy
+
+
+def test_no_available_strategy_raises():
+    with pytest.raises(ValueError, match="at least one available strategy"):
+        run("What is our refund policy?", available=set())
+
+
+def test_the_bare_word_own_is_not_a_graph_signal():
+    assert run("What is our own leave policy for Pune?").strategy is not S.GRAPH
