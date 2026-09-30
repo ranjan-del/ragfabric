@@ -8,6 +8,7 @@ never reports itself as the strategy (ADR 0002).
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Sequence
 
@@ -23,6 +24,8 @@ from ragfabric_core.strategies.base import (
     StrategyRegistry,
     TraceSpan,
 )
+
+log = logging.getLogger(__name__)
 
 # Request filters the graph walk cannot apply. /api/ask refuses them with a 422
 # when a caller names graph; under auto the graph is left out instead.
@@ -101,7 +104,8 @@ class AutoStrategy:
                 )
             except Exception as exc:
                 # Keep the Traditional leg. The failed leg's spend is unknown,
-                # so it is counted as 0 (see _attempt).
+                # so it is counted as 0: reported llm_calls is a lower bound.
+                log.warning("vectorless leg failed, keeping traditional", exc_info=True)
                 failure = _describe(exc)
                 result = traditional
             else:
@@ -111,20 +115,22 @@ class AutoStrategy:
             attempt = self._attempt(chosen, query, inner)
             if isinstance(attempt, Exception):
                 failure = _describe(attempt)
-                # Nothing to add to the fallback's counters: an exception carries
-                # no result, so what the failed strategy spent cannot be known.
-                # Only what can be counted is counted, which here is 0 for it;
-                # the fallback still gets the full remaining budget, so the
-                # caller's limit is held by the classifier deduction alone.
+                # An exception carries no result, so what the failed strategy
+                # spent (an agent may have made several calls before a
+                # ProviderError escaped) cannot be known and is counted as 0:
+                # reported llm_calls is a lower bound, marked by
+                # failed_attempt_calls="unknown" in the router span. Because
+                # the real spend may be anything up to the whole budget, the
+                # fallback gets a zero call budget so the caller's limit holds.
                 next_strategy = StrategyName.TRADITIONAL
-                result = self._run(next_strategy, query, inner).model_copy(
-                    update={"fallback_from": chosen}
-                )
+                result = self._run(
+                    next_strategy, query, _deduct_calls(inner, inner.budget.max_llm_calls)
+                ).model_copy(update={"fallback_from": chosen})
                 reason = failure
             else:
                 result = attempt
                 next_strategy = fallback_for(chosen, result)
-                reason = empty_reason(result) if next_strategy else ""
+                reason = _no_result_reason(result) if next_strategy else ""
                 if next_strategy is not None:
                     # What the first attempt spent is gone, so the fallback gets only the rest.
                     remaining = _deduct_calls(inner, result.llm_calls)
@@ -145,6 +151,7 @@ class AutoStrategy:
                 "fused": decision.fused,
                 "fallback_from": str(chosen) if next_strategy else None,
                 "fallback_reason": reason or None,
+                "failed_attempt_calls": "unknown" if failure else None,
                 "classifier_violation": outcome.violation.error
                 if outcome and outcome.violation
                 else None,
@@ -177,6 +184,7 @@ class AutoStrategy:
         try:
             return self._run(name, query, ctx)
         except Exception as exc:
+            log.warning("routed strategy %s failed, falling back", name, exc_info=True)
             return exc
 
     def _run(self, name: StrategyName, query: str, ctx: RetrievalContext) -> RetrievalResult:
@@ -223,6 +231,13 @@ def _from_proposal(proposal: Proposal, *, source: str) -> RouterDecision:
         query_type=proposal.query_type,
         **levels_for(strategy),
     )
+
+
+def _no_result_reason(result: RetrievalResult) -> str:
+    """Why an empty result is being replaced: the budget, or else the usual reason."""
+    if any(span.attributes.get("skipped") == "budget" for span in result.trace):
+        return "no calls left"
+    return empty_reason(result)
 
 
 def _describe(exc: Exception) -> str:

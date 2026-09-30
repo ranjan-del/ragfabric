@@ -497,3 +497,5 @@ def test_auto_falls_back_to_traditional_when_a_graph_pick_has_no_budget_left(gra
     assert result.strategy is StrategyName.TRADITIONAL
     assert result.fallback_from is StrategyName.GRAPH
     assert llm.calls == 0 and result.llm_calls == 1
+    span = next(s for s in result.trace if s.name == "router")
+    assert span.attributes["fallback_reason"] == "no calls left"

@@ -169,7 +169,7 @@ def _counted_strategy(
 
     Under ``auto`` the object that ran has no store of its own; the count is
     taken on the index that actually answered, so it stays a measurement of
-    the candidates that were searched (ADR 0004).
+    the candidates that were searched (ADR 0003).
     """
     if name is StrategyName.AUTO:
         return registry.get(result.strategy)

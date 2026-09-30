@@ -261,12 +261,46 @@ def test_a_routed_strategy_that_raises_falls_back_to_traditional():
     assert reason.startswith("error: ProviderError: ") and len(reason) <= 200
 
 
-def test_the_fallback_after_a_raise_keeps_to_the_callers_budget():
+def test_the_fallback_after_a_raise_gets_no_calls_and_the_span_says_why():
+    # The agent may have spent its whole budget before raising; how much is unknowable.
     auto, fakes = build(llm=classifier(), spend={S.TRADITIONAL: _spend_one})
     _break(auto, S.AGENTIC)
     result = assert_strategy_contract(auto, UNDECIDED, ctx(max_llm_calls=5))
     assert result.fallback_from is S.AGENTIC and result.llm_calls <= 5
-    assert fakes[S.TRADITIONAL].seen[0].budget.max_llm_calls == 4
+    assert fakes[S.TRADITIONAL].seen[0].budget.max_llm_calls == 0
+    assert result.llm_calls == 1  # the classifier only; the failed attempt is a lower bound
+    span = next(s for s in result.trace if s.name == "router")
+    assert span.attributes["failed_attempt_calls"] == "unknown"
+
+
+@pytest.fixture()
+def auto_logger():
+    """The module logger, enabled: an earlier alembic fileConfig can disable it suite-wide."""
+    import logging
+
+    logger = logging.getLogger("ragfabric_core.strategies.auto")
+    before = (logger.disabled, logger.propagate)
+    logger.disabled, logger.propagate = False, True
+    yield logger
+    logger.disabled, logger.propagate = before
+
+
+def test_a_routed_failure_is_logged_with_its_traceback(caplog, auto_logger):
+    auto, _ = build(llm=classifier())
+    _break(auto, S.AGENTIC)
+    with caplog.at_level("WARNING", logger="ragfabric_core.strategies.auto"):
+        auto.retrieve(UNDECIDED, ctx())
+    records = [r for r in caplog.records if r.name == "ragfabric_core.strategies.auto"]
+    assert len(records) == 1 and records[0].exc_info
+
+
+def test_a_failed_fused_leg_is_logged(caplog, auto_logger):
+    auto, _ = build(llm=classifier(confidence=0.2))
+    _break(auto, S.VECTORLESS)
+    with caplog.at_level("WARNING", logger="ragfabric_core.strategies.auto"):
+        auto.retrieve(UNDECIDED, ctx())
+    records = [r for r in caplog.records if r.name == "ragfabric_core.strategies.auto"]
+    assert len(records) == 1 and records[0].exc_info
 
 
 def test_traditional_raising_as_the_chosen_strategy_propagates():
@@ -299,3 +333,22 @@ def test_a_traditional_leg_that_raises_on_the_fused_path_propagates():
     _break(auto, S.TRADITIONAL)
     with pytest.raises(ProviderError):
         auto.retrieve(UNDECIDED, ctx())
+
+
+def test_an_empty_result_after_a_budget_skip_says_no_calls_left():
+    from ragfabric_core.strategies.base import TraceSpan
+
+    skipped = {
+        "trace": [
+            TraceSpan(
+                name="extract_question",
+                started_ms=0,
+                duration_ms=0,
+                attributes={"skipped": "budget"},
+            )
+        ]
+    }
+    auto, _ = build(found={S.VECTORLESS: []}, extra={S.VECTORLESS: skipped})
+    result = auto.retrieve("What does ERR_QUOTA_4419 mean?", ctx())
+    span = next(s for s in result.trace if s.name == "router")
+    assert span.attributes["fallback_reason"] == "no calls left"
