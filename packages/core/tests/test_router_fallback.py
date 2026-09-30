@@ -3,7 +3,7 @@ from agent_doubles import chunk
 
 from ragfabric_core.graph.contracts import EmptyReason, Subgraph
 from ragfabric_core.router.fallback import combine, empty_reason, fallback_for, fuse
-from ragfabric_core.strategies.base import RetrievalResult, SubQuestionReport
+from ragfabric_core.strategies.base import RetrievalResult, SubQuestionReport, TraceSpan
 from ragfabric_core.strategies.base import StrategyName as S
 
 
@@ -79,3 +79,59 @@ def test_fuse_cuts_to_top_k_after_fusion():
         result(S.TRADITIONAL, [chunk(i) for i in range(10)]), result(S.VECTORLESS, []), top_k=3
     )
     assert len(fused.chunks) == 3
+
+
+def span(name):
+    return TraceSpan(name=name, started_ms=0, duration_ms=1)
+
+
+def test_combine_keeps_both_traces_in_order():
+    merged = combine(
+        result(S.AGENTIC, trace=[span("first")]),
+        result(S.TRADITIONAL, [chunk(1)], trace=[span("second")]),
+        fallback_from=S.AGENTIC,
+    )
+    assert merged.trace == [span("first"), span("second")]
+
+
+def test_fuse_keeps_both_traces_in_order():
+    fused = fuse(
+        result(S.TRADITIONAL, [chunk(1)], trace=[span("trad")]),
+        result(S.VECTORLESS, [chunk(2)], trace=[span("vec")]),
+        top_k=5,
+    )
+    assert fused.trace == [span("trad"), span("vec")]
+
+
+def test_fuse_sums_every_counter():
+    fused = fuse(
+        result(
+            S.TRADITIONAL,
+            [chunk(1)],
+            retrieval_calls=1,
+            llm_calls=2,
+            embedding_calls=3,
+            input_tokens=4,
+            output_tokens=5,
+            latency_ms=6,
+        ),
+        result(
+            S.VECTORLESS,
+            [chunk(2)],
+            retrieval_calls=10,
+            llm_calls=20,
+            embedding_calls=30,
+            input_tokens=40,
+            output_tokens=50,
+            latency_ms=60,
+        ),
+        top_k=5,
+    )
+    assert (
+        fused.retrieval_calls,
+        fused.llm_calls,
+        fused.embedding_calls,
+        fused.input_tokens,
+        fused.output_tokens,
+        fused.latency_ms,
+    ) == (11, 22, 33, 44, 55, 66)
