@@ -147,3 +147,36 @@ def test_from_rule_is_false_when_not_decisive():
     long_text = " ".join(["onboarding"] * 20) + "?"
     proposal = run(long_text)
     assert proposal.decisive is False and proposal.from_rule is False
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Is the VPN totally free for contractors?",
+        "What is the subtotal line on an invoice?",
+        "Where do I find the totals report?",
+    ],
+)
+def test_a_marker_inside_a_longer_word_is_not_agentic(question):
+    signals = extract_signals(question, relation_types=RELATIONS)
+    assert (signals.comparison, signals.aggregation) == (False, False)
+    assert run(question).strategy is not S.AGENTIC
+
+
+@pytest.mark.parametrize(
+    ("question", "query_type"),
+    [
+        ("Pune vs Delhi leave policy", "comparison"),
+        ("How is the Pune policy compared with Delhi?", "comparison"),
+        ("What is the difference between sick leave and casual leave?", "comparison"),
+        ("How many offices does the company have?", "aggregation"),
+        ("What is the total headcount?", "aggregation"),
+    ],
+)
+def test_a_whole_word_marker_is_agentic(question, query_type):
+    proposal = run(question)
+    assert (proposal.strategy, proposal.decisive, proposal.query_type) == (
+        S.AGENTIC,
+        True,
+        query_type,
+    )

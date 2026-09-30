@@ -31,11 +31,12 @@ DEFAULT_RELATION_PHRASES: dict[str, tuple[str, ...]] = {
 }
 _COMPARISON = (
     "compare",
+    "compared",
     "comparison",
     "difference between",
     "differences between",
     "versus",
-    " vs ",
+    "vs",
     "differ from",
 )
 _AGGREGATION = ("how many", "total", "sum of", "count of", "list all", "list every")
@@ -99,6 +100,15 @@ def entity_mentions(question: str) -> tuple[str, ...]:
     return tuple(mentions)
 
 
+def _has_marker(text: str, markers: Collection[str]) -> bool:
+    """Whole-word match on the space-padded, punctuation-stripped text.
+
+    A bare substring test lets "total" fire inside "totally" or "subtotal" and
+    sends an ordinary factual question to the agent.
+    """
+    return any(f" {marker.strip()} " in text for marker in markers)
+
+
 def extract_signals(question: str, *, relation_types: Collection[str]) -> Signals:
     # Punctuation becomes a space so a phrase at the end of a sentence still
     # matches: "report to?" must hit " report to ".
@@ -116,8 +126,8 @@ def extract_signals(question: str, *, relation_types: Collection[str]) -> Signal
         phrases=tuple(phrases(question)),
         entities=entity_mentions(question),
         relations=relations,
-        comparison=any(marker in text for marker in _COMPARISON),
-        aggregation=any(marker in text for marker in _AGGREGATION),
+        comparison=_has_marker(text, _COMPARISON),
+        aggregation=_has_marker(text, _AGGREGATION),
         compound=question.count("?") > 1,
         words=len(question.split()),
     )
