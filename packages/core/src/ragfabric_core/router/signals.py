@@ -52,6 +52,13 @@ TOOL_FOR_STRATEGY: dict[StrategyName, str] = {
     StrategyName.VECTORLESS: "lexical_search",
     StrategyName.GRAPH: "graph_search",
 }
+# How a reason names a strategy to someone who has not read the design.
+_PLAIN_NAMES: dict[StrategyName, str] = {
+    StrategyName.TRADITIONAL: "meaning search",
+    StrategyName.VECTORLESS: "exact word search",
+    StrategyName.GRAPH: "the graph",
+    StrategyName.AGENTIC: "the agent",
+}
 _DEFAULT_ORDER = (
     StrategyName.TRADITIONAL,
     StrategyName.VECTORLESS,
@@ -188,7 +195,19 @@ def propose(signals: Signals, *, available: Collection[StrategyName]) -> Proposa
         decisive = True
         from_rule = True
         reasons.insert(0, reason)
-    elif not usable and (fired or signals.words <= PLAIN_MAX_WORDS):
+    elif not usable and fired:
+        # Something fired, but nothing that fired can run here (the graph is off,
+        # say). The decision shows only the first reason, so that reason names
+        # the signal and says what ran instead, and the query type stays the
+        # fired signal's: the question did not become a simple one.
+        skipped, query_type, reason = fired[0]
+        strategy, decisive = fallback, True
+        reasons.insert(
+            0,
+            f"{reason.rstrip('.')}, but {_PLAIN_NAMES[skipped]} is not available here, "
+            f"so {_PLAIN_NAMES[fallback]} was used.",
+        )
+    elif not usable and signals.words <= PLAIN_MAX_WORDS:
         strategy, query_type, decisive = fallback, "simple_factual", True
         reasons.insert(0, "A short question about one concept.")
     else:

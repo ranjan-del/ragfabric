@@ -352,3 +352,15 @@ def test_an_empty_result_after_a_budget_skip_says_no_calls_left():
     result = auto.retrieve("What does ERR_QUOTA_4419 mean?", ctx())
     span = next(s for s in result.trace if s.name == "router")
     assert span.attributes["fallback_reason"] == "no calls left"
+
+
+def test_a_graph_question_with_the_graph_off_says_so_in_the_decision():
+    auto, _ = build(graph_enabled=False)
+    result = auto.retrieve("Who does Ravi Sharma report to?", ctx())
+    assert result.strategy is S.TRADITIONAL
+    assert result.router.reasoning == (
+        "The question asks how named things are related, but the graph is not "
+        "available here, so meaning search was used."
+    )
+    assert result.router.query_type == "relationship"
+    assert result.router.decisive is True and result.router.source == "signals"

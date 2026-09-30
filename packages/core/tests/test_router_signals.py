@@ -180,3 +180,17 @@ def test_a_whole_word_marker_is_agentic(question, query_type):
         True,
         query_type,
     )
+
+
+def test_an_unavailable_fired_signal_is_named_first_and_keeps_its_query_type():
+    proposal = run("Who does Ravi Sharma report to?", available=ALL - {S.GRAPH})
+    assert proposal.reasons[0] == (
+        "The question asks how named things are related, but the graph is not "
+        "available here, so meaning search was used."
+    )
+    assert proposal.query_type == "relationship"
+    assert (proposal.strategy, proposal.decisive, proposal.from_rule) == (
+        S.TRADITIONAL,
+        True,
+        False,
+    )
