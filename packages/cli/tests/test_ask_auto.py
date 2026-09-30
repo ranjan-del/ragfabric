@@ -69,7 +69,10 @@ def test_one_line_names_the_strategy_and_why(monkeypatch):
 def test_the_line_says_when_it_fell_back(monkeypatch):
     _patched(monkeypatch, [], {**_ANSWER, "fallback_from": "vectorless"})
     result = runner.invoke(app, ["ask", "q", "--token", "t", "--no-stream"])
-    assert "Fell back from vectorless, which found nothing." in result.stdout
+    assert "Fell back from vectorless." in result.stdout
+    assert (
+        "found nothing" not in result.stdout
+    )  # the fallback may follow an error, not an empty result
 
 
 def test_no_line_when_the_server_sends_no_router(monkeypatch):
@@ -95,8 +98,7 @@ def test_the_stream_line_names_the_strategy_that_ran_after_a_fallback(monkeypatc
     result = runner.invoke(app, ["ask", "q", "--token", "t"])
     assert result.exit_code == 0, result.output
     assert (
-        f"Strategy: traditional (signals). {_REASON} "
-        "Fell back from vectorless, which found nothing."
+        f"Strategy: traditional (signals). {_REASON} Fell back from vectorless."
     ) in result.stdout
 
 

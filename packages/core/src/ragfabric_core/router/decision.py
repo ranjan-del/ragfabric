@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 Servable = Literal["traditional", "vectorless", "agentic", "graph"]
 QueryType = Literal[
@@ -54,6 +54,14 @@ class RouterDecision(BaseModel):
     expected_cost_level: Level
     expected_latency_level: Level
     fused: bool = False
+
+    @model_validator(mode="after")
+    def _signals_carry_no_confidence(self) -> RouterDecision:
+        # ADR 0004 by construction: a rule that fired is not a measurement, so a
+        # decision made by the signals cannot carry a number, even by mistake.
+        if self.source in ("signals", "signals_fallback") and self.confidence is not None:
+            raise ValueError(f"a {self.source} decision has no confidence; got {self.confidence}")
+        return self
 
 
 def levels_for(strategy: Servable) -> dict[str, Level]:

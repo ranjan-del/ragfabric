@@ -319,9 +319,9 @@ def test_graph_search_is_wired_when_graph_is_enabled_and_listed(sqlite_factory):
     assert isinstance(agentic.tools["graph_search"], GraphSearchTool)
 
 
-def test_listing_graph_search_with_graph_disabled_is_the_unknown_tool_error(sqlite_factory):
+def test_listing_graph_search_with_graph_disabled_says_the_graph_must_be_enabled(sqlite_factory):
     cfg = _cfg(enabled=False, tools=["semantic_search", "graph_search"])
-    with pytest.raises(KeyError, match="unknown tool.*graph_search"):
+    with pytest.raises(KeyError, match=r"graph_search requires graph_store\.enabled: true"):
         registry_defaults.default_registry(cfg, sqlite_factory)
 
 

@@ -82,3 +82,19 @@ def test_the_contract_accepts_auto_reporting_the_strategy_that_ran(make_ctx):
 def test_the_contract_refuses_auto_without_a_decision(make_ctx):
     with pytest.raises(AssertionError):
         assert_strategy_contract(_Auto(None), "q", make_ctx())
+
+
+@pytest.mark.parametrize("source", ["signals", "signals_fallback"])
+def test_a_signals_decision_refuses_a_confidence_number(source):
+    # ADR 0004 by construction: a rule that fired measured nothing.
+    with pytest.raises(ValidationError, match="confidence"):
+        decision(source=source, confidence=0.5)
+
+
+@pytest.mark.parametrize("source", ["signals", "signals_fallback"])
+def test_a_signals_decision_accepts_no_confidence(source):
+    assert decision(source=source).confidence is None
+
+
+def test_a_classifier_decision_keeps_the_reported_confidence():
+    assert decision(source="classifier", decisive=False, confidence=0.5).confidence == 0.5

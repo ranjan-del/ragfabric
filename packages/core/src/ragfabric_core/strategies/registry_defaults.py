@@ -126,10 +126,16 @@ def _build_agentic(
         LexicalSearchTool(vectorless),
         FetchDocumentTool(SqlDocumentChunkReader(session_factory)),
     ]
-    # Offered only when the graph is on, so listing graph_search against a
-    # deployment with no graph is the same unknown-tool error as a typo.
+    # Offered only when the graph is on. Listing graph_search against a
+    # deployment with no graph is refused with the setting that would fix it,
+    # rather than as an unknown tool, which reads like a typo.
     if graph is not None and cfg.graph_store.enabled:
         available.append(GraphSearchTool(graph, agent_llm))
+    elif "graph_search" in settings.tools:
+        raise KeyError(
+            "graph_search requires graph_store.enabled: true; enable the graph or "
+            "remove graph_search from strategies.agentic.tools"
+        )
     return AgenticRAGStrategy(
         llm=agent_llm,
         tools=build_tool_registry(available, enabled=settings.tools),

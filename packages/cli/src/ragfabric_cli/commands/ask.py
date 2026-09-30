@@ -224,5 +224,7 @@ def _print_routing(strategy: str | None, router: dict | None, fallback_from: str
     if router.get("reasoning"):
         line += f" {router['reasoning']}"
     if fallback_from:
-        line += f" Fell back from {fallback_from}, which found nothing."
+        # Neutral on purpose: the routed strategy may have found nothing or may
+        # have failed, and the response does not say which.
+        line += f" Fell back from {fallback_from}."
     typer.echo(line)
