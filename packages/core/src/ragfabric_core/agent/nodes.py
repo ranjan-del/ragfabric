@@ -40,6 +40,7 @@ from ragfabric_core.agent.state import (
     SubQuestionStatus,
 )
 from ragfabric_core.agent.tools import ToolRegistry
+from ragfabric_core.graph.contracts import Subgraph
 from ragfabric_core.providers.base import LLMProvider, Message
 from ragfabric_core.strategies.base import RetrievalContext, RetrievedChunk, TraceSpan
 
@@ -177,6 +178,8 @@ class RetrieveOutcome(NodeOutcome):
     # has to pick a document this sub-question actually matched. Choosing from
     # the whole pool would let one sub-question drag another's document in.
     chunks_by_sub_question: dict[int, list[RetrievedChunk]] = Field(default_factory=dict)
+    # The walks graph_search made this iteration, edgeless ones left out.
+    subgraphs: list[Subgraph] = Field(default_factory=list)
 
     @property
     def made_progress(self) -> bool:
@@ -359,6 +362,9 @@ def retrieve(
     returned_by_sub_question: dict[int, int] = {}
     chunks_by_sub_question: dict[int, list[RetrievedChunk]] = {}
     harvested: list[RetrievedChunk] = []
+    subgraphs: list[Subgraph] = []
+    input_tokens = output_tokens = 0
+    provider = model = ""
 
     open_indexes = _open_indexes(state)
     for index in open_indexes:
@@ -371,7 +377,18 @@ def retrieve(
             # not run. Returning nothing lets the next repair try something
             # else; raising would fail a request over a recoverable choice.
             continue
-        chunks = tool.run(query, _with_override(ctx, override))
+        if hasattr(tool, "run_graph"):
+            # One model call to match entities, charged before it is made.
+            state.spend(NodeName.RETRIEVE, llm_calls=1)
+            graph_run = tool.run_graph(query, _with_override(ctx, override))
+            chunks = graph_run.chunks
+            input_tokens += graph_run.input_tokens
+            output_tokens += graph_run.output_tokens
+            if graph_run.subgraph is not None and graph_run.subgraph.edges:
+                subgraphs.append(graph_run.subgraph)
+            provider, model = tool.provider, tool.model
+        else:
+            chunks = tool.run(query, _with_override(ctx, override))
         harvested.extend(chunks)
         returned_by_sub_question[index] = len(chunks)
         chunks_by_sub_question[index] = list(chunks)
@@ -395,6 +412,11 @@ def retrieve(
         tool_calls=calls,
         returned_by_sub_question=returned_by_sub_question,
         chunks_by_sub_question=chunks_by_sub_question,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        provider=provider,
+        model=model,
+        subgraphs=subgraphs,
     )
 
 

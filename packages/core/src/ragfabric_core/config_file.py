@@ -143,7 +143,7 @@ class VectorlessConfig(_Strict):
     max_context_tokens: int = Field(default=6000, ge=100)
 
 
-AgentToolName = Literal["semantic_search", "lexical_search", "fetch_document"]
+AgentToolName = Literal["semantic_search", "lexical_search", "fetch_document", "graph_search"]
 
 DEFAULT_TOOLS: list[AgentToolName] = ["semantic_search", "lexical_search", "fetch_document"]
 

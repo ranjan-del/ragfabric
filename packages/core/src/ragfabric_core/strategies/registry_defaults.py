@@ -11,7 +11,9 @@ from collections.abc import Callable
 from sqlalchemy.orm import Session
 
 from ragfabric_core.agent.tools import (
+    AgentTool,
     FetchDocumentTool,
+    GraphSearchTool,
     LexicalSearchTool,
     SemanticSearchTool,
     build_tool_registry,
@@ -56,8 +58,11 @@ def default_registry(
     vectorless = _build_vectorless(cfg, session_factory)
     registry.register(traditional)
     registry.register(vectorless)
-    registry.register(_build_agentic(cfg, traditional, vectorless, session_factory, llm=llm))
-    registry.register(_build_graph(cfg, session_factory, llm=llm))
+    graph = _build_graph(cfg, session_factory, llm=llm)
+    registry.register(
+        _build_agentic(cfg, traditional, vectorless, session_factory, llm=llm, graph=graph)
+    )
+    registry.register(graph)
     return registry
 
 
@@ -68,6 +73,7 @@ def _build_agentic(
     session_factory: Callable[[], Session],
     *,
     llm: LLMProvider | None,
+    graph: GraphRAGStrategy | None = None,
 ) -> AgenticRAGStrategy:
     """The agent over the two strategies this deployment already builds.
 
@@ -87,16 +93,19 @@ def _build_agentic(
     edits it, sees it echoed, and gets the old behaviour.
     """
     settings = cfg.strategies.agentic
+    agent_llm = llm if llm is not None else build_llm_provider(cfg.llm)
+    available: list[AgentTool] = [
+        SemanticSearchTool(traditional),
+        LexicalSearchTool(vectorless),
+        FetchDocumentTool(SqlDocumentChunkReader(session_factory)),
+    ]
+    # Offered only when the graph is on, so listing graph_search against a
+    # deployment with no graph is the same unknown-tool error as a typo.
+    if graph is not None and cfg.graph_store.enabled:
+        available.append(GraphSearchTool(graph, agent_llm))
     return AgenticRAGStrategy(
-        llm=llm if llm is not None else build_llm_provider(cfg.llm),
-        tools=build_tool_registry(
-            [
-                SemanticSearchTool(traditional),
-                LexicalSearchTool(vectorless),
-                FetchDocumentTool(SqlDocumentChunkReader(session_factory)),
-            ],
-            enabled=settings.tools,
-        ),
+        llm=agent_llm,
+        tools=build_tool_registry(available, enabled=settings.tools),
         max_iterations=settings.max_iterations,
         per_node_llm_calls=settings.node_caps(),
         max_llm_calls=settings.max_llm_calls,

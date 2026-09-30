@@ -42,7 +42,7 @@ from typing import Protocol, runtime_checkable
 
 from ragfabric_core.agent.loop import DEFAULT_MAX_ITERATIONS, AgentRun, run_agent
 from ragfabric_core.agent.state import DEFAULT_ASSESS_STRICTNESS, AssessStrictness, NodeName
-from ragfabric_core.agent.tools import ToolRegistry
+from ragfabric_core.agent.tools import ToolRegistry, tools_for_request
 from ragfabric_core.providers.base import LLMProvider
 from ragfabric_core.strategies.base import (
     RetrievalContext,
@@ -145,7 +145,7 @@ class AgenticRAGStrategy:
         run: AgentRun = run_agent(
             query,
             llm=self._llm,
-            tools=self._tools,
+            tools=tools_for_request(self._tools, ctx),
             ctx=ctx,
             max_iterations=self._max_iterations,
             per_node_llm_calls=self._per_node_llm_calls,
@@ -170,6 +170,7 @@ class AgenticRAGStrategy:
             # What was and was not answered, per part of the question. The
             # other strategies leave this empty because they have no parts.
             sub_questions=run.sub_question_reports(),
+            subgraph=run.subgraph,
         )
 
 

@@ -61,6 +61,8 @@ from ragfabric_core.agent.state import (
     SubQuestion,
 )
 from ragfabric_core.agent.tools import ToolRegistry
+from ragfabric_core.graph.contracts import Subgraph
+from ragfabric_core.graph.merge import merge_subgraphs
 from ragfabric_core.providers.base import LLMProvider, Message
 from ragfabric_core.strategies.base import (
     RetrievalContext,
@@ -136,6 +138,8 @@ class AgentRun(BaseModel):
     chunk_ids_by_sub_question: dict[int, list[int]] = Field(default_factory=dict)
     input_tokens: int = 0
     output_tokens: int = 0
+    # Every graph_search walk this run made, merged; ``None`` when none kept an edge.
+    subgraph: Subgraph | None = None
 
     def sub_question_reports(self) -> list[SubQuestionReport]:
         """One row per sub-question, saying what happened to it and why.
@@ -344,6 +348,7 @@ def run_agent(
     trace: list[TraceSpan] = []
     tool_calls: list[ToolCall] = []
     grouped: dict[int, list[int]] = {}
+    walks: list[Subgraph] = []
     overrides: dict[int, RetrievalOverride] = {}
     tokens = [0, 0]
     stop: str | None = None
@@ -374,8 +379,13 @@ def run_agent(
             break
 
         state.iterations += 1
-        retrieved = retrieve(state, tools=tools, ctx=ctx, overrides=overrides, origin=origin)
+        try:
+            retrieved = retrieve(state, tools=tools, ctx=ctx, overrides=overrides, origin=origin)
+        except BudgetExceeded as exc:
+            stop, detail = STOP_BUDGET, str(exc)
+            break
         record(retrieved)
+        walks.extend(retrieved.subgraphs)
         tool_calls.extend(retrieved.tool_calls)
         _group_evidence(grouped, retrieved.chunks_by_sub_question)
 
@@ -459,6 +469,7 @@ def run_agent(
         chunk_ids_by_sub_question=grouped,
         input_tokens=tokens[0],
         output_tokens=tokens[1],
+        subgraph=merge_subgraphs(walks),
         cost_usd=ledger.usd(),
         cost_known=ledger.known,
         unpriced_models=ledger.unpriced_models(),

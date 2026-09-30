@@ -24,3 +24,37 @@ def _make_ctx(**overrides) -> RetrievalContext:
 def make_ctx():
     """The context builder as a fixture, so tests call ``make_ctx(**overrides)``."""
     return _make_ctx
+
+
+@pytest.fixture
+def small_subgraph():
+    """Three nodes and one edge: Ravi Sharma MEMBER_OF Platform Team, sourced from chunk 1."""
+    from ragfabric_core.graph.contracts import (
+        EntityType,
+        GraphEdge,
+        GraphNode,
+        RelationType,
+        Subgraph,
+    )
+
+    return Subgraph(
+        nodes=[
+            GraphNode(id=1, name="Ravi Sharma", entity_type=EntityType.PERSON, depth=0),
+            GraphNode(id=2, name="Platform Team", entity_type=EntityType.TEAM, depth=1),
+            GraphNode(id=3, name="Billing", entity_type=EntityType.PRODUCT, depth=0),
+        ],
+        edges=[
+            GraphEdge(
+                id=1,
+                source_id=1,
+                target_id=2,
+                relation_type=RelationType.MEMBER_OF,
+                walked_as="MEMBER_OF",
+                reversed=False,
+                confidence=0.9,
+                source_chunk_ids=[1],
+            )
+        ],
+        truncated=False,
+        empty_reason=None,
+    )

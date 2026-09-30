@@ -18,8 +18,13 @@ import re
 from collections.abc import Iterable
 from typing import Protocol, runtime_checkable
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from ragfabric_core.auth.principal import AccessFilter
+from ragfabric_core.graph.contracts import Subgraph
+from ragfabric_core.providers.base import LLMProvider
 from ragfabric_core.strategies.base import RetrievalContext, RetrievedChunk
+from ragfabric_core.strategies.graph import GraphRAGStrategy
 from ragfabric_core.strategies.traditional import TraditionalRAGStrategy
 from ragfabric_core.strategies.vectorless import VectorlessRAGStrategy
 
@@ -179,6 +184,63 @@ class FetchDocumentTool:
             # a poor model choice into a failed request.
             return []
         return self._reader.chunks_for_document(document_id, ctx.access_filter)
+
+
+class GraphToolRun(BaseModel):
+    """One graph_search call: its chunks, its walk, and the model call it cost."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    chunks: list[RetrievedChunk]
+    subgraph: Subgraph | None
+    llm_calls: int = Field(ge=0)
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+
+
+class GraphSearchTool:
+    """The graph strategy as an agent tool.
+
+    Handed the caller's own ``RetrievalContext``, like every other tool, so the
+    access predicate stays inside the walk (ADR 0003). The strategy makes one
+    model call to match the question's entities, which is why this tool reports
+    its calls and tokens and the retrieve node charges them to the budget.
+    """
+
+    name = "graph_search"
+    description = (
+        "Relationships between named people, teams, organisations, projects, products, "
+        "policies and places: who reports to whom, who owns what, what belongs to what. "
+        "Blind to passages that name no entities."
+    )
+
+    def __init__(self, strategy: GraphRAGStrategy, llm: LLMProvider) -> None:
+        self._strategy = strategy
+        self.provider = llm.name
+        self.model = llm.default_model
+
+    def run(self, query: str, ctx: RetrievalContext) -> list[RetrievedChunk]:
+        return self.run_graph(query, ctx).chunks
+
+    def run_graph(self, query: str, ctx: RetrievalContext) -> GraphToolRun:
+        result = self._strategy.retrieve(query, ctx)
+        return GraphToolRun(
+            chunks=result.chunks,
+            subgraph=result.subgraph,
+            llm_calls=result.llm_calls,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+        )
+
+
+_GRAPH_BLIND_FILTERS = ("document_id", "format")
+
+
+def tools_for_request(tools: ToolRegistry, ctx: RetrievalContext) -> ToolRegistry:
+    """This request's tools: graph_search is left out under a filter the walk cannot apply."""
+    if any(key in ctx.params.metadata_filters for key in _GRAPH_BLIND_FILTERS):
+        return {name: tool for name, tool in tools.items() if name != "graph_search"}
+    return tools
 
 
 _DOCUMENT_ID = re.compile(r"\d+")
