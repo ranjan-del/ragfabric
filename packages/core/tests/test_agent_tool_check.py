@@ -1,5 +1,6 @@
 import time
 
+import pytest
 from agent_doubles import FakeTool
 
 from ragfabric_core.agent.nodes import check_tools
@@ -44,8 +45,7 @@ def test_a_plain_question_planned_to_graph_is_left_alone():
     assert state.sub_questions[0].tool == "graph_search"
 
 
-def test_a_plain_question_planned_to_lexical_is_not_moved_by_the_short_default_alone():
-    # Moved by R13 (no exact terms), not by a fired signal.
+def test_a_plain_question_planned_to_lexical_is_moved_for_no_exact_terms():
     state = state_with(("What is the retry limit?", "lexical_search"))
     outcome = check_tools(state, tools=TOOLS, relation_types=RELATIONS, origin=time.perf_counter())
     assert "no_exact_terms" in outcome.span.attributes["detail"]
@@ -69,8 +69,10 @@ def test_an_undecided_sub_question_keeps_the_planners_tool():
 def test_no_override_to_a_tool_this_run_does_not_have():
     tools = {k: v for k, v in TOOLS.items() if k != "graph_search"}
     state = state_with(("Who does Ravi Sharma report to?", "lexical_search"))
-    check_tools(state, tools=tools, relation_types=RELATIONS, origin=time.perf_counter())
-    assert state.sub_questions[0].tool != "graph_search"
+    outcome = check_tools(state, tools=tools, relation_types=RELATIONS, origin=time.perf_counter())
+    assert state.sub_questions[0].tool == "lexical_search"
+    assert outcome.span.attributes["overrides"] == 0
+    assert outcome.span.attributes["detail"] is None
 
 
 def test_fetch_document_is_never_overridden():
@@ -120,3 +122,18 @@ def test_the_loop_runs_the_check_right_after_plan_and_the_override_is_used():
     assert names[:3] == ["plan", "tool_check", "retrieve"]
     assert [t.tool for t in run.tool_calls] == ["lexical_search"]
     assert semantic.queries == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "What is our SSO provider?",
+        "How do I restart Kubernetes pods?",
+        "Who signs off Billing changes?",
+    ],
+)
+def test_a_lexical_pick_on_a_named_thing_is_left_alone(text):
+    state = state_with((text, "lexical_search"))
+    outcome = check_tools(state, tools=TOOLS, relation_types=RELATIONS, origin=time.perf_counter())
+    assert state.sub_questions[0].tool == "lexical_search"
+    assert outcome.span.attributes["overrides"] == 0

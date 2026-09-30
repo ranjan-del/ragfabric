@@ -282,10 +282,13 @@ def check_tools(
                 sub_question.tool == "lexical_search"
                 and not signals.identifiers
                 and not signals.phrases
+                and not signals.entities
                 and "semantic_search" in tools
             ):
-                # Lexical search matches exact terms; with none in the text it
-                # can only miss a paraphrase (R13).
+                # Lexical search matches exact terms; with no identifier, quoted
+                # phrase or named thing in the text it can only miss a paraphrase.
+                # Entities count because acronyms and product names (SSO,
+                # Kubernetes) are not identifiers, yet lexical is often right (R14).
                 changed.append(f"{index}:lexical_search->semantic_search(no_exact_terms)")
                 sub_question.tool = "semantic_search"
     return NodeOutcome(
