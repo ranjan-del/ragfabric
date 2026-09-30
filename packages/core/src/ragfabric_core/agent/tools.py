@@ -90,11 +90,22 @@ class SemanticSearchTool:
         # Only this tool has the counter; see the lexical and fetch tools.
         self.embedding_calls = 0
         self.retrieval_calls = 0
+        # Cumulative model calls the wrapped strategy made, which today means an
+        # LLM reranker's one call per search. The retrieve node charges the
+        # delta to the agent's budget, as it does for graph_search, so the call
+        # is checked before it is made and reported after (R29).
+        self.llm_calls = 0
 
     @property
     def strategy(self) -> TraditionalRAGStrategy:
         """The strategy this tool wraps (read only), for counters and reporting."""
         return self._strategy
+
+    @property
+    def spends_llm_calls(self) -> bool:
+        """True when a search can make a model call: an LLM reranker is configured."""
+        reranker = self._strategy.reranker
+        return reranker is not None and reranker.name == "llm"
 
     def run(self, query: str, ctx: RetrievalContext) -> list[RetrievedChunk]:
         # ctx is passed through untouched, filter included. A tool that rebuilt
@@ -103,6 +114,7 @@ class SemanticSearchTool:
         result = self._strategy.retrieve(query, ctx)
         self.embedding_calls += result.embedding_calls
         self.retrieval_calls += result.retrieval_calls
+        self.llm_calls += result.llm_calls
         return result.chunks
 
 

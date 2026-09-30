@@ -445,7 +445,9 @@ def retrieve(
             # not run. Returning nothing lets the next repair try something
             # else; raising would fail a request over a recoverable choice.
             continue
-        graph_calls = 0
+        # Model calls this tool call made: the graph's entity match, or an LLM
+        # reranker's call inside semantic_search. Both are charged below.
+        tool_calls = 0
         try:
             if hasattr(tool, "run_graph"):
                 # Room for the entity-matching call is checked before it is made
@@ -454,13 +456,21 @@ def retrieve(
                 state.ensure(NodeName.RETRIEVE, llm_calls=1)
                 graph_run = tool.run_graph(query, _with_override(ctx, override))
                 chunks = graph_run.chunks
-                graph_calls = graph_run.llm_calls
+                tool_calls = graph_run.llm_calls
                 input_tokens += graph_run.input_tokens
                 output_tokens += graph_run.output_tokens
                 if graph_run.subgraph is not None and graph_run.subgraph.edges:
                     subgraphs.append(graph_run.subgraph)
-                if graph_calls > 0:
+                if tool_calls > 0:
                     provider, model = tool.provider, tool.model
+            elif getattr(tool, "spends_llm_calls", False):
+                # A semantic search that reranks with a model is refused the same
+                # way a graph call is when no call is left, and charged the calls
+                # the wrapped strategy reports it actually made.
+                state.ensure(NodeName.RETRIEVE, llm_calls=1)
+                before = tool.llm_calls
+                chunks = tool.run(query, _with_override(ctx, override))
+                tool_calls = tool.llm_calls - before
             else:
                 chunks = tool.run(query, _with_override(ctx, override))
         except BudgetExceeded as exc:
@@ -474,7 +484,7 @@ def retrieve(
             ToolCall(tool=sq.tool, query=query, sub_question_index=index, returned=len(chunks))
         )
         try:
-            state.spend(NodeName.RETRIEVE, llm_calls=graph_calls)
+            state.spend(NodeName.RETRIEVE, llm_calls=tool_calls)
         except BudgetExceeded as exc:
             budget_stop = str(exc)
             break
