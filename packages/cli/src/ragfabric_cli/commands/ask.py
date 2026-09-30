@@ -56,9 +56,9 @@ def ask(
             "Retrieval strategy. When omitted, the server's router.mode decides. "
             "auto lets the server's router choose one for the question; traditional "
             "embeds the question and searches the vector index; vectorless ranks with "
-            "BM25 fused with ts_rank_cd and never calls an embedding model; agentic splits the question into "
-            "parts, retrieves per part, and repairs or abandons the parts it "
-            "cannot answer, reporting which those were; graph walks the knowledge "
+            "BM25 fused with ts_rank_cd and never calls an embedding model; agentic "
+            "splits the question into parts, retrieves per part, and repairs or abandons "
+            "the parts it cannot answer, reporting which those were; graph walks the knowledge "
             "graph from the entities the question names and prints the relationships "
             "it walked and any relationship claims the citation contract dropped."
         ),
