@@ -60,22 +60,6 @@ def test_ask_sends_the_requested_strategy(monkeypatch):
     assert captured and captured[0]["strategy"] == "vectorless"
 
 
-def test_ask_defaults_to_traditional(monkeypatch):
-    captured: list[dict] = []
-    import ragfabric_sdk.client as sdk_client
-
-    real_client = sdk_client.httpx.Client
-
-    def fake_client(*args, **kwargs):
-        kwargs["transport"] = _transport(captured)
-        return real_client(*args, **kwargs)
-
-    monkeypatch.setattr(sdk_client.httpx, "Client", fake_client)
-    result = runner.invoke(app, ["ask", "how much leave", "--token", "t", "--no-stream"])
-    assert result.exit_code == 0, result.output
-    assert captured and captured[0]["strategy"] == "traditional"
-
-
 def test_an_unknown_strategy_is_refused_by_the_cli_before_any_request(monkeypatch):
     captured: list[dict] = []
     import ragfabric_sdk.client as sdk_client

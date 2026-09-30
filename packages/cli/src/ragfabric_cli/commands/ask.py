@@ -30,6 +30,7 @@ class Strategy(StrEnum):
     server stays the authority and still validates what it is sent.
     """
 
+    auto = "auto"
     traditional = "traditional"
     vectorless = "vectorless"
     agentic = "agentic"
@@ -48,15 +49,16 @@ def ask(
         0.0, "--threshold", min=0.0, max=1.0, help="Similarity threshold."
     ),
     collection: int = typer.Option(None, "--collection", help="Collection id to search."),
-    strategy: Strategy = typer.Option(
-        Strategy.traditional,
+    strategy: Strategy | None = typer.Option(
+        None,
         "--strategy",
         help=(
-            "Retrieval strategy. traditional embeds the question and searches the "
-            "vector index; vectorless ranks with BM25 fused with ts_rank_cd and "
-            "never calls an embedding model; agentic splits the question into "
-            "parts, retrieves per part, and repairs or abandons the parts it "
-            "cannot answer, reporting which those were; graph walks the knowledge "
+            "Retrieval strategy. When omitted, the server's router.mode decides. "
+            "auto lets the server's router choose one for the question; traditional "
+            "embeds the question and searches the vector index; vectorless ranks with "
+            "BM25 fused with ts_rank_cd and never calls an embedding model; agentic "
+            "splits the question into parts, retrieves per part, and repairs or abandons "
+            "the parts it cannot answer, reporting which those were; graph walks the knowledge "
             "graph from the entities the question names and prints the relationships "
             "it walked and any relationship claims the citation contract dropped."
         ),
@@ -90,8 +92,9 @@ def ask(
     params: dict[str, object] = {
         "top_k": top_k,
         "similarity_threshold": threshold,
-        "strategy": strategy.value,
     }
+    if strategy is not None:
+        params["strategy"] = strategy.value
     if collection is not None:
         params["collection_id"] = collection
 
@@ -109,16 +112,27 @@ def ask(
                     answer.subgraph.model_dump() if answer.subgraph is not None else None,
                     [claim.model_dump() for claim in answer.dropped_relationship_claims],
                 )
+                _print_routing(
+                    answer.strategy,
+                    answer.router.model_dump() if answer.router is not None else None,
+                    answer.fallback_from,
+                )
             return
 
         citations: list[dict] = []
         subgraph: dict | None = None
+        ran: str | None = None
+        router: dict | None = None
+        fallback_from: str | None = None
         dropped_relationship_claims: list[dict] = []
         run_id = None
         latency_ms = None
         for event in client.ask_stream(question, **params):
             if event.event == "retrieval":
                 subgraph = event.data.get("subgraph")
+                ran = event.data.get("strategy")
+                router = event.data.get("router")
+                fallback_from = event.data.get("fallback_from")
             elif event.event == "token":
                 typer.echo(event.data.get("text", ""), nl=False)
             elif event.event == "superseded":
@@ -144,6 +158,7 @@ def ask(
         typer.echo("")
         _print_sources(citations)
         _print_graph(subgraph, dropped_relationship_claims)
+        _print_routing(ran, router, fallback_from)
         if run_id is not None:
             typer.echo(f"run {run_id} in {latency_ms}ms")
     except RagFabricError as exc:
@@ -195,3 +210,19 @@ def _print_graph(subgraph: dict | None, dropped: list[dict]) -> None:
         typer.echo("dropped relationship claims:")
         for claim in dropped:
             typer.echo(f"  {claim['reason']}: {claim['text']}")
+
+
+def _print_routing(strategy: str | None, router: dict | None, fallback_from: str | None) -> None:
+    """One line saying which strategy ran, why, and whether it fell back.
+
+    Printed only when the server sent a router decision. The richer panel is
+    Phase 7b.
+    """
+    if router is None:
+        return
+    line = f"Strategy: {strategy or router.get('selected_strategy')} ({router.get('source')})."
+    if router.get("reasoning"):
+        line += f" {router['reasoning']}"
+    if fallback_from:
+        line += f" Fell back from {fallback_from}, which found nothing."
+    typer.echo(line)
