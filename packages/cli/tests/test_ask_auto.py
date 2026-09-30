@@ -80,14 +80,35 @@ def test_no_line_when_the_server_sends_no_router(monkeypatch):
     assert "Strategy:" not in result.stdout
 
 
-def test_the_streaming_path_prints_the_line_from_the_retrieval_event(monkeypatch):
-    retrieval = json.dumps({"router": _ROUTER, "fallback_from": "vectorless"})
-    stream = (
-        f"event: retrieval\ndata: {retrieval}\n\n"
+def _stream(retrieval: dict) -> str:
+    return (
+        f"event: retrieval\ndata: {json.dumps(retrieval)}\n\n"
         'event: token\ndata: {"text": "hi"}\n\n'
         'event: done\ndata: {"run_id": 3, "latency_ms": 5}\n\n'
     )
-    _patched(monkeypatch, [], _ANSWER, stream=stream)
+
+
+def test_the_stream_line_names_the_strategy_that_ran_after_a_fallback(monkeypatch):
+    router = {"selected_strategy": "vectorless", "source": "signals", "reasoning": _REASON}
+    retrieval = {"strategy": "traditional", "router": router, "fallback_from": "vectorless"}
+    _patched(monkeypatch, [], _ANSWER, stream=_stream(retrieval))
     result = runner.invoke(app, ["ask", "q", "--token", "t"])
     assert result.exit_code == 0, result.output
-    assert f"Strategy: graph (signals). {_REASON} Fell back from vectorless" in result.stdout
+    assert (
+        f"Strategy: traditional (signals). {_REASON} "
+        "Fell back from vectorless, which found nothing."
+    ) in result.stdout
+
+
+def test_the_stream_uses_the_routers_choice_when_no_strategy_is_sent(monkeypatch):
+    router = {"selected_strategy": "graph", "source": "signals", "reasoning": _REASON}
+    _patched(monkeypatch, [], _ANSWER, stream=_stream({"router": router}))
+    result = runner.invoke(app, ["ask", "q", "--token", "t"])
+    assert f"Strategy: graph (signals). {_REASON}" in result.stdout
+
+
+def test_the_stream_without_a_router_prints_no_line(monkeypatch):
+    _patched(monkeypatch, [], _ANSWER, stream=_stream({"subgraph": None}))
+    result = runner.invoke(app, ["ask", "q", "--token", "t"])
+    assert result.exit_code == 0, result.output
+    assert "Strategy:" not in result.stdout

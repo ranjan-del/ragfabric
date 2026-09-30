@@ -54,9 +54,9 @@ def ask(
         "--strategy",
         help=(
             "Retrieval strategy. When omitted, the server's router.mode decides. "
-            "auto lets the server's router choose one for the question; traditional embeds the question and searches the "
-            "vector index; vectorless ranks with BM25 fused with ts_rank_cd and "
-            "never calls an embedding model; agentic splits the question into "
+            "auto lets the server's router choose one for the question; traditional "
+            "embeds the question and searches the vector index; vectorless ranks with "
+            "BM25 fused with ts_rank_cd and never calls an embedding model; agentic splits the question into "
             "parts, retrieves per part, and repairs or abandons the parts it "
             "cannot answer, reporting which those were; graph walks the knowledge "
             "graph from the entities the question names and prints the relationships "
@@ -108,19 +108,20 @@ def ask(
                 typer.echo(answer.answer)
                 typer.echo("")
                 _print_sources([citation.model_dump() for citation in answer.citations])
+                _print_graph(
+                    answer.subgraph.model_dump() if answer.subgraph is not None else None,
+                    [claim.model_dump() for claim in answer.dropped_relationship_claims],
+                )
                 _print_routing(
                     answer.strategy,
                     answer.router.model_dump() if answer.router is not None else None,
                     answer.fallback_from,
                 )
-                _print_graph(
-                    answer.subgraph.model_dump() if answer.subgraph is not None else None,
-                    [claim.model_dump() for claim in answer.dropped_relationship_claims],
-                )
             return
 
         citations: list[dict] = []
         subgraph: dict | None = None
+        ran: str | None = None
         router: dict | None = None
         fallback_from: str | None = None
         dropped_relationship_claims: list[dict] = []
@@ -129,6 +130,7 @@ def ask(
         for event in client.ask_stream(question, **params):
             if event.event == "retrieval":
                 subgraph = event.data.get("subgraph")
+                ran = event.data.get("strategy")
                 router = event.data.get("router")
                 fallback_from = event.data.get("fallback_from")
             elif event.event == "token":
@@ -156,7 +158,7 @@ def ask(
         typer.echo("")
         _print_sources(citations)
         _print_graph(subgraph, dropped_relationship_claims)
-        _print_routing((router or {}).get("selected_strategy"), router, fallback_from)
+        _print_routing(ran, router, fallback_from)
         if run_id is not None:
             typer.echo(f"run {run_id} in {latency_ms}ms")
     except RagFabricError as exc:
