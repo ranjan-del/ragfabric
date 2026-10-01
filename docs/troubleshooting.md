@@ -3,6 +3,31 @@
 This document grows with each release. Entries state the symptom, the likely cause and how to confirm
 it before changing anything.
 
+## Errors the CLI explains
+
+The CLI turns these expected failures into one problem line and the command that fixes it, with exit
+code 1. Add `--debug` to any command to see the full traceback. `ragfabric doctor` checks most of
+them in one go.
+
+| What you see | Cause | Fix |
+|---|---|---|
+| `No RagFabric server at <url>` | Nothing is listening at the URL `ragfabric ask` uses | `ragfabric serve`, or set `RAGFABRIC_URL` (flag, environment or `./.env`) to the right address |
+| The server did not answer in time | The server is up but slow, often a model still loading | Retry, check `ragfabric doctor`, or use a smaller or already loaded model |
+| Lost connection to the server | The server stopped or restarted mid request | `ragfabric serve`, then retry |
+| Credentials refused | The API key or token is wrong, revoked or expired | Run `ragfabric keys create --name cli --user <email>` and set `RAGFABRIC_API_KEY` |
+| Database unreachable (shown with the password masked as `***`) | The database is not running or the URL is wrong | For SQLite check the path; for Docker `docker compose up -d`; then `ragfabric doctor` |
+| Schema is behind this version | The database was created by an older release | `ragfabric db upgrade` |
+| Schema is unknown to this version | The database was migrated by a newer release | `pip install -U ragfabric` |
+| Invalid `ragfabric.yaml` | A key is misspelt or has the wrong type; each bad key is listed | Fix the keys, then `ragfabric config validate` |
+| Provider key rejected (401) | The API key for the model provider is wrong | Set the key variable named in the message and rerun |
+| Provider quota used up (429) | The provider account has no quota left | Wait, raise the limit, or switch provider in `ragfabric.yaml` |
+| Provider unreachable | Ollama is not running, or the model is not pulled | `ollama serve`, then `ollama pull <model>` |
+| `strategy: agentic` fails saying it needs a model | The explicit agentic strategy cannot run in offline mode | Configure a model (see [Getting started](getting-started.md#moving-from-offline-mode-to-a-real-model)) or use another strategy |
+| Quickstart says answers are extractive and limited | No model was found, so it ran in offline mode, by design | Move to a real model with the three commands in [Getting started](getting-started.md#moving-from-offline-mode-to-a-real-model) |
+| `ragfabric ask` has no key after quickstart | Quickstart did not write `.env` (it already existed), so it did not store a key | Run the key command it printed, then set `RAGFABRIC_API_KEY` |
+
+Anything else prints a short message and "rerun with `--debug` for details".
+
 ## Installation
 
 | Symptom | Likely cause | Confirm and fix |

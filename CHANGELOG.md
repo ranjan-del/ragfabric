@@ -64,11 +64,42 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
   refused when no call is left, like `graph_search`, and counted once in `llm_calls` when made.
 - `ragfabric ask` prints `Strategy: <ran> (<source>). <reasoning>` plus `Fell back from
   <strategy>.` after a fallback.
+- **Terminal experience (Phase 7b).** `ragfabric quickstart [--dir PATH] [--docker] [--force]
+  [--yes]` takes a `pip install` to a first cited answer: it writes `ragfabric.yaml` and `.env` from
+  packaged templates when missing (never overwriting without `--force`), picks a model (Ollama with a
+  chat model and `nomic-embed-text`, else `OPENAI_API_KEY`, else `ANTHROPIC_API_KEY` with offline
+  embeddings, else offline mode, labelled as extractive and limited), uses SQLite by default or
+  PostgreSQL and Redis with `--docker`, migrates, ingests a sample corpus, asks a sample question
+  through a temporary server, creates an API key, and stores `RAGFABRIC_API_KEY` and
+  `RAGFABRIC_URL` in `.env` only when it wrote that file. A rerun continues where it stopped.
+- `ragfabric doctor [--url URL] [--no-network] [--json]`: pass, warn, fail or skip for Python,
+  config, database, migrations, llm, embeddings, graph and server, each failure with its fix. Exit
+  code 1 if anything failed. A skipped check says skipped, never passed.
+- `ragfabric strategies`: auto, traditional, vectorless, agentic and graph with what each is best
+  at, a relative cost (an engineering assessment) and an example question.
+- A welcome screen for bare `ragfabric`, `--debug` on any command to show the full traceback, and an
+  Examples block in every command's `--help`.
+- `ragfabric ask` reads `RAGFABRIC_API_KEY` and `RAGFABRIC_URL` from `./.env` when neither a flag
+  nor the environment sets them. On a terminal its output is a panel with sources, the strategy that
+  ran and why, the graph path and any removed unsupported claims; piped output and `--json` are
+  unchanged. `ragfabric ingest` shows a progress bar on a terminal.
+- Friendly errors with a fix command for: no server, a server that did not answer in time, a lost
+  connection, refused credentials, an unreachable database (password masked), a schema behind or
+  unknown to this version, an invalid `ragfabric.yaml`, a rejected provider key, an exhausted
+  provider quota and an unreachable provider. The explicit agentic strategy with no model now
+  returns a clear error saying it needs a model.
+- Docs: a five minute start in the README and `docs/getting-started.md`, and an error table in
+  `docs/troubleshooting.md`.
 - Docs: ADR 0013, ADR 0014, `docs/concepts/routing-as-classification.md`, and `docs/routing.md`
   and `docs/agentic-rag.md` rewritten to what shipped. Router quality is not measured.
 
 ### Changed
 
+- `ragfabric init` no longer needs `ragfabric.example.yaml` and `.env.example` in the current
+  directory; the templates ship inside the package.
+- Bare `ragfabric` shows a welcome screen instead of the help. `ragfabric --help` is unchanged.
+- `ragfabric ask`'s connection and server errors are now reported through the friendly handler with
+  a fix, instead of a raw error.
 - The SDK and CLI no longer default to `traditional`. An unset strategy is not sent, and the
   server's `router.mode` resolves it, which defaults to `auto`. `ragfabric ask` accepts
   `--strategy auto` and prints one line after the answer naming the strategy that ran, why, and

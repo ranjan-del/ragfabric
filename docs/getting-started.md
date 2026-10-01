@@ -4,6 +4,76 @@
 > control shipped in Phase 2. Traditional RAG (real embeddings, vector search, cited answers, `ragfabric
 > ask`) shipped in Phase 3. Vectorless RAG arrives in Phase 4.
 
+## Five minute start
+
+For someone who has just run `pip install ragfabric` and has no Docker, database server or API key.
+Everything below runs from any directory.
+
+```bash
+pip install ragfabric
+ragfabric quickstart
+ragfabric doctor
+ragfabric ask "your question about the sample documents"
+```
+
+| Step | What `ragfabric quickstart` does |
+|---|---|
+| Config | Writes `ragfabric.yaml` and `.env` from the packaged templates when missing. Never overwrites without `--force` |
+| Model | Ollama with a chat model and `nomic-embed-text`, else `OPENAI_API_KEY`, else `ANTHROPIC_API_KEY` with offline embeddings, else offline mode, clearly labelled: answers are extractive and limited |
+| Database | SQLite by default. `--docker` starts PostgreSQL and Redis from a packaged compose file |
+| Migrate and ingest | Runs the migrations and ingests a small sample corpus |
+| First answer | Starts a temporary server, asks a sample question the way `ragfabric ask` does, prints the cited answer and stops the server |
+| Key | Creates an API key. Only when it wrote `.env` does it store `RAGFABRIC_API_KEY` and `RAGFABRIC_URL` there, so `ragfabric ask` works next. Otherwise it prints the one command that creates a key |
+
+Options: `--dir PATH`, `--docker`, `--force`, `--yes`. A rerun continues where the last one stopped.
+No model is downloaded for you; quickstart prints the `ollama pull` command instead.
+
+`ragfabric ask` reads `RAGFABRIC_API_KEY` and `RAGFABRIC_URL` from `./.env` when no flag or
+environment variable sets them. On a terminal it shows a panel with the answer, numbered sources,
+the strategy that ran and why, the graph path for graph answers, and any claims removed for lacking
+support. Piped, and with `--json`, the output is plain and unchanged. `ragfabric ingest` shows a
+progress bar on a terminal.
+
+### Moving from offline mode to a real model
+
+```bash
+mv ragfabric.yaml ragfabric.yaml.bak
+ragfabric quickstart
+ragfabric reindex --yes
+```
+
+`.env` is kept. Do not use `--force` for this.
+
+### Checking your setup
+
+```bash
+ragfabric doctor
+ragfabric doctor --no-network
+ragfabric doctor --json
+ragfabric strategies
+```
+
+| Check | On failure |
+|---|---|
+| Python | Install Python 3.13 or later |
+| Config | `ragfabric init`, or fix the keys it names |
+| Database | The start command for SQLite or Docker |
+| Migrations | `ragfabric db upgrade` |
+| LLM | `ollama serve`, `ollama pull <model>`, or set the key variable |
+| Embeddings | `ollama pull nomic-embed-text`, or the dimension note |
+| Graph | Warns when graph extraction is enabled with no model; the message names the config key |
+| Server | Warns; `ragfabric serve` |
+
+Each check shows pass, warn, fail or skip. `--no-network` skips the provider and server calls and
+they show as skipped, not passed. The exit code is 1 if any check failed. `ragfabric strategies`
+lists auto, traditional, vectorless, agentic and graph with what each is best at, a relative cost
+(an engineering assessment: low, medium or high) and an example question. Bare `ragfabric` shows a
+welcome screen, and `--debug` on any command prints the full traceback.
+
+`ragfabric init` also works from any directory now: its templates ship inside the package.
+
+The sections below describe the from-source setup with Docker.
+
 ## Prerequisites
 
 | Need | Version | Notes |
@@ -98,7 +168,7 @@ The real flow, in order: create the configuration, upgrade the database, create 
 folder into a collection, then mint an API key.
 
 ```bash
-ragfabric init                                                    # writes .env and ragfabric.yaml from the examples
+ragfabric init                                                    # writes .env and ragfabric.yaml from the packaged examples
 ragfabric db upgrade                                              # applies migrations, including 0004 (pinned dimension, HNSW index)
 ragfabric users create --email you@example.com --password ... --role admin
 ragfabric ingest ./docs --collection handbook                     # cleans, chunks, embeds, retains the originals, writes both indexes
