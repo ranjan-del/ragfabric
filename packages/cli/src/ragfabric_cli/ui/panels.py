@@ -134,8 +134,13 @@ _SNIPPET_WIDTH = 60
 
 
 def _snippet(citation: dict) -> str:
-    """The first 60 characters of the quoted text, or "" when the server sent none."""
-    raw = citation.get("text") or citation.get("snippet") or ""
+    """The first 60 characters of the cited sentence, or "" when the server sent none.
+
+    The supporting span is the sentence the answer quoted; the snippet is the
+    chunk window around it, shown only when there is no span.
+    """
+    span = citation.get("supporting_span") or {}
+    raw = span.get("text") or citation.get("text") or citation.get("snippet") or ""
     flat = " ".join(str(raw).split())
     return flat if len(flat) <= _SNIPPET_WIDTH else flat[:_SNIPPET_WIDTH].rstrip() + "…"
 

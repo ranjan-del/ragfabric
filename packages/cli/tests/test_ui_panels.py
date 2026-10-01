@@ -46,3 +46,39 @@ def test_rich_answer_on_a_narrow_terminal_does_not_crash(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "Answer" in out and "Sources" in out and "leave.pdf" in out and "2" in out
     assert max(len(line) for line in out.splitlines()) <= 40
+
+
+def test_rich_sources_show_the_cited_sentence_not_the_chunk_window(monkeypatch, capsys):
+    from ragfabric_cli.ui import console
+
+    citation = {
+        "marker": "[1]",
+        "used": True,
+        "filename": "leave-policy.md",
+        "page": 1,
+        "document_id": 4,
+        "snippet": "# Leave Policy This policy applies to all full time employees",
+        "supporting_span": {"text": "Up to 10 days carry forward.", "start": 90, "end": 118},
+    }
+    fallback = {**CITATIONS[0], "marker": "[2]", "snippet": "Only a snippet here."}
+    monkeypatch.setattr(console, "is_rich", lambda stream=None: True)
+    monkeypatch.setenv("COLUMNS", "120")
+    console.get_console.cache_clear()
+    try:
+        render_answer(
+            "Up to 10 days carry forward. [1]",
+            [citation, {**fallback, "supporting_span": None}],
+            strategy="traditional",
+            router=None,
+            fallback_from=None,
+            subgraph=None,
+            dropped_claims=[],
+            dropped_relationship_claims=[],
+        )
+    finally:
+        console.get_console.cache_clear()
+    out = capsys.readouterr().out
+    sources = out.split("Sources", 1)[1]
+    assert "Up to 10 days carry forward." in sources
+    assert "# Leave Policy" not in sources
+    assert "Only a snippet here." in sources
