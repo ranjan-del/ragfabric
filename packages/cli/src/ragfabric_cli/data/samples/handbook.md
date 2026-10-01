@@ -18,4 +18,4 @@ Every new employee receives a laptop and a headset on the first day. Report lost
 
 ## Getting help
 
-If you are unsure who to ask, post in the general channel. Someone on the Platform Team will point you in the right direction. 
+If you are unsure who to ask, post in the general channel. Someone on the Platform Team will point you in the right direction.

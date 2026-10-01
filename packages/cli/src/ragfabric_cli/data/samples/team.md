@@ -14,4 +14,4 @@ The Platform Team builds and runs the internal tools that the rest of Northwind 
 
 ## Contact
 
-Reach the team in the platform channel. For urgent issues, page the on call engineer listed in the rota. 
+Reach the team in the platform channel. For urgent issues, page the on call engineer listed in the rota.

@@ -16,4 +16,4 @@ Employees receive 12 days of paid sick leave per year. Sick leave does not carry
 
 ## Parental leave
 
-Primary caregivers receive 16 weeks of paid parental leave. Secondary caregivers receive 4 weeks. Talk to your manager and the finance desk at least two months before your expected leave date. 
+Primary caregivers receive 16 weeks of paid parental leave. Secondary caregivers receive 4 weeks. Talk to your manager and the finance desk at least two months before your expected leave date.
