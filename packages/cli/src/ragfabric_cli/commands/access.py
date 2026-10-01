@@ -23,6 +23,12 @@ def _group(db, name: str) -> Group:
 
 @groups_app.command("create")
 def create_group(name: str, description: str = typer.Option("")) -> None:
+    """Create a group.
+
+    \b
+    Examples:
+      ragfabric groups create hr --description 'People team'
+    """
     with session() as db:
         if db.query(Group).filter(Group.name == name).first() is not None:
             typer.echo(f"group already exists: {name}")
@@ -34,6 +40,12 @@ def create_group(name: str, description: str = typer.Option("")) -> None:
 
 @groups_app.command("add-member")
 def add_member(group_name: str, email: str) -> None:
+    """Add a user to a group.
+
+    \b
+    Examples:
+      ragfabric groups add-member hr you@example.com
+    """
     with session() as db:
         group = _group(db, group_name)
         user = user_by_email(db, email)
@@ -44,6 +56,12 @@ def add_member(group_name: str, email: str) -> None:
 
 @groups_app.command("list")
 def list_groups() -> None:
+    """List every group and its member count.
+
+    \b
+    Examples:
+      ragfabric groups list
+    """
     with session() as db:
         for g in db.query(Group).order_by(Group.name).all():
             members = service_members(db, g.id)
@@ -62,6 +80,12 @@ def add_grant(
     collection: str = typer.Option(...),
     permission: str = typer.Option("read"),
 ) -> None:
+    """Grant a group access to a collection.
+
+    \b
+    Examples:
+      ragfabric grants add --group hr --collection hr --permission read
+    """
     with session() as db:
         g = _group(db, group)
         c = collection_by_name(db, collection)
@@ -76,6 +100,12 @@ def add_grant(
 
 @grants_app.command("list")
 def list_grants() -> None:
+    """List every collection grant.
+
+    \b
+    Examples:
+      ragfabric grants list
+    """
     with session() as db:
         rows = (
             db.query(CollectionGrant, Group.name, Collection.name)
@@ -99,6 +129,12 @@ def create_key(
         help="Requests/minute; defaults to limits.rate_limit_per_minute in ragfabric.yaml.",
     ),
 ) -> None:
+    """Create an API key. The key is shown once.
+
+    \b
+    Examples:
+      ragfabric keys create --name ci --user you@example.com --collection hr
+    """
     with session() as db:
         owner = user_by_email(db, user)
         collection_ids = [collection_by_name(db, c).id for c in collection]
@@ -118,6 +154,12 @@ def create_key(
 
 @keys_app.command("list")
 def list_keys() -> None:
+    """List every API key.
+
+    \b
+    Examples:
+      ragfabric keys list
+    """
     with session() as db:
         for k in db.query(ApiKey).order_by(ApiKey.id).all():
             typer.echo(
@@ -127,6 +169,12 @@ def list_keys() -> None:
 
 @keys_app.command("revoke")
 def revoke_key(key_id: int) -> None:
+    """Revoke an API key.
+
+    \b
+    Examples:
+      ragfabric keys revoke 1
+    """
     with session() as db:
         key = db.get(ApiKey, key_id)
         if key is None:

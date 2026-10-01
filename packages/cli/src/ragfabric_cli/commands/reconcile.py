@@ -43,6 +43,11 @@ def reconcile(
     but the embedding provider is called twice, which costs money and can
     trigger the same rate limit that slowed the document down. For that
     reason, stop the worker(s) before running this command.
+
+    \b
+    Examples:
+      ragfabric reconcile
+      ragfabric reconcile --older-than 900
     """
     cfg = get_config()
     sf = get_session_factory()

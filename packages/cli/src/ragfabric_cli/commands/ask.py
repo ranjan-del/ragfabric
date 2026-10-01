@@ -77,6 +77,11 @@ def ask(
     Streamed stdout can contain a stale, superseded draft ahead of the
     corrected answer (bytes already printed cannot be recalled); a machine
     consumer should use --json or --no-stream instead of parsing the stream.
+
+    \b
+    Examples:
+      ragfabric ask "What is our refund policy?"
+      ragfabric ask "Who does Ravi Sharma report to?" --strategy graph
     """
     url = url or os.environ.get("RAGFABRIC_URL") or DEFAULT_URL
     token = token or os.environ.get("RAGFABRIC_TOKEN")

@@ -99,7 +99,13 @@ def ingest(
     recursive: bool = typer.Option(False, "--recursive"),
     owner: str | None = typer.Option(None, "--owner", help="Email of the owning user."),
 ) -> None:
-    """Ingest one file or every supported file in a directory."""
+    """Ingest one file or every supported file in a directory.
+
+    \b
+    Examples:
+      ragfabric ingest ./docs --recursive
+      ragfabric ingest handbook.pdf --collection hr
+    """
     files = _files(path, recursive)
     if not files:
         typer.echo("no supported files found")

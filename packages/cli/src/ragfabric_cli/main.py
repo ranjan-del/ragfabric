@@ -20,6 +20,7 @@ from ragfabric_cli.commands import users as users_commands
 from ragfabric_cli.commands.ask import ask as ask_command
 from ragfabric_cli.commands.reconcile import reconcile as reconcile_command
 from ragfabric_cli.commands.reindex import reindex as reindex_command
+from ragfabric_cli.commands.strategies import strategies as strategies_command
 from ragfabric_cli.commands.worker import worker as worker_command
 from ragfabric_cli.ui import errors as errors_ui
 from ragfabric_cli.ui.errors import FriendlyGroup, run_app
@@ -31,18 +32,40 @@ from ragfabric_core.providers.registry import build_embedding_provider, build_ll
 
 app = typer.Typer(
     help="RagFabric: self hosted, measurement first RAG platform.",
-    no_args_is_help=True,
     cls=FriendlyGroup,
 )
 
+DOCS_URL = "https://github.com/ranjan-del/ragfabric/tree/main/docs"
 
-@app.callback()
+
+@app.callback(invoke_without_command=True)
 def _root(
+    ctx: typer.Context,
     debug: bool = typer.Option(
         False, "--debug", help="Show the full traceback instead of a friendly error."
     ),
 ) -> None:
     errors_ui.DEBUG = debug
+    if ctx.invoked_subcommand is None:
+        _welcome()
+
+
+def _welcome() -> None:
+    """What a bare ``ragfabric`` prints: the version, three ways to start, the docs."""
+    from ragfabric_cli.ui.panels import render_next_steps
+
+    typer.echo(f"ragfabric {__version__}: self hosted, measurement first RAG platform.")
+    typer.echo("")
+    render_next_steps(
+        [
+            ("ragfabric quickstart", "set up and try RagFabric end to end"),
+            ("ragfabric doctor", "check what is and is not working"),
+            ("ragfabric strategies", "see the ways RagFabric can answer"),
+        ]
+    )
+    typer.echo("")
+    typer.echo(f"docs: {DOCS_URL}")
+    typer.echo("ragfabric --help lists every command.")
 
 
 db_app = typer.Typer(help="Database migrations.")
@@ -59,6 +82,7 @@ app.command("worker")(worker_command)
 app.command("reindex")(reindex_command)
 app.command("reconcile")(reconcile_command)
 app.command("ask")(ask_command)
+app.command("strategies")(strategies_command)
 
 
 def _database_url() -> str:
@@ -69,20 +93,36 @@ def _database_url() -> str:
 
 @app.command()
 def version() -> None:
-    """Print the installed version."""
+    """Print the installed version.
+
+    \b
+    Examples:
+      ragfabric version
+    """
     typer.echo(f"ragfabric {__version__}")
 
 
 @db_app.command()
 def upgrade(revision: str = typer.Option("head", help="Target revision.")) -> None:
-    """Apply migrations up to REVISION (default head)."""
+    """Apply migrations up to REVISION (default head).
+
+    \b
+    Examples:
+      ragfabric db upgrade
+      ragfabric db upgrade --revision head
+    """
     migrate.upgrade(_database_url(), revision)
     typer.echo(f"database upgraded to {revision}")
 
 
 @db_app.command()
 def downgrade(revision: str = typer.Option("base", help="Target revision.")) -> None:
-    """Roll migrations back to REVISION (default base, which removes every table)."""
+    """Roll migrations back to REVISION (default base, which removes every table).
+
+    \b
+    Examples:
+      ragfabric db downgrade --revision base
+    """
     migrate.downgrade(_database_url(), revision)
     typer.echo(f"database downgraded to {revision}")
 
@@ -94,7 +134,13 @@ def config_validate(
         False, "--check-providers", help="Also make one live call per provider."
     ),
 ) -> None:
-    """Load the configuration and report the active implementation for each interface."""
+    """Load the configuration and report the active implementation for each interface.
+
+    \b
+    Examples:
+      ragfabric config validate
+      ragfabric config validate --check-providers
+    """
     resolved = resolve_config_path(path)
     typer.echo(f"config file: {resolved if resolved else 'none (defaults)'}")
     try:
@@ -215,6 +261,11 @@ def serve(
     --host 0.0.0.0 explicitly still works exactly as before for a deployment
     that means to bind every interface (e.g. inside a container behind its
     own network boundary).
+
+    \b
+    Examples:
+      ragfabric serve
+      ragfabric serve --port 8080
     """
     import uvicorn
 
