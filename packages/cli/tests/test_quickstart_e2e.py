@@ -23,6 +23,31 @@ from ragfabric_cli.templates import SAMPLE_QUESTION
 
 runner = CliRunner()
 
+WHOLE_SENTENCE = (
+    "At the end of the year, up to 10 days of unused annual leave carry forward into the next year."
+)
+
+
+def _answer_and_sources(output: str) -> tuple[str, list[str]]:
+    """The plain answer text (the lines before ``sources:``) and the source lines."""
+    lines = output.splitlines()
+    end = lines.index("sources:")
+    start = max(i for i, line in enumerate(lines[:end]) if line.startswith("ask: ")) + 1
+    sources = []
+    for line in lines[end + 1 :]:
+        if not line.startswith("  ["):
+            break
+        sources.append(line)
+    return "\n".join(lines[start:end]).strip(), sources
+
+
+def _assert_no_heading_quoted(answer: str) -> None:
+    import re
+
+    for segment in re.split(r"\[\d+\]", answer):
+        assert not segment.strip().startswith("#"), answer
+    assert "\n#" not in answer and not answer.startswith("#"), answer
+
 
 def test_quickstart_from_nothing_to_a_cited_answer_and_again(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -44,6 +69,10 @@ def test_quickstart_from_nothing_to_a_cited_answer_and_again(tmp_path, monkeypat
     assert result.exit_code == 0, result.output
     assert "up to 10 days of unused annual leave carry forward" in result.output
     assert "[1]" in result.output
+    answer, sources = _answer_and_sources(result.output)
+    assert WHOLE_SENTENCE in answer
+    _assert_no_heading_quoted(answer)
+    assert sources and all("leave-policy.md" in line for line in sources), sources
     assert "leave-policy.md" in result.output
     assert (tmp_path / "ragfabric.db").is_file()
     assert ports, "the temporary server was never started"
@@ -110,6 +139,8 @@ def test_quickstart_from_nothing_to_a_cited_answer_and_again(tmp_path, monkeypat
         )
         monkeypatch.chdir(tmp_path)
         asked = runner.invoke(app, ["ask", SAMPLE_QUESTION])
+        # The help example: whatever it quotes, it quotes no heading.
+        refund = runner.invoke(app, ["ask", "What is our refund policy?", "--no-stream"])
     finally:
         server.terminate()
         try:
@@ -120,6 +151,8 @@ def test_quickstart_from_nothing_to_a_cited_answer_and_again(tmp_path, monkeypat
     assert asked.exit_code == 0, asked.output
     assert "up to 10 days of unused annual leave carry forward" in asked.output
     assert "leave-policy.md" in asked.output
+    assert refund.exit_code == 0, refund.output
+    _assert_no_heading_quoted(refund.output.split("sources:")[0])
 
 
 def test_a_force_rerun_leaves_exactly_one_active_quickstart_key(tmp_path, monkeypatch):
