@@ -774,3 +774,74 @@ def test_next_steps_have_no_cd_when_the_dir_is_the_current_directory(tmp_path, m
     monkeypatch.chdir(tmp_path)
     ctx = qs.Context(dir=tmp_path.resolve(), force=False, yes=True, docker=False, model_check=False)
     assert not any(command.startswith("cd ") for command, _ in qs._next_steps(ctx))
+
+
+# final fix wave: I6, --docker after an earlier SQLite quickstart --------------
+
+
+@pytest.fixture
+def fake_docker(monkeypatch):
+    monkeypatch.setattr(qs, "_docker_available", lambda: True)
+    monkeypatch.setattr(qs, "_compose_up", lambda dir: None)
+    monkeypatch.setattr(qs, "_wait_for_database", lambda url, timeout=60.0: None)
+
+
+def _sqlite_env(tmp_path) -> str:
+    text = (
+        "JWT_SECRET=x\nPOSTGRES_PASSWORD=ragfabric\n"
+        f"DATABASE_URL=sqlite:///{tmp_path / 'ragfabric.db'}\nRAGFABRIC_API_KEY=rf_old\n"
+    )
+    (tmp_path / ".env").write_text(text)
+    (tmp_path / ".env").chmod(0o600)
+    return text
+
+
+def test_docker_after_sqlite_updates_only_database_url_with_yes(
+    tmp_path, no_ollama, no_keys, fake_docker, steps_after_config_are_noops
+):
+    before = _sqlite_env(tmp_path)
+    result = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--docker", "--yes"])
+    assert result.exit_code == 0, result.output
+    docker_url = "postgresql+psycopg://ragfabric:ragfabric@localhost:5432/ragfabric"
+    after = (tmp_path / ".env").read_text()
+    assert after == before.replace(f"sqlite:///{tmp_path / 'ragfabric.db'}", docker_url)
+    assert (tmp_path / ".env").stat().st_mode & 0o777 == 0o600
+    assert "rerun with --force" not in result.output
+    assert steps_after_config_are_noops == ["migrate", "ingest", "ask"]
+
+
+def test_docker_after_sqlite_declined_stops_before_migrating(
+    tmp_path, no_ollama, no_keys, fake_docker, steps_after_config_are_noops
+):
+    before = _sqlite_env(tmp_path)
+    result = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--docker"], input="n\n")
+    assert result.exit_code == 1
+    assert (tmp_path / ".env").read_text() == before
+    assert steps_after_config_are_noops == []
+    assert "rerun with --force" not in result.output
+
+
+def test_a_dot_env_key_not_active_in_this_database_is_replaced(tmp_path, monkeypatch, capsys):
+    env = tmp_path / ".env"
+    env.write_text("JWT_SECRET=x\nRAGFABRIC_API_KEY=rf_old\nRAGFABRIC_URL=http://127.0.0.1:8000\n")
+    monkeypatch.setattr(qs, "_key_is_active", lambda ctx, key: False)
+    monkeypatch.setattr(qs, "_create_api_key", lambda ctx, email: "rf_newsecretvalue")
+    ctx = qs.Context(dir=tmp_path, force=False, yes=True, docker=True, model_check=False)
+    assert qs._credentials(ctx, "http://127.0.0.1:1", "admin@example.com", "pw") == {
+        "api_key": "rf_newsecretvalue"
+    }
+    assert env.read_text() == (
+        "JWT_SECRET=x\nRAGFABRIC_API_KEY=rf_newsecretvalue\nRAGFABRIC_URL=http://127.0.0.1:8000\n"
+    )
+    assert "rf_newsecretvalue" not in capsys.readouterr().out
+
+
+def test_key_is_active_reads_the_database_in_use(tmp_path):
+    from ragfabric_core.db import migrate
+
+    db_url = f"sqlite:///{tmp_path / 'ragfabric.db'}"
+    migrate.upgrade(db_url)
+    (tmp_path / "ragfabric.yaml").write_text("llm:\n  provider: offline\n")
+    ctx = qs.Context(dir=tmp_path, force=False, yes=True, docker=False, model_check=False)
+    ctx.db_url = db_url
+    assert qs._key_is_active(ctx, "rf_not_a_key_in_this_database") is False

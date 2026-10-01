@@ -436,19 +436,39 @@ def _absolute_sqlite(url: str, dir: Path) -> str:
 
 
 def _use_database(ctx: Context, url: str, what: str) -> None:
-    """Record the database, writing it to .env only when this run wrote .env."""
+    """Record the database, and make .env name it.
+
+    A .env this run wrote is simply updated. A kept .env whose DATABASE_URL
+    names another database (an earlier SQLite run, then --docker) gets that
+    one key updated after a yes at the prompt (--yes means yes); everything
+    else in it stays. Declining stops before anything is migrated.
+    """
     ctx.db_url = url
     env_path = ctx.dir / ".env"
     if ctx.env_written:
         _set_env_value(env_path, "DATABASE_URL", url)
         _say(f"database: {what} at {url}")
-    elif _absolute_sqlite(_read_env_value(env_path, "DATABASE_URL") or "", ctx.dir) == url:
+        return
+    current = _read_env_value(env_path, "DATABASE_URL")
+    if current is not None and _absolute_sqlite(current, ctx.dir) == url:
         _done("database", f"{what} at {url}")
-    else:
-        _say(
-            f"database: {what} at {url}. .env was kept, so its DATABASE_URL is unchanged; "
-            "rerun with --force to write it"
+        return
+    if not _looks_like_ragfabric_env(read_env_file(env_path)):
+        raise QuickstartError(
+            f"the .env in {ctx.dir} is not RagFabric's (DATABASE_URL "
+            f"{mask_urls_in(current or 'not set')})\nfix: ragfabric quickstart --dir ./ragfabric"
         )
+    shown = mask_urls_in(current) if current else "no database"
+    if not ctx.yes and not typer.confirm(
+        f".env names {shown}. Update DATABASE_URL in .env to {mask_urls_in(url)}?",
+        default=True,
+    ):
+        raise QuickstartError(
+            f".env still names {shown}, so nothing was migrated; "
+            f"set DATABASE_URL in .env to {mask_urls_in(url)} to use {what}"
+        )
+    _set_env_value(env_path, "DATABASE_URL", url)
+    _say(f"database: {what} at {url}; updated DATABASE_URL in .env (was {shown})")
 
 
 _RAGFABRIC_ENV_KEYS = ("JWT_SECRET", "FIRST_ADMIN_EMAIL")
@@ -788,6 +808,15 @@ def _create_api_key(ctx: Context, email: str) -> str:
     return plaintext
 
 
+def _key_is_active(ctx: Context, key: str) -> bool:
+    """True when ``key`` is an active API key in the database this run uses."""
+    from ragfabric_cli.commands.common import session
+    from ragfabric_core.auth.api_keys import verify_api_key
+
+    with _bound_runtime(ctx), session() as db:
+        return verify_api_key(db, key) is not None
+
+
 def _key_command(ctx: Context, email: str) -> str:
     return (
         f"cd {shlex.quote(str(ctx.dir))} && export RAGFABRIC_API_KEY="
@@ -823,10 +852,21 @@ def _credentials(ctx: Context, url: str, email: str, password: str) -> dict[str,
     """Client credentials for the sample question. The key itself is never printed."""
     env_path = ctx.dir / ".env"
     existing = _read_env_value(env_path, "RAGFABRIC_API_KEY")
-    if existing:
+    if existing and _key_is_active(ctx, existing):
         ctx.key_in_env = True
         _done("api key", "RAGFABRIC_API_KEY is in .env")
         return {"api_key": existing}
+    if existing:
+        # Written for another database (an earlier SQLite run, before --docker):
+        # this database has never heard of it. Replace quickstart's line.
+        key = _create_api_key(ctx, email)
+        _set_env_value(env_path, "RAGFABRIC_API_KEY", key)
+        ctx.key_in_env = True
+        _say(
+            "api key: the RAGFABRIC_API_KEY in .env is not active in this database; created "
+            f"key {API_KEY_NAME!r} for {email} and replaced it in .env"
+        )
+        return {"api_key": key}
     if ctx.env_written:
         key = _create_api_key(ctx, email)
         _set_env_value(env_path, "RAGFABRIC_API_KEY", key)
