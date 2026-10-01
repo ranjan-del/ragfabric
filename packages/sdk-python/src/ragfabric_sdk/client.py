@@ -23,6 +23,18 @@ from ragfabric_sdk.models import Answer, AskEvent, Document, Run, SearchResult
 DEFAULT_TIMEOUT = 30.0
 
 
+def _body(base: dict, strategy: str | None, params: dict) -> dict:
+    """Build a request body, leaving ``strategy`` out when the caller named none.
+
+    An unset strategy is resolved by the server's ``router.mode``, so the key
+    must be absent rather than sent as null.
+    """
+    body = {**base, **params}
+    if strategy is not None:
+        body["strategy"] = strategy
+    return body
+
+
 class Client:
     """A RagFabric API client.
 
@@ -67,10 +79,14 @@ class Client:
     def close(self) -> None:
         self._http.close()
 
-    def ask(self, query: str, strategy: str = "traditional", **params) -> Answer:
+    def ask(self, query: str, strategy: str | None = None, **params) -> Answer:
         """POST /api/ask with stream=False and return the finished, cited answer.
 
-        ``strategy`` names the retrieval strategy: ``"traditional"`` (embed the
+        ``strategy`` names the retrieval strategy. Left unset (the default), the
+        key is not sent and the server's ``router.mode`` decides, which is
+        ``auto`` unless configured otherwise; the answer then reports what ran
+        in ``strategy``, ``router`` and ``fallback_from``. The names are
+        ``"auto"`` (let the server's router pick), ``"traditional"`` (embed the
         question, search the vector index), ``"vectorless"`` (BM25 fused with
         ts_rank_cd, no embedding call at all), ``"agentic"`` (decompose the
         question, retrieve per part, repair or abandon the parts that fail) or
@@ -95,12 +111,12 @@ class Client:
         """
         res = self._http.post(
             "/api/ask",
-            json={"query": query, "stream": False, "strategy": strategy, **params},
+            json=_body({"query": query, "stream": False}, strategy, params),
         )
         raise_for_status(res)
         return Answer.model_validate(res.json())
 
-    def ask_stream(self, query: str, strategy: str = "traditional", **params) -> Iterator[AskEvent]:
+    def ask_stream(self, query: str, strategy: str | None = None, **params) -> Iterator[AskEvent]:
         """POST /api/ask with stream=True and yield each server-sent event.
 
         Events arrive in this order: ``retrieval``, one or more ``token``,
@@ -126,7 +142,7 @@ class Client:
         with self._http.stream(
             "POST",
             "/api/ask",
-            json={"query": query, "stream": True, "strategy": strategy, **params},
+            json=_body({"query": query, "stream": True}, strategy, params),
         ) as res:
             if res.status_code >= 400:
                 res.read()
@@ -146,7 +162,7 @@ class Client:
         self,
         query: str,
         mode: str = "semantic",
-        strategy: str = "traditional",
+        strategy: str | None = None,
         **params,
     ) -> list[SearchResult]:
         """POST /api/search/semantic or /api/search/hybrid and return the ranked chunks.
@@ -158,9 +174,7 @@ class Client:
         ``strategy="vectorless"``, ``strategy="agentic"`` or ``strategy="graph"``.
         """
         path = "/api/search/hybrid" if mode == "hybrid" else "/api/search/semantic"
-        res = self._http.post(
-            path, json={"query": query, "mode": mode, "strategy": strategy, **params}
-        )
+        res = self._http.post(path, json=_body({"query": query, "mode": mode}, strategy, params))
         raise_for_status(res)
         return [SearchResult.model_validate(r) for r in res.json()["results"]]
 

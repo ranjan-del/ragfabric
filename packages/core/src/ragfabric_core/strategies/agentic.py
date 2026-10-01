@@ -38,11 +38,12 @@ it should never have seen.
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from typing import Protocol, runtime_checkable
 
 from ragfabric_core.agent.loop import DEFAULT_MAX_ITERATIONS, AgentRun, run_agent
 from ragfabric_core.agent.state import DEFAULT_ASSESS_STRICTNESS, AssessStrictness, NodeName
-from ragfabric_core.agent.tools import ToolRegistry
+from ragfabric_core.agent.tools import ToolRegistry, tools_for_request
 from ragfabric_core.providers.base import LLMProvider
 from ragfabric_core.strategies.base import (
     RetrievalContext,
@@ -79,6 +80,7 @@ class AgenticRAGStrategy:
         max_latency_ms: int | None = None,
         max_cost_usd: float | None = None,
         assess_strictness: AssessStrictness = DEFAULT_ASSESS_STRICTNESS,
+        relation_types: Sequence[str] = (),
     ) -> None:
         self._llm = llm
         self._tools = dict(tools)
@@ -88,6 +90,7 @@ class AgenticRAGStrategy:
         self._max_latency_ms = max_latency_ms
         self._max_cost_usd = max_cost_usd
         self._assess_strictness = assess_strictness
+        self._relation_types = tuple(relation_types)
 
     @property
     def tools(self) -> ToolRegistry:
@@ -145,7 +148,7 @@ class AgenticRAGStrategy:
         run: AgentRun = run_agent(
             query,
             llm=self._llm,
-            tools=self._tools,
+            tools=tools_for_request(self._tools, ctx),
             ctx=ctx,
             max_iterations=self._max_iterations,
             per_node_llm_calls=self._per_node_llm_calls,
@@ -153,6 +156,7 @@ class AgenticRAGStrategy:
             max_latency_ms=self._max_latency_ms,
             max_cost_usd=self._max_cost_usd,
             assess_strictness=self._assess_strictness,
+            relation_types=self._relation_types,
         )
 
         return RetrievalResult(
@@ -170,6 +174,7 @@ class AgenticRAGStrategy:
             # What was and was not answered, per part of the question. The
             # other strategies leave this empty because they have no parts.
             sub_questions=run.sub_question_reports(),
+            subgraph=run.subgraph,
         )
 
 

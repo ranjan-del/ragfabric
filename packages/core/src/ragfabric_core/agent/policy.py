@@ -30,12 +30,13 @@ paying for iterations it cannot use.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 
 from pydantic import BaseModel, Field
 
 from ragfabric_core.agent.nodes import RetrievalOverride
 from ragfabric_core.agent.state import RepairMove, SubQuestion
+from ragfabric_core.router.signals import TOOL_FOR_STRATEGY, extract_signals, propose
 from ragfabric_core.strategies.base import RetrievedChunk
 
 # Order tried when the model proposes nothing usable.
@@ -72,13 +73,8 @@ MAX_TOP_K = 100
 # meant to remove.
 NARROW_TOP_K = 5
 
-_PAIRED_TOOLS = {
-    "semantic_search": "lexical_search",
-    "lexical_search": "semantic_search",
-    # A sub-question already pointed at a whole document has no lexical or
-    # semantic counterpart to flip to, so it goes back to searching.
-    "fetch_document": "semantic_search",
-}
+# The order used when the signals have nothing to say about the tools left.
+_SEARCH_TOOLS = ("semantic_search", "lexical_search", "graph_search")
 
 # Words that make a query more specific without making it more findable. A
 # corpus does not use the word "exact", the asker does.
@@ -180,6 +176,8 @@ def apply_move(
     missing: str = "",
     why: str = "",
     evidence: Sequence[RetrievedChunk] = (),
+    available_tools: Collection[str] = ("semantic_search", "lexical_search"),
+    relation_types: Sequence[str] = (),
 ) -> RepairOutcome:
     """Carry out a move, recording the attempt that led to it.
 
@@ -217,7 +215,11 @@ def apply_move(
 
     if move is RepairMove.SWITCH_STRATEGY:
         previous = sub_question.tool
-        sub_question.tool = _PAIRED_TOOLS.get(previous, "semantic_search")
+        sub_question.tool = _next_tool(sub_question.text, previous, available_tools, relation_types)
+        if previous == "fetch_document":
+            # The working query is the bare document id; a search tool needs the
+            # question, and the document pin no longer applies.
+            working = RetrievalOverride(query=sub_question.text, top_k=working.top_k)
         return RepairOutcome(
             move=move,
             working=working,
@@ -260,6 +262,22 @@ def apply_move(
         ),
         note=f"fetching document {document_id} whole",
     )
+
+
+def _next_tool(
+    text: str, current: str, available: Collection[str], relation_types: Sequence[str]
+) -> str:
+    """The signals' best ranked search tool that is not the one that just failed."""
+    strategies = [s for s, tool in TOOL_FOR_STRATEGY.items() if tool in available]
+    if strategies:
+        ranking = propose(
+            extract_signals(text, relation_types=relation_types), available=strategies
+        ).ranking
+        for strategy in ranking:
+            tool = TOOL_FOR_STRATEGY.get(strategy)
+            if tool and tool in available and tool != current:
+                return tool
+    return next((t for t in _SEARCH_TOOLS if t in available and t != current), "semantic_search")
 
 
 def _abandon_reason(sub_question: SubQuestion, failure: str) -> str:

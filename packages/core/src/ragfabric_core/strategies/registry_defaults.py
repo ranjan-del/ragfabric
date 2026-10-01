@@ -11,7 +11,9 @@ from collections.abc import Callable
 from sqlalchemy.orm import Session
 
 from ragfabric_core.agent.tools import (
+    AgentTool,
     FetchDocumentTool,
+    GraphSearchTool,
     LexicalSearchTool,
     SemanticSearchTool,
     build_tool_registry,
@@ -25,6 +27,7 @@ from ragfabric_core.stores.document_chunks import SqlDocumentChunkReader
 from ragfabric_core.stores.postgres_fts import PostgresLexicalStore
 from ragfabric_core.stores.registry import build_vector_store
 from ragfabric_core.strategies.agentic import AgenticRAGStrategy
+from ragfabric_core.strategies.auto import AutoStrategy
 from ragfabric_core.strategies.base import StrategyRegistry
 from ragfabric_core.strategies.graph import GraphRAGStrategy
 from ragfabric_core.strategies.traditional import TraditionalRAGStrategy
@@ -56,9 +59,38 @@ def default_registry(
     vectorless = _build_vectorless(cfg, session_factory)
     registry.register(traditional)
     registry.register(vectorless)
-    registry.register(_build_agentic(cfg, traditional, vectorless, session_factory, llm=llm))
-    registry.register(_build_graph(cfg, session_factory, llm=llm))
+    graph = _build_graph(cfg, session_factory, llm=llm)
+    registry.register(
+        _build_agentic(cfg, traditional, vectorless, session_factory, llm=llm, graph=graph)
+    )
+    registry.register(graph)
+    registry.register(
+        AutoStrategy(
+            registry=registry,
+            llm=llm if llm is not None else build_llm_provider(cfg.llm),
+            min_confidence=cfg.router.min_confidence,
+            classifier_model=_classifier_model(cfg),
+            graph_enabled=cfg.graph_store.enabled,
+            relation_types=cfg.graph_store.relation_types,
+        )
+    )
     return registry
+
+
+def _classifier_model(cfg: RagFabricConfig) -> str | None:
+    """The model the router's classifier asks for, or None for the provider default.
+
+    ``LLMConfig.model`` carries a pydantic default even when the operator never
+    wrote one, while ``build_llm_provider`` falls back to the provider's own
+    default in that case. Reading the field unconditionally would send an
+    OpenAI or Anthropic deployment with no model set a request for the local
+    default model, so the LLM's model is used only when it was actually set.
+    """
+    if cfg.router.classifier_model:
+        return cfg.router.classifier_model
+    if "model" in cfg.llm.model_fields_set:
+        return cfg.llm.model
+    return None
 
 
 def _build_agentic(
@@ -68,6 +100,7 @@ def _build_agentic(
     session_factory: Callable[[], Session],
     *,
     llm: LLMProvider | None,
+    graph: GraphRAGStrategy | None = None,
 ) -> AgenticRAGStrategy:
     """The agent over the two strategies this deployment already builds.
 
@@ -87,22 +120,32 @@ def _build_agentic(
     edits it, sees it echoed, and gets the old behaviour.
     """
     settings = cfg.strategies.agentic
+    agent_llm = llm if llm is not None else build_llm_provider(cfg.llm)
+    available: list[AgentTool] = [
+        SemanticSearchTool(traditional),
+        LexicalSearchTool(vectorless),
+        FetchDocumentTool(SqlDocumentChunkReader(session_factory)),
+    ]
+    # Offered only when the graph is on. Listing graph_search against a
+    # deployment with no graph is refused with the setting that would fix it,
+    # rather than as an unknown tool, which reads like a typo.
+    if graph is not None and cfg.graph_store.enabled:
+        available.append(GraphSearchTool(graph, agent_llm))
+    elif "graph_search" in settings.tools:
+        raise KeyError(
+            "graph_search requires graph_store.enabled: true; enable the graph or "
+            "remove graph_search from strategies.agentic.tools"
+        )
     return AgenticRAGStrategy(
-        llm=llm if llm is not None else build_llm_provider(cfg.llm),
-        tools=build_tool_registry(
-            [
-                SemanticSearchTool(traditional),
-                LexicalSearchTool(vectorless),
-                FetchDocumentTool(SqlDocumentChunkReader(session_factory)),
-            ],
-            enabled=settings.tools,
-        ),
+        llm=agent_llm,
+        tools=build_tool_registry(available, enabled=settings.tools),
         max_iterations=settings.max_iterations,
         per_node_llm_calls=settings.node_caps(),
         max_llm_calls=settings.max_llm_calls,
         max_latency_ms=settings.max_latency_ms,
         max_cost_usd=settings.max_cost_usd,
         assess_strictness=settings.assess_strictness,
+        relation_types=cfg.graph_store.relation_types,
     )
 
 

@@ -135,13 +135,14 @@ class AgentState(BaseModel):
     iterations: int = Field(default=0, ge=0)
     stop_reason: str | None = None
 
-    def spend(self, node: NodeName, *, llm_calls: int = 0) -> None:
-        """Account for work about to be done, refusing it if a cap would break.
+    def ensure(self, node: NodeName, *, llm_calls: int = 0) -> None:
+        """Raise ``BudgetExceeded`` if this spend would break a cap, moving nothing.
 
-        Checked before the counters move, so a refused spend leaves the state
-        exactly as it was and the caller can finalize on the evidence it already
-        has rather than on a half-applied step.
+        Split from ``spend`` so a node can refuse work before doing it and record
+        what the work actually cost afterwards.
         """
+        if llm_calls <= 0:
+            return
         if self.llm_calls + llm_calls > self.max_llm_calls:
             raise BudgetExceeded(
                 f"max_llm_calls of {self.max_llm_calls} reached at node {node.value}"
@@ -151,6 +152,17 @@ class AgentState(BaseModel):
             already = self.node_llm_calls.get(node, 0)
             if already + llm_calls > node_cap:
                 raise BudgetExceeded(f"per-node cap of {node_cap} reached at node {node.value}")
+
+    def spend(self, node: NodeName, *, llm_calls: int = 0) -> None:
+        """Account for work about to be done, refusing it if a cap would break.
+
+        Checked before the counters move, so a refused spend leaves the state
+        exactly as it was and the caller can finalize on the evidence it already
+        has rather than on a half-applied step. Spending nothing is a no-op.
+        """
+        if llm_calls <= 0:
+            return
+        self.ensure(node, llm_calls=llm_calls)
         self.llm_calls += llm_calls
         self.node_llm_calls[node] = self.node_llm_calls.get(node, 0) + llm_calls
 

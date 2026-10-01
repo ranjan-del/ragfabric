@@ -137,7 +137,14 @@ class TraditionalRAGStrategy:
         # which reranker is configured.
         had_candidates = bool(candidates)
 
-        if self._reranker is not None and self._reranker.name != "none":
+        spends_a_call = self._reranker is not None and self._reranker.name == "llm"
+        out_of_calls = spends_a_call and ctx.budget.max_llm_calls < 1
+        if out_of_calls:
+            # The caller has no model calls left (auto spends some on routing), so keep the
+            # retrieval order rather than exceed the budget.
+            candidates = candidates[: ctx.params.top_k]
+            span("rerank", time.perf_counter(), reranker=self._reranker.name, skipped="budget")
+        elif self._reranker is not None and self._reranker.name != "none":
             mark = time.perf_counter()
             candidates = self._reranker.rerank(query, candidates, ctx.params.top_k)
             span("rerank", mark, reranker=self._reranker.name, kept=len(candidates))
@@ -170,9 +177,7 @@ class TraditionalRAGStrategy:
             # batches across chunks or caches by content would need the true
             # count to come from the reranker itself, not from this name check,
             # so this flag should not be extended to cover that case blindly.
-            llm_calls=1
-            if (had_candidates and self._reranker is not None and self._reranker.name == "llm")
-            else 0,
+            llm_calls=1 if (had_candidates and spends_a_call and not out_of_calls) else 0,
             input_tokens=embedded.input_tokens,
             output_tokens=0,
             latency_ms=int((time.perf_counter() - started) * 1000),

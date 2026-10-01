@@ -26,7 +26,7 @@ call made under the wrong filter contaminates everything downstream.
 from __future__ import annotations
 
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -35,12 +35,15 @@ from ragfabric_core.agent.state import (
     DEFAULT_ASSESS_STRICTNESS,
     AgentState,
     AssessStrictness,
+    BudgetExceeded,
     NodeName,
     SubQuestion,
     SubQuestionStatus,
 )
 from ragfabric_core.agent.tools import ToolRegistry
+from ragfabric_core.graph.contracts import Subgraph
 from ragfabric_core.providers.base import LLMProvider, Message
+from ragfabric_core.router.signals import TOOL_FOR_STRATEGY, extract_signals, propose
 from ragfabric_core.strategies.base import RetrievalContext, RetrievedChunk, TraceSpan
 
 # A model asked to decompose will sometimes decompose forever. Each sub-question
@@ -177,6 +180,11 @@ class RetrieveOutcome(NodeOutcome):
     # has to pick a document this sub-question actually matched. Choosing from
     # the whole pool would let one sub-question drag another's document in.
     chunks_by_sub_question: dict[int, list[RetrievedChunk]] = Field(default_factory=dict)
+    # The walks graph_search made this iteration, edgeless ones left out.
+    subgraphs: list[Subgraph] = Field(default_factory=list)
+    # The budget refusal that cut this pass short, if one did. What was harvested
+    # before it is kept; the loop records the outcome and then stops on it.
+    budget_stop: str | None = None
 
     @property
     def made_progress(self) -> bool:
@@ -229,6 +237,68 @@ def _span(name: str, *, origin: float, begin: float, **attributes) -> TraceSpan:
         started_ms=max(0, int((begin - origin) * 1000)),
         duration_ms=max(0, int((time.perf_counter() - begin) * 1000)),
         attributes=attributes,
+    )
+
+
+def check_tools(
+    state: AgentState,
+    *,
+    tools: ToolRegistry,
+    relation_types: Sequence[str],
+    origin: float | None = None,
+) -> NodeOutcome:
+    """Correct the planner's tool choice where the signals are decisive (ADR 0014).
+
+    No model call. The planner's choice stands unless a rule fired
+    unambiguously for a different tool this run actually has. ``fetch_document``
+    is left alone: it names a document, and no signal knows better.
+    """
+    begin = time.perf_counter()
+    origin = begin if origin is None else origin
+    available = [strategy for strategy, tool in TOOL_FOR_STRATEGY.items() if tool in tools]
+    changed: list[str] = []
+    # propose() refuses an empty list, and with none of the routable tools
+    # there is nothing to override to.
+    if available:
+        for index, sub_question in enumerate(state.sub_questions):
+            if sub_question.tool == "fetch_document":
+                continue
+            signals = extract_signals(sub_question.text, relation_types=relation_types)
+            proposal = propose(signals, available=available)
+            wanted = TOOL_FOR_STRATEGY.get(proposal.strategy)
+            # Only a rule that fired overrides. The plain-short default is a
+            # guess about what to do with no signal, and a guess must not
+            # overrule the planner (R12).
+            if (
+                proposal.decisive
+                and proposal.from_rule
+                and wanted
+                and wanted in tools
+                and wanted != sub_question.tool
+            ):
+                changed.append(f"{index}:{sub_question.tool}->{wanted}({proposal.query_type})")
+                sub_question.tool = wanted
+            elif (
+                sub_question.tool == "lexical_search"
+                and not signals.identifiers
+                and not signals.phrases
+                and not signals.entities
+                and "semantic_search" in tools
+            ):
+                # Lexical search matches exact terms; with no identifier, quoted
+                # phrase or named thing in the text it can only miss a paraphrase.
+                # Entities count because acronyms and product names (SSO,
+                # Kubernetes) are not identifiers, yet lexical is often right (R14).
+                changed.append(f"{index}:lexical_search->semantic_search(no_exact_terms)")
+                sub_question.tool = "semantic_search"
+    return NodeOutcome(
+        span=_span(
+            "tool_check",
+            origin=origin,
+            begin=begin,
+            overrides=len(changed),
+            detail=";".join(changed) or None,
+        )
     )
 
 
@@ -359,6 +429,10 @@ def retrieve(
     returned_by_sub_question: dict[int, int] = {}
     chunks_by_sub_question: dict[int, list[RetrievedChunk]] = {}
     harvested: list[RetrievedChunk] = []
+    subgraphs: list[Subgraph] = []
+    input_tokens = output_tokens = 0
+    provider = model = ""
+    budget_stop: str | None = None
 
     open_indexes = _open_indexes(state)
     for index in open_indexes:
@@ -371,13 +445,49 @@ def retrieve(
             # not run. Returning nothing lets the next repair try something
             # else; raising would fail a request over a recoverable choice.
             continue
-        chunks = tool.run(query, _with_override(ctx, override))
+        # Model calls this tool call made: the graph's entity match, or an LLM
+        # reranker's call inside semantic_search. Both are charged below.
+        tool_calls = 0
+        try:
+            if hasattr(tool, "run_graph"):
+                # Room for the entity-matching call is checked before it is made
+                # and its real count recorded after, so a call the strategy did
+                # not make (no graph coverage) is never reported (ADR 0004).
+                state.ensure(NodeName.RETRIEVE, llm_calls=1)
+                graph_run = tool.run_graph(query, _with_override(ctx, override))
+                chunks = graph_run.chunks
+                tool_calls = graph_run.llm_calls
+                input_tokens += graph_run.input_tokens
+                output_tokens += graph_run.output_tokens
+                if graph_run.subgraph is not None and graph_run.subgraph.edges:
+                    subgraphs.append(graph_run.subgraph)
+                if tool_calls > 0:
+                    provider, model = tool.provider, tool.model
+            elif getattr(tool, "spends_llm_calls", False):
+                # A semantic search that reranks with a model is refused the same
+                # way a graph call is when no call is left, and charged the calls
+                # the wrapped strategy reports it actually made.
+                state.ensure(NodeName.RETRIEVE, llm_calls=1)
+                before = tool.llm_calls
+                chunks = tool.run(query, _with_override(ctx, override))
+                tool_calls = tool.llm_calls - before
+            else:
+                chunks = tool.run(query, _with_override(ctx, override))
+        except BudgetExceeded as exc:
+            # Keep what earlier sub-questions already harvested; the loop stops.
+            budget_stop = str(exc)
+            break
         harvested.extend(chunks)
         returned_by_sub_question[index] = len(chunks)
         chunks_by_sub_question[index] = list(chunks)
         calls.append(
             ToolCall(tool=sq.tool, query=query, sub_question_index=index, returned=len(chunks))
         )
+        try:
+            state.spend(NodeName.RETRIEVE, llm_calls=tool_calls)
+        except BudgetExceeded as exc:
+            budget_stop = str(exc)
+            break
 
     new_ids = state.add_evidence(harvested)
     return RetrieveOutcome(
@@ -390,11 +500,18 @@ def retrieve(
             new_chunks=len(new_ids),
             pooled=len(state.evidence),
             progress=bool(new_ids),
+            budget_stop=budget_stop,
         ),
         new_chunk_ids=new_ids,
         tool_calls=calls,
         returned_by_sub_question=returned_by_sub_question,
         chunks_by_sub_question=chunks_by_sub_question,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        provider=provider,
+        model=model,
+        subgraphs=subgraphs,
+        budget_stop=budget_stop,
     )
 
 

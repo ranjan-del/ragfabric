@@ -31,6 +31,8 @@ from ragfabric_core.generate.cited import (
     CitedAnswer,
     DatedSubQuestion,
     DroppedClaim,
+    dated_sources_note,
+    dated_sub_questions,
     generate_agentic_answer,
     generate_cited_answer,
     generate_graph_answer,
@@ -40,10 +42,12 @@ from ragfabric_core.models.access import AuditLog
 from ragfabric_core.models.document import QueryLog
 from ragfabric_core.models.runs import RetrievalRun, Source
 from ragfabric_core.providers.base import LLMProvider
+from ragfabric_core.router.mode import resolve_requested
 from ragfabric_core.runtime import get_config
 from ragfabric_core.stores.base import LexicalStore
 from ragfabric_core.strategies.base import (
     RetrievalContext,
+    RetrievalResult,
     RetrievedChunk,
     RetrieverStrategy,
     StrategyName,
@@ -96,6 +100,29 @@ def _context(
             metadata_filters=filters,
         ),
     )
+
+
+def _requested_strategy(
+    strategy: str | None, rerank: str | None, *, unset: StrategyName | None = None
+) -> StrategyName:
+    """The strategy a request asked for, once the unset case is settled.
+
+    A named strategy is always honoured, ``auto`` included. When none is named:
+
+    - a request that sets ``rerank`` resolves to traditional whatever
+      ``router.mode`` says, because traditional is the only strategy the
+      override applies to; routing it would drop the rerank silently (R31);
+    - otherwise ``unset`` wins when the route has a fixed default (``/semantic``
+      keeps traditional, as ``/hybrid`` does, R30), and ``router.mode``
+      decides everywhere else.
+    """
+    if strategy:
+        return StrategyName(strategy)
+    if rerank is not None:
+        return StrategyName.TRADITIONAL
+    if unset is not None:
+        return unset
+    return resolve_requested(None, get_config().router)
 
 
 def _configured_max_context_tokens(cfg) -> int:
@@ -156,6 +183,20 @@ def _strategy_for(
         max_context_tokens=_configured_max_context_tokens(cfg),
         generation_model=cfg.llm.model,
     )
+
+
+def _counted_strategy(
+    name: StrategyName, strategy: RetrieverStrategy, result, registry: StrategyRegistry
+) -> RetrieverStrategy:
+    """The strategy the audit row's candidate counts are measured on.
+
+    Under ``auto`` the object that ran has no store of its own; the count is
+    taken on the index that actually answered, so it stays a measurement of
+    the candidates that were searched (ADR 0003).
+    """
+    if name is StrategyName.AUTO:
+        return registry.get(result.strategy)
+    return strategy
 
 
 def _access_stats(
@@ -251,6 +292,13 @@ def _refuse_unapplied_filters(strategy: str, document_id: int | None, fmt: str |
         )
 
 
+def uses_graph_path(result: RetrievalResult) -> bool:
+    """A result generated against its walk: the graph strategy's, or an agent's that walked one."""
+    return result.strategy == StrategyName.GRAPH or (
+        result.subgraph is not None and bool(result.subgraph.edges)
+    )
+
+
 def _generate(query: str, result, llm: LLMProvider) -> Generated:
     """Generate the answer this result deserves.
 
@@ -260,14 +308,27 @@ def _generate(query: str, result, llm: LLMProvider) -> Generated:
     nothing to regenerate for, because a claim the evidence does not support is
     the model saying more than it was given.
     """
-    if result.strategy == StrategyName.GRAPH:
+    if uses_graph_path(result):
         # Generated against the chunks and the walked sub-graph together, and
         # checked claim by claim: a relationship claim must cite a traversed
         # edge and a passage that backs it (graph citation contract, rulings
         # R32 and R33), a chunk claim the Phase 3 contract. One call, no retry.
         graph = generate_graph_answer(query, result.chunks, result.subgraph, llm)
+        text = graph.text
+        reports: list[DatedSubQuestion] = []
+        if result.sub_questions:
+            # An agent that walked a graph keeps what the agentic path gives it:
+            # sub-questions whose sources carry differing effective dates are
+            # reported, and the answer says so in the same words.
+            reports = dated_sub_questions(
+                sub_question_evidence_from(result.sub_questions, result.chunks), result.chunks
+            )
+            note = dated_sources_note(reports)
+            if note:
+                text = f"{text} {note}"
         return Generated(
-            text=graph.text,
+            text=text,
+            dated_sources=reports,
             input_tokens=graph.input_tokens,
             output_tokens=graph.output_tokens,
             # Exactly one call, or none at all when there were no chunks.
@@ -303,6 +364,9 @@ def _generate(query: str, result, llm: LLMProvider) -> Generated:
 def _agent_fields(result, generated: Generated | None = None) -> dict:
     """The response fields only the agent or the graph fills in, empty for everything else."""
     return {
+        "strategy": str(result.strategy),
+        "router": result.router.model_dump(mode="json") if result.router is not None else None,
+        "fallback_from": str(result.fallback_from) if result.fallback_from else None,
         "subgraph": result.subgraph.model_dump(mode="json")
         if result.subgraph is not None
         else None,
@@ -419,9 +483,10 @@ def query(
     embedding_model: str = Depends(get_embedding_model),
 ) -> AnswerResponse:
     """Ask a question and get a cited, grounded answer."""
-    _refuse_unapplied_filters(payload.strategy, payload.document_id, payload.format)
+    name = _requested_strategy(payload.strategy, payload.rerank)
+    _refuse_unapplied_filters(name, payload.document_id, payload.format)
     started = time.perf_counter()
-    strategy = _strategy_for(payload.rerank, registry, llm, payload.strategy)
+    strategy = _strategy_for(payload.rerank, registry, llm, name)
     with start_trace() as tracing:
         result = strategy.retrieve(payload.query, _context(payload, principal, access))
         retrieval_ms = int((time.perf_counter() - started) * 1000)
@@ -445,7 +510,7 @@ def query(
     # exact store instance that just answered this request, so the count is
     # measured against the same candidates the strategy actually searched.
     before, after = _access_stats(
-        strategy,
+        _counted_strategy(name, strategy, result, registry),
         {
             "collection_id": payload.collection_id,
             "document_id": payload.document_id,
@@ -457,9 +522,12 @@ def query(
         user_id=principal.user_id,
         api_key_id=principal.api_key_id,
         question=payload.query,
-        mode="manual",
-        requested_strategy=payload.strategy,
-        selected_strategy=payload.strategy,
+        mode="auto" if name is StrategyName.AUTO else "manual",
+        requested_strategy=str(name),
+        selected_strategy=str(result.strategy),
+        fallback_from=str(result.fallback_from) if result.fallback_from else None,
+        router_confidence=result.router.confidence if result.router else None,
+        router_reasoning=result.router.reasoning if result.router else None,
         answer=result_payload["answer"],
         latency_ms=total_ms,
         retrieval_latency_ms=retrieval_ms,
@@ -492,7 +560,7 @@ def query(
             api_key_id=principal.api_key_id,
             action="query",
             question=payload.query,
-            strategy=payload.strategy,
+            strategy=str(result.strategy),
             retrieval_run_id=run.id,
             sources_returned=len(retrieved),
             sources_filtered=max(before - after, 0),
@@ -525,10 +593,12 @@ def semantic_search(
 ) -> SearchResults:
     """Return the most semantically similar chunks for a query."""
     payload.mode = "semantic"
-    _refuse_unapplied_filters(payload.strategy, payload.document_id, payload.format)
-    strategy = _strategy_for(payload.rerank, registry, llm, payload.strategy)
+    name = _requested_strategy(payload.strategy, payload.rerank, unset=StrategyName.TRADITIONAL)
+    _refuse_unapplied_filters(name, payload.document_id, payload.format)
+    strategy = _strategy_for(payload.rerank, registry, llm, name)
+    result = strategy.retrieve(payload.query, _context(payload, principal, access))
     before, after = _access_stats(
-        strategy,
+        _counted_strategy(name, strategy, result, registry),
         {
             "collection_id": payload.collection_id,
             "document_id": payload.document_id,
@@ -536,7 +606,6 @@ def semantic_search(
         },
         access,
     )
-    result = strategy.retrieve(payload.query, _context(payload, principal, access))
     results = [_to_result_item(c) for c in result.chunks]
     db.add(
         AuditLog(
@@ -552,7 +621,7 @@ def semantic_search(
     )
     db.commit()
     return SearchResults(
-        query=payload.query, mode="semantic", strategy=payload.strategy, results=results
+        query=payload.query, mode="semantic", strategy=str(result.strategy), results=results
     )
 
 
@@ -574,7 +643,9 @@ def hybrid_search(
     here would pull Phase 4's whole subject forward into this task.
     """
     payload.mode = "hybrid"
-    if payload.strategy != StrategyName.TRADITIONAL:
+    # Unset means traditional here whatever router.mode says: hybrid is defined
+    # over one vector and one lexical ranking, so it never routes.
+    if payload.strategy not in (None, StrategyName.TRADITIONAL):
         # Hybrid is defined as one vector ranking fused with one lexical
         # ranking. Substituting a lexical-only strategy for the vector leg
         # would fuse the lexical ranking with itself and report a
@@ -589,7 +660,7 @@ def hybrid_search(
                 f"pair; use /api/search/semantic or /api/search/query instead"
             ),
         )
-    strategy = _strategy_for(payload.rerank, registry, llm, payload.strategy)
+    strategy = _strategy_for(payload.rerank, registry, llm, StrategyName.TRADITIONAL)
     before, after = _access_stats(
         strategy,
         {
@@ -621,7 +692,7 @@ def hybrid_search(
     )
     db.commit()
     return SearchResults(
-        query=payload.query, mode="hybrid", strategy=payload.strategy, results=results
+        query=payload.query, mode="hybrid", strategy=str(StrategyName.TRADITIONAL), results=results
     )
 
 

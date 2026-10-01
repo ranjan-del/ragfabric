@@ -85,10 +85,13 @@ from ragfabric_server.api.routes.search import (
     _agent_fields,
     _chunk_to_row,
     _cited_llm_calls,
+    _counted_strategy,
     _generate,
     _refuse_unapplied_filters,
+    _requested_strategy,
     _strategy_for,
     _usage,
+    uses_graph_path,
 )
 from ragfabric_server.deps import (
     get_access_filter,
@@ -142,9 +145,11 @@ def _rows(chunks: list[RetrievedChunk]) -> list[dict]:
 def _record(
     *,
     payload: AskRequest,
+    name: StrategyName,
     principal: Principal,
     access: AccessFilter,
     strategy,
+    registry: StrategyRegistry,
     result,
     answer: dict,
     spans: list[dict],
@@ -163,13 +168,15 @@ def _record(
 
     ``access_stats`` (candidate counts before/after the access filter, for the
     audit row's ``sources_filtered``) is read through ``_access_stats`` off
-    the exact strategy that just retrieved, so the count is measured against
-    the same candidates this request actually searched, the same as
-    ``search.py``'s three endpoints, whichever store that strategy uses.
+    the strategy that actually answered, not the ``strategy`` argument: under
+    ``auto`` that argument has no store, so ``_counted_strategy`` takes the
+    registry entry for ``result.strategy`` instead. The count is therefore
+    measured against the same candidates this request actually searched, the
+    same as ``search.py``'s three endpoints, whichever store that strategy uses.
     """
     used = {c["chunk_id"] for c in answer["citations"] if c["used"]}
     before, after = _access_stats(
-        strategy,
+        _counted_strategy(name, strategy, result, registry),
         {
             "collection_id": payload.collection_id,
             "document_id": payload.document_id,
@@ -182,9 +189,12 @@ def _record(
             user_id=principal.user_id,
             api_key_id=principal.api_key_id,
             question=payload.query,
-            mode="manual",
-            requested_strategy=payload.strategy,
-            selected_strategy=payload.strategy,
+            mode="auto" if name is StrategyName.AUTO else "manual",
+            requested_strategy=str(name),
+            selected_strategy=str(result.strategy),
+            fallback_from=str(result.fallback_from) if result.fallback_from else None,
+            router_confidence=result.router.confidence if result.router else None,
+            router_reasoning=result.router.reasoning if result.router else None,
             answer=answer["answer"],
             latency_ms=total_ms,
             retrieval_latency_ms=retrieval_ms,
@@ -217,7 +227,7 @@ def _record(
                 api_key_id=principal.api_key_id,
                 action="query",
                 question=payload.query,
-                strategy=payload.strategy,
+                strategy=str(result.strategy),
                 retrieval_run_id=run.id,
                 sources_returned=len(result.chunks),
                 sources_filtered=max(before - after, 0),
@@ -258,8 +268,9 @@ def ask(
     # per-request strategy around the shared store/embedder rather than
     # mutating the shared one when a reranker override is present (the
     # rerank override applies to the traditional strategy only).
-    _refuse_unapplied_filters(payload.strategy, payload.document_id, payload.format)
-    strategy = _strategy_for(payload.rerank, registry, llm, payload.strategy)
+    name = _requested_strategy(payload.strategy, payload.rerank)
+    _refuse_unapplied_filters(name, payload.document_id, payload.format)
+    strategy = _strategy_for(payload.rerank, registry, llm, name)
 
     if not payload.stream:
         started = time.perf_counter()
@@ -272,9 +283,11 @@ def ask(
         total_ms = int((time.perf_counter() - started) * 1000)
         _record(
             payload=payload,
+            name=name,
             principal=principal,
             access=access,
             strategy=strategy,
+            registry=registry,
             result=result,
             answer=answer,
             spans=[s.model_dump() for s in result.trace] + [s.model_dump() for s in tracing.spans],
@@ -324,6 +337,11 @@ def ask(
                 "subgraph": result.subgraph.model_dump(mode="json")
                 if result.subgraph is not None
                 else None,
+                # What routed here; null unless auto served the request.
+                "router": result.router.model_dump(mode="json")
+                if result.router is not None
+                else None,
+                "fallback_from": str(result.fallback_from) if result.fallback_from else None,
             },
         )
 
@@ -337,7 +355,7 @@ def ask(
             yield _event("token", {"text": text})
             llm_calls = result.llm_calls
             in_tokens = out_tokens = 0
-        elif result.strategy == StrategyName.GRAPH:
+        elif uses_graph_path(result):
             pieces = []
             for delta in llm.stream(
                 [
@@ -437,9 +455,11 @@ def ask(
 
         run_id = _record(
             payload=payload,
+            name=name,
             principal=principal,
             access=access,
             strategy=strategy,
+            registry=registry,
             result=result,
             answer=answer,
             spans=spans,

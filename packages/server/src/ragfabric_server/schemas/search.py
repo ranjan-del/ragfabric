@@ -31,7 +31,8 @@ class SearchRequest(BaseModel):
     # KeyError inside the registry, which would surface as a 500.
     # /api/search/hybrid rejects anything but "traditional": see
     # api/routes/search.py:hybrid_search for why.
-    strategy: Literal["traditional", "vectorless", "agentic", "graph"] = "traditional"
+    # None means unset: the configured router.mode decides (resolve_requested).
+    strategy: Literal["auto", "traditional", "vectorless", "agentic", "graph"] | None = None
 
 
 class SearchResultItem(BaseModel):
@@ -219,6 +220,26 @@ class SubgraphOut(BaseModel):
     empty_reason: str | None = None
 
 
+class RouterDecisionOut(BaseModel):
+    """Mirrors ``ragfabric_core.router.decision.RouterDecision``: what the router decided.
+
+    ``confidence`` is None for a rule based decision (a rule is not a
+    measurement); a classifier's is what the model reported, uncalibrated
+    (ADR 0004).
+    """
+
+    selected_strategy: str
+    source: str
+    decisive: bool
+    confidence: float | None = None
+    reasoning: str
+    query_type: str
+    estimated_complexity: str
+    expected_cost_level: str
+    expected_latency_level: str
+    fused: bool = False
+
+
 class AnswerResponse(BaseModel):
     question: str
     answer: str
@@ -247,3 +268,9 @@ class AnswerResponse(BaseModel):
     # contract's drops on the graph path too.
     subgraph: SubgraphOut | None = None
     dropped_relationship_claims: list[DroppedClaimOut] = []
+    # The strategy that actually answered, and what routed to it. ``router`` is
+    # None unless ``auto`` served the request; ``fallback_from`` is set when the
+    # routed strategy found nothing and traditional answered instead.
+    strategy: str | None = None
+    router: RouterDecisionOut | None = None
+    fallback_from: str | None = None

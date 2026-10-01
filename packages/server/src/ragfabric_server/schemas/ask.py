@@ -23,5 +23,9 @@ class AskRequest(BaseModel):
     # 5 for the agent, and in Phase 6 for the graph. The pattern is still a closed set rather than a
     # free string: a name the server cannot serve must be a 422 from
     # validation, not a KeyError out of the registry surfacing as a 500.
-    strategy: str = Field(default="traditional", pattern="^(traditional|vectorless|agentic|graph)$")
+    # None means the caller named nothing: the configured router.mode decides
+    # (auto routes, manual means traditional). See router.mode.resolve_requested.
+    strategy: str | None = Field(
+        default=None, pattern="^(auto|traditional|vectorless|agentic|graph)$"
+    )
     stream: bool = True

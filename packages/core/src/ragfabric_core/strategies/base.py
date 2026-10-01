@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ragfabric_core.auth.principal import AccessFilter, Principal
 from ragfabric_core.graph.contracts import Subgraph
+from ragfabric_core.router.decision import RouterDecision
 
 
 class StrategyName(StrEnum):
@@ -27,6 +28,7 @@ class StrategyName(StrEnum):
     VECTORLESS = "vectorless"
     AGENTIC = "agentic"
     GRAPH = "graph"
+    AUTO = "auto"
 
 
 class TraceSpan(BaseModel):
@@ -144,6 +146,9 @@ class RetrievalResult(BaseModel):
     # render. None for every other strategy, which is what keeps this
     # addition invisible to them (the same additive move as sub_questions).
     subgraph: Subgraph | None = None
+    # The routing decision, set only by the auto strategy. None for every
+    # strategy a caller names directly, the same additive move as subgraph.
+    router: RouterDecision | None = None
 
 
 @runtime_checkable

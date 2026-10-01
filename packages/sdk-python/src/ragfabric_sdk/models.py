@@ -163,6 +163,27 @@ class Subgraph(BaseModel):
     empty_reason: str | None = None
 
 
+class RouterDecisionInfo(BaseModel):
+    """The router's decision as the server reports it in ``AnswerResponse.router``.
+
+    Every field is optional so an older or newer server still parses: the
+    router may add fields (ignored here) or omit some. ``source`` is
+    ``signals``, ``classifier`` or ``signals_fallback``; ``confidence`` is None
+    for a signal decision and an uncalibrated model-reported number otherwise.
+    """
+
+    selected_strategy: str | None = None
+    source: str | None = None
+    decisive: bool | None = None
+    confidence: float | None = None
+    reasoning: str | None = None
+    query_type: str | None = None
+    estimated_complexity: str | None = None
+    expected_cost_level: str | None = None
+    expected_latency_level: str | None = None
+    fused: bool | None = None
+
+
 class Answer(BaseModel):
     """Mirrors ``schemas.search.AnswerResponse``, returned by both
     ``POST /api/ask`` (non streaming) and ``POST /api/search/query``."""
@@ -191,6 +212,11 @@ class Answer(BaseModel):
     # rule that removed each one as ``reason``.
     subgraph: Subgraph | None = None
     dropped_relationship_claims: list[DroppedClaim] = Field(default_factory=list)
+    # Phase 7a: what the router chose and why. All optional so a server older
+    # than the router parses unchanged.
+    strategy: str | None = None
+    router: RouterDecisionInfo | None = None
+    fallback_from: str | None = None
 
 
 class SearchResult(BaseModel):

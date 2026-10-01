@@ -15,6 +15,72 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 | v0.5.0 | Evaluation framework | Corpus, question set, metrics, `make eval`, dashboards, generated benchmarks |
 | v1.0.0 | Production release | Reference UI with Compare and Trace, TypeScript SDK, connectors, hardening, docs site, deployment guides, public benchmarks and fix wave (Phase 11) |
 
+## [0.4.0] - unreleased
+
+### Added
+
+- **Query router (Phase 7a).** `strategy: auto`, a fifth registry entry, so the API, CLI and SDK
+  accept it with no separate wiring. Free signals decide when exactly one rule fires, with no model
+  call. Otherwise one classifier call decides, and a confidence below `router.min_confidence` (or a
+  reply that breaks the contract, including a reasoning that is empty after trimming) fuses
+  Traditional and Vectorless with RRF. A classifier that fails falls back to the signals'
+  proposal. ADR 0013.
+- `RouterDecision` on the result: strategy, `source` (`signals`, `classifier`, `signals_fallback`),
+  `decisive`, `confidence` (null for signals, uncalibrated for the classifier), one-sentence
+  reasoning, query type, and engineering level estimates. `/api/ask` and `/api/search/query`
+  responses carry `strategy`, `router` and `fallback_from` (the ask stream's `retrieval` event
+  too; `/api/search/semantic` returns `strategy` only). The `retrieval_runs` row records the
+  requested strategy, the strategy that ran, `fallback_from`, router confidence and reasoning. No
+  migration.
+- One fallback step, never a chain: Graph with no coverage, Vectorless with no term match and
+  Agentic with zero usable evidence fall back to Traditional with what is left of the budget. A
+  non-Traditional routed strategy that raises an exception falls back to Traditional with zero
+  model calls. The router records `fallback_reason: "error: <ExceptionType>: <message>"`
+  (truncated to 200 characters) and `failed_attempt_calls: "unknown"`, and reported `llm_calls`
+  is a lower bound on that path. If the Vectorless leg of a fused run raises, the Traditional
+  leg's result is kept and the error is recorded in `fallback_reason`; `fallback_from` stays unset
+  and `fused` stays true. A fallback result carries none of the failed attempt's sub-questions or
+  sub-graph.
+- `auto` never exceeds the caller's `max_llm_calls`: the classifier call is deducted first, a
+  fallback after an empty result gets what the first attempt left, and a fallback after an error
+  runs with zero model calls. Vectorless gets what Traditional left on the fused path. Traditional
+  skips an LLM reranker when its call budget is zero. Graph skips its entity-matching call when no
+  call is left, returns nothing with `fallback_reason: "no calls left"`, and `auto` falls back to
+  Traditional with what is left, which is nothing.
+- Graph is left out of the candidates when `graph_store.enabled` is false or the request sets
+  `document_id` or `format`.
+- **Agent.** A tool check between plan and retrieve lets decisive signals override the planner,
+  only when a rule actually fired, never on the short plain question default. A sub-question sent
+  to `lexical_search` moves to `semantic_search` when it has no identifier, quoted phrase or entity
+  mention (`no_exact_terms`). Every override is traced. ADR 0014.
+- `graph_search`, an opt-in agent tool: listed in `strategies.agentic.tools`, available only when
+  `graph_store.enabled` is true, left out of a request that sets `document_id` or `format`. Its one
+  entity-matching model call is charged only when made, and a budget refusal part-way through a
+  retrieve pass keeps the evidence already gathered. An agentic answer whose evidence includes
+  graph edges is generated on the graph path (ADR 0012) and keeps its dated-sources note.
+- `switch_strategy` chooses among all three search tools from the signals' ranking. Switching away
+  from `fetch_document` restores the sub-question text as the query.
+- The agent's `semantic_search` charges an LLM reranker's call to the agent's budget: it is
+  refused when no call is left, like `graph_search`, and counted once in `llm_calls` when made.
+- `ragfabric ask` prints `Strategy: <ran> (<source>). <reasoning>` plus `Fell back from
+  <strategy>.` after a fallback.
+- Docs: ADR 0013, ADR 0014, `docs/concepts/routing-as-classification.md`, and `docs/routing.md`
+  and `docs/agentic-rag.md` rewritten to what shipped. Router quality is not measured.
+
+### Changed
+
+- The SDK and CLI no longer default to `traditional`. An unset strategy is not sent, and the
+  server's `router.mode` resolves it, which defaults to `auto`. `ragfabric ask` accepts
+  `--strategy auto` and prints one line after the answer naming the strategy that ran, why, and
+  any fallback. `Answer` gains optional `strategy`, `router` and `fallback_from` fields.
+- Raw HTTP callers that send no strategy to `/api/ask` or `/api/search/query` now get `auto`,
+  because `router.mode` defaults to `auto`. Set `router.mode: manual` to keep `traditional`.
+- `/api/search/semantic` keeps `traditional` when no strategy is sent, whatever `router.mode`
+  says, as `/api/search/hybrid` does. An explicit `auto` is still accepted there.
+- A request that sets `rerank` and names no strategy resolves to `traditional` on `/api/ask`,
+  `/api/search/query` and `/api/search/semantic`, whatever `router.mode` says, so the rerank is
+  applied. A request naming `auto` with `rerank` is routed and the rerank is not applied.
+
 ## [0.3.1] - 2026-09-26
 
 Packaging only, so the release can be installed from PyPI. No code changes.

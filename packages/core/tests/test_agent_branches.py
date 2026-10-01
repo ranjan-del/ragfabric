@@ -303,20 +303,20 @@ def test_a_fully_resolved_multi_sub_question_run() -> None:
             NodeName.PLAN: [
                 plan_json(
                     ("what is the retry limit", "semantic_search"),
-                    ("who signs off the change", "lexical_search"),
+                    ("who signs off change CHG_4419", "lexical_search"),
                 )
             ],
             NodeName.ASSESS: [
                 assess_json(
                     ("what is the retry limit", True, None),
-                    ("who signs off the change", True, None),
+                    ("who signs off change CHG_4419", True, None),
                 )
             ],
         }
     )
 
     run = run_agent(
-        "what is the retry limit and who signs off the change",
+        "what is the retry limit and who signs off change CHG_4419",
         llm=llm,
         tools=registry(semantic, lexical),
         ctx=make_ctx(),
@@ -397,17 +397,17 @@ def test_the_switch_strategy_branch_flips_the_tool_the_next_retrieval_uses() -> 
     semantic = FakeTool("semantic_search", chunks=[chunk(2, text="five attempts")])
     llm = ScriptedLLMProvider(
         node_responses={
-            NodeName.PLAN: [plan_json(("what is the retry limit", "lexical_search"))],
+            NodeName.PLAN: [plan_json(("what is MAX_RETRY_LIMIT", "lexical_search"))],
             NodeName.ASSESS: [
-                assess_json(("what is the retry limit", False, "the number")),
-                assess_json(("what is the retry limit", True, None)),
+                assess_json(("what is MAX_RETRY_LIMIT", False, "the number")),
+                assess_json(("what is MAX_RETRY_LIMIT", True, None)),
             ],
             NodeName.REPAIR: [repair_json("switch_strategy")],
         }
     )
 
     run = run_agent(
-        "what is the retry limit", llm=llm, tools=registry(lexical, semantic), ctx=make_ctx()
+        "what is MAX_RETRY_LIMIT", llm=llm, tools=registry(lexical, semantic), ctx=make_ctx()
     )
 
     assert repair_moves(run) == ["switch_strategy"]

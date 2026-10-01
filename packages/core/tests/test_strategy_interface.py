@@ -2,9 +2,8 @@
 
 import pytest
 
-from ragfabric_core.auth.principal import AccessFilter, Principal
+from ragfabric_core.auth.principal import AccessFilter
 from ragfabric_core.strategies.base import (
-    Budget,
     RetrievalContext,
     RetrievalResult,
     RetrievedChunk,
@@ -15,20 +14,6 @@ from ragfabric_core.strategies.base import (
     TraceSpan,
 )
 from ragfabric_core.strategies.contract import assert_strategy_contract
-
-
-def make_ctx(**overrides) -> RetrievalContext:
-    values = dict(
-        principal=Principal(
-            user_id=1, email="u@example.com", role="user", group_ids=[], api_key_id=None
-        ),
-        access_filter=AccessFilter.unrestricted(),
-        collection_ids=None,
-        params=StrategyParams(),
-        budget=Budget(),
-    )
-    values.update(overrides)
-    return RetrievalContext(**values)
 
 
 class StaticStrategy:
@@ -67,13 +52,13 @@ def test_static_strategy_satisfies_the_runtime_protocol():
     assert isinstance(StaticStrategy(), RetrieverStrategy)
 
 
-def test_contract_helper_returns_the_result_for_a_conforming_strategy():
+def test_contract_helper_returns_the_result_for_a_conforming_strategy(make_ctx):
     result = assert_strategy_contract(StaticStrategy(), "leave policy", make_ctx())
     assert result.strategy == StrategyName.VECTORLESS
     assert result.chunks[0].text == "about leave policy"
 
 
-def test_contract_helper_rejects_a_result_whose_strategy_name_lies():
+def test_contract_helper_rejects_a_result_whose_strategy_name_lies(make_ctx):
     class Liar(StaticStrategy):
         def retrieve(self, query, ctx):
             result = super().retrieve(query, ctx)
@@ -83,7 +68,7 @@ def test_contract_helper_rejects_a_result_whose_strategy_name_lies():
         assert_strategy_contract(Liar(), "q", make_ctx())
 
 
-def test_contract_helper_rejects_more_chunks_than_top_k():
+def test_contract_helper_rejects_more_chunks_than_top_k(make_ctx):
     class TooMany(StaticStrategy):
         def retrieve(self, query, ctx):
             result = super().retrieve(query, ctx)

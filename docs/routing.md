@@ -1,74 +1,193 @@
 # Query routing
 
-> Status: concept complete. Implementation ships in **v0.4.0**.
+> Status: **shipped in core for v0.4.0 (Phase 7a)**, release not yet cut. The terminal
+> experience around it (rich `ask` output, `doctor`, `quickstart`) is Phase 7b. Whether the router
+> chooses well is **not measured**: the first real run is written up in `docs/learning/`, and
+> Phase 8 measures it properly (ADR 0004).
+
+See [concepts/routing-as-classification.md](concepts/routing-as-classification.md) for the mental
+model, [ADR 0013](adr/0013-router-as-a-strategy.md) for where the router sits and
+[ADR 0014](adr/0014-signals-override-the-planner.md) for how it checks the agent's tool choices.
 
 ## What it does
 
-In AUTO mode the router reads the question and chooses one of Traditional, Vectorless, Agentic or Graph.
-In MANUAL mode the caller names the strategy and the router is bypassed, which is how the four are
-compared fairly on the same question.
+`strategy: auto` reads the question and chooses one of Traditional, Vectorless, Graph or Agentic.
+Naming a strategy bypasses the router, which is how the four are compared fairly on the same
+question. `auto` is a fifth entry in the strategy registry (`strategies/auto.py`), so the API,
+CLI and SDK accept it with no separate wiring, and it returns an ordinary `RetrievalResult`.
+
+| Caller sends | What runs |
+|---|---|
+| `strategy: auto` | The router, then the chosen strategy, then at most one fallback |
+| A named strategy | That strategy only. The router is bypassed |
+| Nothing | The server resolves it from `router.mode`: `auto` gives `auto`, `manual` gives `traditional`. This holds on `/api/ask` and `/api/search/query`. `/api/search/semantic` keeps `traditional` when unset whatever `router.mode` says, and still accepts an explicit `auto`. `/api/search/hybrid` does not route: unset means `traditional` there whatever `router.mode` says, and `auto` is a 422 |
+| `rerank` and no strategy | `traditional` on `/api/ask`, `/api/search/query` and `/api/search/semantic`, whatever `router.mode` says, because Traditional is the only strategy the override applies to |
+| `strategy: auto` and `rerank` | The router runs as usual and the `rerank` override is **not applied**, whichever strategy is chosen. Name `traditional`, or leave the strategy unset, to rerank |
 
 ## The decision object
 
 ```json
 {
-  "selected_strategy": "graph_rag",
-  "confidence": 0.81,
-  "reasoning": "The question asks about reporting lines and the policies that apply to them, which are relationships across documents.",
+  "selected_strategy": "graph",
+  "source": "signals",
+  "decisive": true,
+  "confidence": null,
+  "reasoning": "The question asks how named things are related.",
   "query_type": "relationship",
   "estimated_complexity": "medium",
   "expected_cost_level": "medium",
-  "expected_latency_level": "medium"
+  "expected_latency_level": "medium",
+  "fused": false
 }
 ```
 
-`reasoning` is one user safe sentence. Hidden chain of thought is never exposed.
+`reasoning` is one sentence of at most 200 characters. It comes from a fixed template for signals
+and from the classifier otherwise. Hidden chain of thought is never exposed. The three level
+fields are engineering assessments of each strategy's shape (one embedding call is low, a model
+call per step is high), not measurements.
+
+| `source` | Meaning | `confidence` |
+|---|---|---|
+| `signals` | A rule fired, or a short plain question fired nothing. `decisive` is true | `null` |
+| `classifier` | The signals were not decisive and one model call chose | What the model reported, uncalibrated until Phase 8 |
+| `signals_fallback` | The classifier could not be used, so the signals' own proposal stood. `decisive` is false | `null` |
 
 ## How it works internally
 
 Two stages, cheap first.
 
-| Stage | Input | Output |
+| Stage | Input | Output | Model calls |
+|---|---|---|---|
+| Signals (`router/signals.py`) | The question only. Pure function, no I/O | A `Proposal`: strategy, `decisive`, `from_rule`, reasons, a ranking | 0 |
+| Classifier (`router/classifier.py`) | The question and the signals, never chunk text | `query_type`, strategy, confidence, one sentence of reasoning | 1 |
+
+### The signals
+
+| Signal | Detected by | Points to |
 |---|---|---|
-| Signals | Regex and heuristics: identifiers, quoted phrases, named entity count, comparison and aggregation words, question length, presence of dates | A feature vector and a provisional strategy with confidence |
-| Classifier | A small LLM call with the question and the signals, constrained to a JSON schema | `query_type`, refined strategy, confidence, reasoning |
+| Identifier | `identifiers()` in `stores/boosting.py`, the same function the identifier boost uses | Vectorless |
+| Quoted phrase | `phrases()` in `stores/boosting.py` | Vectorless |
+| Relation phrase | A spoken form of a configured relation type ("reports to", "owns") together with at least one named entity | Graph |
+| Comparison, aggregation or several questions | Whole words or phrases such as compare, versus, vs, how many, total, or more than one question mark. "Totally" and "subtotal" do not count | Agentic |
+| None of these, and 15 words or fewer | The default | The first available of Traditional, Vectorless, Graph, Agentic |
 
-If the signals are decisive (an identifier pattern and nothing else, for example) the classifier is
-skipped to save a call. Confidence is calibrated against the evaluation set: the router is itself
-evaluated by whether its choice produced the best score per question.
+### The decisive rule
 
-## Default mapping
+A decision is **decisive** when exactly one usable signal fired (`from_rule` is true), or when
+nothing usable fired and either the question is short or a signal fired that could not be used
+(`from_rule` is false, because that is a default and not a rule). Conflicting usable signals, or a
+long question with no signal at all, are not decisive and go to the classifier. A signal that
+points at a strategy unavailable for this request is noted in the reasons and not counted. When
+that leaves nothing usable, the decision's `reasoning` names the signal and what ran instead ("The
+question asks how named things are related, but the graph is not available here, so meaning
+search was used.") and `query_type` stays the fired signal's (`relationship` in that example).
 
-| Query type | Default strategy | Signals |
-|---|---|---|
-| Simple factual | Traditional | Short, one concept, no identifiers |
-| Exact match | Vectorless | Identifier pattern, quoted phrase, proper nouns without relationships |
-| Comparison, multi document, complex reasoning, ambiguous | Agentic | Comparison words, multiple constraints, vague phrasing |
-| Relationship, multi hop | Graph | Multiple entities joined by relational verbs |
+### What the router does when
 
-The mapping is a starting point, not a hard rule. The classifier can override it and the evaluation
-harness measures whether it should.
+| Situation | Result |
+|---|---|
+| Decisive | `source: signals`, no model call |
+| Not decisive, the classifier answers with confidence at or above `router.min_confidence` | `source: classifier`, that strategy |
+| Not decisive, confidence below `router.min_confidence`, or the reply breaks the contract | Traditional and Vectorless run and are fused with `rrf()` (ADR 0008), `fused: true` |
+| The classifier raises or times out, or the request has no budget for a call | `source: signals_fallback`, the signals' proposal is used |
 
-## Fallbacks
+A contract violation includes malformed JSON, a strategy not available for this request, and a
+reasoning that is empty after trimming. All of them fuse rather than fail the request.
+
+### Which strategies are candidates
+
+| Condition | Effect |
+|---|---|
+| `graph_store.enabled` is false | Graph is never selected. A graph signal resolves to another strategy |
+| The request sets `document_id` or `format` | Graph is never selected and never a fallback. The walk applies access and collection scope only |
+| Otherwise | All four |
+
+`auto` itself is never a routing target, a fallback target or an agent tool.
+
+## Fallbacks as built
+
+One step, never a chain. Every fallback is recorded on the run as `fallback_from`.
 
 | Trigger | Action |
 |---|---|
-| Selected strategy returns no evidence above its floor | Run Traditional |
-| Graph finds no matching entities | Run Traditional |
-| Vectorless finds no term matches | Run Traditional |
-| Agentic exhausts its budget with insufficient evidence | Run Traditional |
-| Router confidence below `min_confidence` | Run Traditional and Vectorless, fuse |
+| Any strategy other than Traditional returns no chunks | Run Traditional. For Graph the recorded reason is one of `no_graph_coverage`, `no_entity_matched` or `no_walkable_edges`; for Vectorless no term match; for Agentic zero usable evidence |
+| A non-Traditional routed strategy raised an exception | Run Traditional with zero model calls (skipping LLM reranking). The router span records `fallback_reason: "error: <ExceptionType>: <message>"` (truncated to 200 characters) and `failed_attempt_calls: "unknown"`. Reported `llm_calls` is a lower bound on this path: what the failed strategy spent before it raised is not known and is counted as 0 |
+| The Vectorless leg of a fused run raised an exception | Keep the Traditional leg's result. The router span records `fallback_reason: "error: <ExceptionType>: <message>"` (truncated to 200 characters); `fallback_from` stays unset because no fallback strategy ran, and the decision's `fused` stays true because fusion was what the router chose. Reported `llm_calls` is a lower bound here too |
+| Traditional was chosen and found nothing | None. An honest empty result |
+| The fallback also finds nothing | Stop. Empty, with both attempts in the trace |
+| Classifier confidence below `router.min_confidence` | Not a fallback. Traditional and Vectorless are fused up front |
 
-Every fallback is recorded on the run as `fallback_from`, shown in the UI and counted in the dashboards.
-A high fallback rate for a strategy is a signal that the router or the strategy needs work.
+A fallback result carries none of the failed attempt's `sub_questions` or `subgraph`. Generation
+picks its path from those fields, so a Traditional fallback that kept an agent's reports would be
+answered on the agentic path. The failed attempt stays in the trace.
+
+### The one deliberate change from the concept
+
+The earlier concept said an agent that "exhausts its budget with insufficient evidence" falls back
+to Traditional. As built, agentic falls back **only when it returns zero usable evidence**. An
+agent that ran out of budget with some sub-questions answered keeps them, and already reports the
+unanswered ones as open with a reason. Discarding answered evidence to run a simpler search would
+make the answer worse.
+
+## The budget
+
+`auto` never exceeds the caller's `max_llm_calls` on any path.
+
+| Step | Budget rule |
+|---|---|
+| The classifier call | Deducted before the chosen strategy runs |
+| A fallback after an empty result | Runs with what is left of the budget after the first attempt's calls |
+| A fallback after an error | Runs with zero model calls (skipping LLM reranking), because what the failed attempt spent is unknown. Reported `llm_calls` is a lower bound |
+| The fused path | Vectorless gets what Traditional left |
+| Traditional with no calls left | Skips an LLM reranker when its call budget is zero |
+| Graph with no calls left | The graph strategy skips its entity-matching call when no call is left, returns nothing with `fallback_reason: "no calls left"`, and `auto` falls back to Traditional with zero model calls |
+| Counters | Summed across every run made. Every trace is kept |
+
+## Safety
+
+| Concern | Behaviour |
+|---|---|
+| Access | `auto`, every fallback and `graph_search` pass the caller's principal and access filter untouched (ADR 0003). The context is a copy with a reduced budget and nothing else changed |
+| What the classifier sees | The question and the signals only, never chunk text |
+| Routing trouble | Routing trouble never fails a request, except when Traditional itself raises. A failed classifier becomes `signals_fallback`. If a non-Traditional routed strategy raises, `auto` falls back to Traditional with zero model calls. If the Vectorless leg of a fused run raises, the Traditional leg's result is kept. If Traditional raises (chosen, fallback, or fused leg), the error surfaces as it would for a request naming traditional |
+| Cost | The classifier call counts in `llm_calls`, tokens and cost. The router has its own `router` span |
+
+## What is recorded
+
+| Where | What |
+|---|---|
+| `RetrievalResult.router` | The decision above. `RetrievalResult.strategy` is the strategy that ran, never `auto` |
+| `RetrievalResult.fallback_from` | The strategy that was replaced, because it found nothing or raised, when a fallback ran |
+| `/api/ask` and `/api/search/query` responses | `strategy`, `router` and `fallback_from`. The ask stream's `retrieval` event carries them too |
+| `/api/search/semantic` response | `strategy` only |
+| The audit row's candidate counts | Measured on the index of the strategy that ran. On the fused path that is Traditional's index, since the fused result is reported as Traditional |
+| The `retrieval_runs` row | The requested strategy, the strategy that ran, `fallback_from`, router confidence and reasoning (no migration, the columns exist since 0002) |
+| CLI | One line, `Strategy: <ran> (<source>). <reasoning>`, plus `Fell back from <strategy>.` after a fallback |
+
+## Configuration
+
+| Key | Read by |
+|---|---|
+| `router.mode` | Default strategy resolution when the caller names none |
+| `router.min_confidence` | The fuse threshold. A classifier confidence below it fuses Traditional and Vectorless |
+| `router.classifier_model` | The classifier. `null` uses `llm.model` when it is set in the file, and otherwise the provider's own default model |
+
+A test fails if any `RouterConfig` field is not read.
+
+## The agent
+
+The same signals module checks the agent's tool choices and gives it a third search tool. See
+[agentic-rag.md](agentic-rag.md) and [ADR 0014](adr/0014-signals-override-the-planner.md).
 
 ## Why not only rules
 
-Rules are transparent but brittle: "compare" appears in simple questions too. Why not only an LLM: cost
-and latency on every question, and no explanation of the decision. The two stage design gets most
-questions routed for free and spends a small call only where the signals disagree.
+Rules are transparent but brittle: "compare" appears in simple questions too. Why not only an LLM:
+a model call on every question, and no explanation of the decision. The two-stage design routes a
+question with no model call when a rule is decisive and spends one call where the signals
+disagree.
 
 ## Trade offs
 
-A wrong route costs either accuracy (Traditional on a multi hop question) or money (Agentic on a lookup).
-The evaluation framework quantifies both so the thresholds can be tuned with numbers.
+A wrong route costs either accuracy (Traditional on a multi-part question) or money (Agentic on a
+lookup). The evaluation framework in Phase 8 is what will quantify both, so the thresholds can be
+tuned with numbers. Until then `router.min_confidence` is an untuned default.

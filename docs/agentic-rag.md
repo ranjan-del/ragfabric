@@ -1,6 +1,6 @@
 # Agentic RAG
 
-> Status: **core implementation merged for v0.2.0** (Phase 5), release not yet cut.
+> Status: **shipped** (Phase 5, released in v0.2.0; Phase 7a additions are in v0.4.0, unreleased).
 > `AgenticRAGStrategy` (`packages/core/src/ragfabric_core/strategies/agentic.py`) runs a bounded
 > loop over the agent package (`packages/core/src/ragfabric_core/agent/`) and is registered as
 > `agentic` in `strategies/registry_defaults.py`, wrapping the same Traditional and Vectorless
@@ -8,12 +8,9 @@
 > LangGraph** ([ADR 0009](adr/0009-plain-state-machine-over-langgraph.md)); the roadmap
 > promised LangGraph and a spike measured the alternative before that promise was withdrawn.
 >
-> **Not yet selectable from outside core.** `POST /api/ask` and `POST /api/search/query` still
-> validate `strategy` against `traditional|vectorless`, `ragfabric ask --strategy` offers the
-> same two, and the Python SDK is unchanged. Exposing the agent over the API, the CLI and the
-> SDK is the remaining Phase 5 work, as is generating a cited answer from the evidence the
-> agent pools and returning the per sub-question report. Today the strategy returns the pooled
-> evidence and a full trace through the standard `RetrievalResult` (ADR 0002).
+> **Phase 7a adds** a tool check between plan and retrieve, a fourth tool (`graph_search`) and a
+> three-way `switch_strategy`, described below. `auto` (see [routing.md](routing.md)) can send a
+> question here, and falls back to Traditional when the agent returns zero usable evidence.
 >
 > Retrieval quality (whether an answer is correct, complete or faithful to its sources) is
 > **not measured**; Phase 8 measures it.
@@ -25,7 +22,7 @@ conditions.
 ## What it does
 
 ```
-question -> plan -> retrieve (open sub-questions only) -> assess (per sub-question)
+question -> plan -> tool check -> retrieve (open sub-questions only) -> assess (per sub-question)
          -> all resolved? yes: finalize
          -> no: repair (one of six moves per failed sub-question) -> retrieve again (bounded)
          -> stop on resolved, budget or no_progress, and record which
@@ -39,7 +36,7 @@ applies it, and the loop retrieves again. It stops for one of exactly three reas
 which.
 
 A question that resolves on the first pass costs two model calls in the loop today, one to plan
-and one to assess, and a third when the generation node lands. Each further iteration adds one
+and one to assess, and one more outside the loop to write the cited answer. Each further iteration adds one
 assessment and one repair call per sub-question still open. The textbook design this replaced
 spent six or more on the same question, and the saving comes from merging two nodes and
 removing two others, described under "What was deliberately not built" below.
@@ -59,7 +56,8 @@ says which part it failed on.
 ```mermaid
 stateDiagram-v2
     [*] --> plan
-    plan --> retrieve
+    plan --> tool_check
+    tool_check --> retrieve
     retrieve --> finalize: no new evidence (from iteration 2 on), stop_reason = no_progress
     retrieve --> assess
     assess --> finalize: every sub-question resolved, stop_reason = resolved
@@ -77,7 +75,7 @@ stateDiagram-v2
 | Node | A plain Python function that does one thing and returns a `TraceSpan`. It never decides what runs next |
 | Branch | An `if` in `run_agent`. There is no edge object and no graph runner |
 | Iteration | One pass of retrieve, assess and repair. Capped by `max_iterations`, default 4 |
-| Tool call | `semantic_search`, `lexical_search` or `fetch_document`, chosen per sub-question by the plan and changeable by a repair |
+| Tool call | `semantic_search`, `lexical_search`, `fetch_document` or `graph_search`, chosen per sub-question by the plan, corrected by the tool check, and changeable by a repair |
 | Stop reason | `resolved`, `budget` or `no_progress`, assigned at the branch that decides it and carried onto the finalize span |
 
 ### The nodes
@@ -90,7 +88,12 @@ stateDiagram-v2
   the first available of `semantic_search`, `lexical_search`, `fetch_document`. A plan that
   cannot be parsed falls back to a single sub-question over the whole question, which is what a
   plain retriever would have done anyway.
-- **retrieve** (`agent/nodes.py`, no model call): runs each **open** sub-question's tool and
+- **tool check** (`check_tools` in `agent/nodes.py`, no model call): looks at each sub-question
+  once, between plan and retrieve, and corrects the planner's tool where the signals know better.
+  Rules in the next section.
+- **retrieve** (`agent/nodes.py`, no model call except `graph_search`, and `semantic_search`
+  when `reranker.kind` is `llm`; each such call is checked against the budget before it is made
+  and charged after): runs each **open** sub-question's tool and
   pools what comes back by chunk id. Answered sub-questions are not retrieved for again, which
   is the entire reason the ledger exists. The outcome carries the chunk ids that were genuinely
   new, which is the progress signal.
@@ -110,10 +113,9 @@ stateDiagram-v2
   reason, its detail, the iteration count, the size of the evidence pool and how many
   sub-questions ended answered or abandoned.
 
-There is no `generate` node yet. `NodeName.GENERATE` and a `generate` per-node call cap exist
-in the state and the configuration, and the node that writes a cited answer over the pooled
-evidence is the remaining Phase 5 work. Until it lands, the strategy returns the evidence and
-the trace, and generation happens in the same place it does for every other strategy.
+Generation is not a node. It happens outside the loop, over the pooled evidence, in
+`generate_agentic_answer` (`generate/cited.py`), which the server's `_generate` calls. The
+strategy itself returns the evidence and the trace.
 
 ### The tools
 
@@ -125,11 +127,37 @@ one BM25 implementation and one vector implementation in the codebase.
 | `semantic_search` | `TraditionalRAGStrategy` | Concepts, paraphrases, a policy described in other words, questions phrased the way a person asks them | Exact strings. An error code or a part number can be missed entirely, because a near-identical code looks almost the same to it |
 | `lexical_search` | `VectorlessRAGStrategy` | Identifiers, error codes, versions, file names, quoted phrases, anything where a character out of place changes the answer | Paraphrase. A passage answering the question in different words is not found |
 | `fetch_document` | `stores/document_chunks.py` | Returning one document whole, in reading order, when the fragments a search returns are not enough | Finding a document by describing it. It needs an id |
+| `graph_search` | `GraphRAGStrategy` | Relationships between named people, teams, projects, products, policies and places: who reports to whom, who owns what | Passages that name no entities. On a corpus with no graph coverage it returns nothing |
 
-There is no graph tool yet. The agent shipped in Phase 5, before Graph RAG existed in Phase 6, so a
-relationship sub-question is answered from chunk text alone. Phase 7 adds `graph_search` over
-`GraphRAGStrategy` and runs the router's signals per sub-question to propose each tool (see
-[ROADMAP.md](../ROADMAP.md)).
+### The tool check and the three-way switch
+
+The planner is a model, and a small one picks tools poorly some of the time (one recorded run in
+`docs/learning/agentic-first-run.md` sent a paraphrase question to `lexical_search`). The tool
+check uses the router's free signals to correct it. Full reasoning in
+[ADR 0014](adr/0014-signals-override-the-planner.md).
+
+| Rule | Behaviour |
+|---|---|
+| A rule must have fired | The override applies only when the signals are decisive **and** `from_rule` is true, meaning exactly one signal fired. The "short plain question" default never overrides the planner |
+| `no_exact_terms` | A sub-question sent to `lexical_search` moves to `semantic_search` only when it has no identifier, no quoted phrase and no entity mention. Acronyms and product names such as SSO or Kubernetes keep a lexical pick |
+| `fetch_document` | Never overridden. It names a document by id |
+| Only tools this run has | A signal pointing at a tool the run lacks changes nothing |
+| Traced | The `tool_check` span carries the override count and, per override, the sub-question, the old tool, the new tool and the reason |
+
+`switch_strategy` chooses among all three search tools (`semantic_search`, `lexical_search`,
+`graph_search`), never the one that just failed on that sub-question, taking the signals' ranking
+in order. Switching away from `fetch_document` restores the sub-question text as the query,
+because the working query was the bare document id.
+
+### `graph_search`
+
+| Property | Behaviour |
+|---|---|
+| Opt-in | Listed in `strategies.agentic.tools`, and only available when `graph_store.enabled` is true |
+| Left out of a request that sets `document_id` or `format` | The graph walk applies access and collection scope only, so it cannot honour those filters |
+| Returns | The chunks that back each edge, pooled by chunk id like every other tool, and the edges, merged into `RetrievalResult.subgraph` |
+| Budget | One entity-matching model call, charged through `state.spend` only when it is actually made. A refused spend part-way through a retrieve pass keeps the evidence already gathered |
+| Generation | An answer whose evidence includes graph edges is generated on the graph path under [ADR 0012](adr/0012-extraction-confidence-and-graph-citations.md) and keeps its dated-sources note |
 
 **Every tool is handed the caller's own `RetrievalContext`, filter included.** Nothing in the
 agent rebuilds one. This matters more here than anywhere else in the system, because the agent
@@ -181,11 +209,9 @@ A refused spend leaves the state exactly as it was, so the loop finalizes on the
 already has rather than on a half-applied step.
 
 `strategies.agentic` in `ragfabric.yaml` also carries `max_cost_usd`, `max_latency_ms` and
-`assess_strictness`. They are typed, validated and reported by `ragfabric config validate`, and
-**the loop does not read them yet**. The same is true of `strategies.agentic.max_llm_calls`:
-the cap the loop enforces is the one on the caller's `Budget`. Stated here rather than implied,
-because a limit documented as enforced and not enforced is worse than one documented as
-pending.
+`max_llm_calls`, and the loop reads and enforces them (`agent/loop.py`, `strategies/agentic.py`):
+a run stops with `budget` when the wall clock passes `max_latency_ms` or the estimated spend passes
+`max_cost_usd`, alongside the call caps above.
 
 ## What is tracked
 
@@ -223,11 +249,11 @@ was a reasonable skeleton and it is not what shipped.
 
 Conflict detection between passages was deferred on purpose. Semantic contradiction is a hard
 inference task, a confident "these sources disagree" that is wrong is worse than silence, and
-it cannot be tuned without measurement, which is Phase 8. What Phase 5 will carry instead is
-the honest metadata subset, landing with the generation work: where two chunks answering the
-same sub-question come from documents with different effective dates, both are surfaced with
-their dates. That is a fact about metadata, not a judgement about meaning, and no part of it
-is in the loop today.
+it cannot be tuned without measurement, which is Phase 8. What Phase 5 carries instead is
+the honest metadata subset: where two chunks answering the same sub-question come from
+documents with different effective dates, both are surfaced with their dates (`dated_sub_questions`
+and `dated_sources_note` in the generation step, and the `dated_sources` response field). That is a
+fact about metadata, not a judgement about meaning, and it is computed outside the loop.
 
 ## Alternatives and trade offs
 

@@ -162,21 +162,28 @@ Phase 6 merged to main on 2026-09-25 as PR #40 (rebase-merge); `[x]` below means
 
 ## v0.4.0 Adaptive router
 
-### Phase 7: Query Router
-- [ ] `RouterDecision` with confidence and user-safe reasoning
-- [ ] Feature signals plus classifier, AUTO and MANUAL modes
-- [ ] Fallback chain recorded on every run
-- [ ] The agent reaches all four strategies (added on 2026-09-30). Phase 5 shipped the agent before
-      Graph RAG existed, so today a sub-question can go to `semantic_search` or `lexical_search`
-      but never to the graph:
-  - [ ] A `graph_search` tool wrapping `GraphRAGStrategy`, handed the caller's own
+### Phase 7: Query Router [~]
+
+7a (the router and the agent's reach to all four strategies) is built; 7b (the terminal experience)
+is not, so the phase stays partial. See
+[ADR 0013](docs/adr/0013-router-as-a-strategy.md) and
+[ADR 0014](docs/adr/0014-signals-override-the-planner.md). Router quality is not measured yet.
+
+- [x] `RouterDecision` with user-safe reasoning, and a confidence only when a classifier reported one
+- [x] Feature signals plus classifier, AUTO and MANUAL modes
+- [x] Fallback chain recorded on every run
+- [x] The agent reaches all four strategies (added on 2026-09-30). Phase 5 shipped the agent before
+      Graph RAG existed, so a sub-question could go to `semantic_search` or `lexical_search` but
+      never to the graph:
+  - [x] A `graph_search` tool wrapping `GraphRAGStrategy`, opt-in, handed the caller's own
         `RetrievalContext` like every other tool, so the access predicate stays inside the walk
-  - [ ] The router's signals run per sub-question and propose its tool, so a compound question can
-        send an identifier to Vectorless, a relationship to Graph and a paraphrase to Traditional in
-        one run. The first real agent run (`docs/learning/agentic-first-run.md`) showed an 8B
-        planner sending a paraphrase to lexical search; the signals are the check on that
-  - [ ] `switch_strategy` repairs across all three search tools, not only semantic and lexical
-  - [ ] Graph evidence (edges and paths) pooled with chunk evidence, with the graph citation
+  - [x] The router's signals check each sub-question's tool after planning and override the
+        planner only where a rule fired, plus a correction for lexical picks with nothing exact to
+        match. The first real agent run (`docs/learning/agentic-first-run.md`) showed an 8B planner
+        sending a paraphrase to lexical search; `docs/learning/routing-first-run.md` shows the
+        check correcting it
+  - [x] `switch_strategy` repairs across all three search tools, not only semantic and lexical
+  - [x] Graph evidence (edges and paths) pooled with chunk evidence, with the graph citation
         contract (ADR 0012) applied to relationship claims in agentic answers
 - [ ] Terminal experience for `pip install ragfabric` users (folded into this phase on 2026-09-27
       rather than waiting for Phase 9 or 10, since the CLI is on PyPI from v0.3.1):
