@@ -1,6 +1,6 @@
 # Roadmap
 
-RagFabric is built in ten phases grouped into six releases. Each phase is a GitHub issue under a
+RagFabric is built in eleven phases grouped into six releases. Each phase is a GitHub issue under a
 milestone; this file is the human readable summary and is updated when a phase closes.
 
 | Release | Theme | Phases |
@@ -10,7 +10,7 @@ milestone; this file is the human readable summary and is updated when a phase c
 | v0.3.0 | Graph retrieval | 6 |
 | v0.4.0 | Adaptive router | 7 |
 | v0.5.0 | Evaluation framework | 8 |
-| v1.0.0 | Production release | 9, 10 |
+| v1.0.0 | Production release | 9, 10, 11 |
 
 Legend: `[x]` merged to main, `[~]` in progress, `[ ]` not started.
 
@@ -172,8 +172,19 @@ is not, so the phase stays partial. See
 - [x] `RouterDecision` with user-safe reasoning, and a confidence only when a classifier reported one
 - [x] Feature signals plus classifier, AUTO and MANUAL modes
 - [x] Fallback chain recorded on every run
-- [x] The agent: signals correct the planner's tool choice where a rule fired, `graph_search` is an
-      opt-in fourth tool, and `switch_strategy` chooses among all three search tools
+- [x] The agent reaches all four strategies (added on 2026-09-30). Phase 5 shipped the agent before
+      Graph RAG existed, so a sub-question could go to `semantic_search` or `lexical_search` but
+      never to the graph:
+  - [x] A `graph_search` tool wrapping `GraphRAGStrategy`, opt-in, handed the caller's own
+        `RetrievalContext` like every other tool, so the access predicate stays inside the walk
+  - [x] The router's signals check each sub-question's tool after planning and override the
+        planner only where a rule fired, plus a correction for lexical picks with nothing exact to
+        match. The first real agent run (`docs/learning/agentic-first-run.md`) showed an 8B planner
+        sending a paraphrase to lexical search; `docs/learning/routing-first-run.md` shows the
+        check correcting it
+  - [x] `switch_strategy` repairs across all three search tools, not only semantic and lexical
+  - [x] Graph evidence (edges and paths) pooled with chunk evidence, with the graph citation
+        contract (ADR 0012) applied to relationship claims in agentic answers
 - [ ] Terminal experience for `pip install ragfabric` users (folded into this phase on 2026-09-27
       rather than waiting for Phase 9 or 10, since the CLI is on PyPI from v0.3.1):
   - [ ] A welcome screen for bare `ragfabric`, pointing to where to start
@@ -211,6 +222,26 @@ is not, so the phase stays partial. See
 - [ ] End-to-end tests, rate limiting, file validation, structured logging
 - [ ] Connectors: watched folder, Google Drive
 - [ ] Docs site, deployment guides, release automation (repository already renamed to `ragfabric`)
+
+### Phase 11: Public benchmarks and fix wave (added on 2026-09-30)
+
+Phase 8 builds the measuring instrument and measures RagFabric against itself. This phase points it
+outward: the same questions, run through RagFabric and through widely used RAG tools, published with
+the losses as well as the wins, then a fix wave on whatever the comparison exposes. The exact
+competitors, datasets and metrics are chosen when the phase is planned, from what is current and
+runnable then; the lists below are the starting candidates, not a commitment.
+
+- [ ] Candidate comparisons: pipeline frameworks (LlamaIndex, LangChain, Haystack), graph RAG tools
+      (Microsoft GraphRAG, LightRAG), and self-hosted RAG platforms (RAGFlow, R2R)
+- [ ] Candidate datasets: public multi-hop and retrieval sets (for example HotpotQA, MultiHop-RAG,
+      BEIR subsets) alongside the Phase 8 synthetic corpus
+- [ ] A fair harness: the same LLM, embedding model, chunking, corpus and hardware for every system,
+      with each competitor's configuration published so the run can be reproduced
+- [ ] Metrics from the Phase 8 framework (retrieval, generation, citation correctness, latency, cost),
+      plus an access-control leak test, since filtering after retrieval is where most pipelines differ
+- [ ] Every loss recorded as an issue, fixed, and the benchmark rerun before the numbers are published
+- [ ] `docs/benchmarks/comparison.md` with method, versions, dates, results and scripts. Per ADR 0004,
+      a number is one dated run on a named setup, never a general claim
 - [ ] **Release v1.0.0**, first production deployment
 
 ## Later
