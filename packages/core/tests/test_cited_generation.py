@@ -97,3 +97,27 @@ def test_no_chunks_produces_the_no_evidence_sentence_without_calling_the_model()
     # extractive_fallback default.
     assert out.input_tokens == 0 and out.output_tokens == 0
     assert out.retried is False
+
+
+def test_the_offline_provider_with_nothing_scripted_answers_extractively():
+    """``llm.provider: offline`` must answer, not 500: ADR 0004 promises extractive answers."""
+    from ragfabric_core.providers.offline import ScriptedLLMProvider
+
+    llm = ScriptedLLMProvider(responses=[], model="scripted")
+    out = generate_cited_answer(
+        "how much annual leave", chunks("Employees receive 24 days of annual leave."), llm
+    )
+    assert out.generator == "extractive"
+    assert "24 days of annual leave" in out.text and "[1]" in out.text
+    assert out.input_tokens == 0 and out.output_tokens == 0
+    assert llm.calls == 0
+
+
+def test_a_scripted_provider_with_responses_still_takes_the_llm_path():
+    from ragfabric_core.providers.offline import ScriptedLLMProvider
+
+    llm = ScriptedLLMProvider(responses=["Staff get 24 days of annual leave [1]."])
+    out = generate_cited_answer(
+        "how much leave", chunks("Employees receive 24 days of annual leave."), llm
+    )
+    assert out.generator == "llm" and llm.calls == 1
