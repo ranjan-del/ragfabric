@@ -28,7 +28,7 @@ def test_samples_parse_with_the_core_parser():
         text = parse(p.name, p.read_bytes())
         assert text.strip()
         assert len(text.splitlines()) < 40
-        assert "—" not in text
+        assert "\u2014" not in text
     leave = parse("leave-policy.md", paths[1].read_bytes())
     assert "up to 10 days of unused annual leave carry forward" in leave
     team = parse("team.md", paths[2].read_bytes())
