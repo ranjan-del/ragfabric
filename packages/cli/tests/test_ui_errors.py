@@ -1,0 +1,122 @@
+import httpx
+import pytest
+import typer
+from typer.testing import CliRunner
+
+from ragfabric_cli.main import app
+from ragfabric_cli.ui import errors
+from ragfabric_cli.ui.errors import friendly_error
+from ragfabric_core.providers.base import ProviderError
+from ragfabric_sdk.errors import AuthError, RagFabricError
+
+
+def test_no_server_names_the_url_and_the_fix():
+    exc = httpx.ConnectError(
+        "refused", request=httpx.Request("POST", "http://localhost:8000/api/ask")
+    )
+    fe = friendly_error(exc)
+    assert "http://localhost:8000" in fe.problem and fe.fix == "ragfabric serve"
+
+
+def test_a_database_password_never_appears():
+    from sqlalchemy.exc import OperationalError
+
+    exc = OperationalError(
+        "connect", {}, Exception("could not connect to postgresql+psycopg://rf:s3cret@db/rf")
+    )
+    fe = friendly_error(exc)
+    assert "s3cret" not in fe.problem + (fe.fix or "")
+    assert "rf:***@db" in fe.problem
+
+
+@pytest.mark.parametrize(
+    ("message", "needle"),
+    [("HTTP 401 invalid_api_key", "rejected"), ("429 insufficient_quota", "quota")],
+)
+def test_provider_errors_are_explained(message, needle):
+    assert needle in friendly_error(ProviderError("openai", message)).problem
+
+
+def test_provider_connection_fix_depends_on_provider():
+    assert friendly_error(ProviderError("ollama", "Connection refused")).fix == "ollama serve"
+    assert friendly_error(ProviderError("openai", "Connection reset")).fix == (
+        "check the provider URL"
+    )
+
+
+def test_other_provider_errors_keep_their_message():
+    fe = friendly_error(ProviderError("openai", "boom"))
+    assert "openai" in fe.problem and "boom" in fe.problem
+
+
+def test_auth_is_matched_before_the_generic_server_error():
+    assert "refused the credentials" in friendly_error(AuthError("no", 401)).problem
+    assert "returned an error" in friendly_error(RagFabricError("bad", 500)).problem
+
+
+def test_a_config_error_points_at_validate():
+    from pydantic import BaseModel, ValidationError
+
+    class M(BaseModel):
+        n: int
+
+    with pytest.raises(ValidationError) as info:
+        M(n="x")
+    fe = friendly_error(info.value)
+    assert fe.problem.startswith("ragfabric.yaml is invalid: n:")
+    assert fe.fix == "ragfabric config validate"
+
+
+def test_an_unknown_error_is_not_claimed():
+    assert friendly_error(KeyError("x")) is None
+
+
+@pytest.fixture
+def boom_app():
+    @app.command("boom-test")
+    def boom() -> None:
+        raise httpx.ConnectError("refused", request=httpx.Request("GET", "http://localhost:8000/x"))
+
+    @app.command("exit-test")
+    def exit_cmd() -> None:
+        raise typer.Exit(3)
+
+    yield app
+    app.registered_commands[:] = [
+        c for c in app.registered_commands if c.name not in ("boom-test", "exit-test")
+    ]
+    errors.DEBUG = False
+
+
+def test_a_command_failure_is_friendly(boom_app):
+    result = CliRunner().invoke(boom_app, ["boom-test"])
+    assert result.exit_code == 1
+    assert "No RagFabric server at http://localhost:8000" in result.output
+    assert "ragfabric serve" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_debug_shows_the_traceback(boom_app):
+    result = CliRunner().invoke(boom_app, ["--debug", "boom-test"])
+    assert result.exit_code == 1
+    assert isinstance(result.exception, httpx.ConnectError)
+
+
+def test_typer_exit_passes_through(boom_app):
+    assert CliRunner().invoke(boom_app, ["exit-test"]).exit_code == 3
+
+
+def test_an_unexpected_error_asks_for_debug(boom_app):
+    @boom_app.command("key-test")
+    def key() -> None:
+        raise KeyError("x")
+
+    try:
+        result = CliRunner().invoke(boom_app, ["key-test"])
+    finally:
+        boom_app.registered_commands[:] = [
+            c for c in boom_app.registered_commands if c.name != "key-test"
+        ]
+    assert result.exit_code == 1
+    assert "Unexpected error: KeyError" in result.output
+    assert "rerun with --debug" in result.output

@@ -29,7 +29,7 @@ bm25 = ["ragfabric-core[bm25]==0.3.1"]
 rerank = ["ragfabric-core[rerank]==0.3.1"]
 
 [project.scripts]
-ragfabric = "ragfabric_cli.main:app"
+ragfabric = "ragfabric_cli.main:main"
 
 [project.urls]
 Homepage = "https://github.com/ranjan-del/ragfabric"

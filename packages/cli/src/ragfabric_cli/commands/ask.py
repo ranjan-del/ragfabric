@@ -13,6 +13,7 @@ from enum import StrEnum
 
 import typer
 
+from ragfabric_cli.ui.panels import render_answer
 from ragfabric_sdk import Client
 from ragfabric_sdk.errors import RagFabricError
 
@@ -105,17 +106,17 @@ def ask(
             if as_json:
                 typer.echo(answer.model_dump_json(indent=2))
             else:
-                typer.echo(answer.answer)
-                typer.echo("")
-                _print_sources([citation.model_dump() for citation in answer.citations])
-                _print_graph(
-                    answer.subgraph.model_dump() if answer.subgraph is not None else None,
-                    [claim.model_dump() for claim in answer.dropped_relationship_claims],
-                )
-                _print_routing(
-                    answer.strategy,
-                    answer.router.model_dump() if answer.router is not None else None,
-                    answer.fallback_from,
+                render_answer(
+                    answer.answer,
+                    [citation.model_dump() for citation in answer.citations],
+                    strategy=answer.strategy,
+                    router=answer.router.model_dump() if answer.router is not None else None,
+                    fallback_from=answer.fallback_from,
+                    subgraph=answer.subgraph.model_dump() if answer.subgraph is not None else None,
+                    dropped_claims=[],
+                    dropped_relationship_claims=[
+                        claim.model_dump() for claim in answer.dropped_relationship_claims
+                    ],
                 )
             return
 
@@ -156,9 +157,16 @@ def ask(
                 run_id = event.data.get("run_id")
                 latency_ms = event.data.get("latency_ms")
         typer.echo("")
-        _print_sources(citations)
-        _print_graph(subgraph, dropped_relationship_claims)
-        _print_routing(ran, router, fallback_from)
+        render_answer(
+            None,
+            citations,
+            strategy=ran,
+            router=router,
+            fallback_from=fallback_from,
+            subgraph=subgraph,
+            dropped_claims=[],
+            dropped_relationship_claims=dropped_relationship_claims,
+        )
         if run_id is not None:
             typer.echo(f"run {run_id} in {latency_ms}ms")
     except RagFabricError as exc:
@@ -169,62 +177,3 @@ def ask(
         raise typer.Exit(1) from exc
     finally:
         client.close()
-
-
-def _print_sources(citations: list[dict]) -> None:
-    used = [citation for citation in citations if citation.get("used")]
-    if not used:
-        return
-    typer.echo("sources:")
-    for citation in used:
-        name = citation.get("filename") or f"document {citation.get('document_id')}"
-        page = f" p{citation['page']}" if citation.get("page") else ""
-        typer.echo(f"  {citation['marker']} {name}{page}")
-
-
-def _print_graph(subgraph: dict | None, dropped: list[dict]) -> None:
-    """The relationships the graph strategy walked, and the claims about them it dropped.
-
-    Printed as ``name RELATION name`` in the direction walked, the same reading
-    the answer's ``[E k]`` markers were numbered against. Nothing is printed
-    for a strategy that walks no graph.
-    """
-    if subgraph is not None:
-        names = {node["id"]: node["name"] for node in subgraph.get("nodes", [])}
-        edges = subgraph.get("edges", [])
-        if edges:
-            typer.echo("graph:")
-            for number, edge in enumerate(edges, start=1):
-                start, end = edge["source_id"], edge["target_id"]
-                if edge.get("reversed"):
-                    start, end = end, start
-                typer.echo(
-                    f"  [E {number}] {names.get(start, start)} {edge['walked_as']} "
-                    f"{names.get(end, end)}"
-                )
-        elif subgraph.get("empty_reason"):
-            typer.echo(f"graph: nothing walked ({subgraph['empty_reason']})")
-        if subgraph.get("truncated"):
-            typer.echo("graph: the walk was cut by the node budget")
-    if dropped:
-        typer.echo("dropped relationship claims:")
-        for claim in dropped:
-            typer.echo(f"  {claim['reason']}: {claim['text']}")
-
-
-def _print_routing(strategy: str | None, router: dict | None, fallback_from: str | None) -> None:
-    """One line saying which strategy ran, why, and whether it fell back.
-
-    Printed only when the server sent a router decision. The richer panel is
-    Phase 7b.
-    """
-    if router is None:
-        return
-    line = f"Strategy: {strategy or router.get('selected_strategy')} ({router.get('source')})."
-    if router.get("reasoning"):
-        line += f" {router['reasoning']}"
-    if fallback_from:
-        # Neutral on purpose: the routed strategy may have found nothing or may
-        # have failed, and the response does not say which.
-        line += f" Fell back from {fallback_from}."
-    typer.echo(line)
