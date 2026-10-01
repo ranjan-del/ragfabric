@@ -21,7 +21,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -30,6 +30,7 @@ from typing import Literal
 import httpx
 import typer
 
+from ragfabric_cli.commands.ingest import ingest_files
 from ragfabric_cli.envfile import read_env_file
 from ragfabric_cli.templates import SAMPLE_QUESTION, sample_paths, template_path
 from ragfabric_cli.ui import console
@@ -531,37 +532,6 @@ def _step_migrate(ctx: Context) -> None:
     _say(f"migrate: database upgraded to {head}")
 
 
-# The tracks merge replaces this helper with commands.ingest.ingest_files.
-def ingest_files(
-    files: list[Path],
-    *,
-    collection: str | None,
-    owner: str | None,
-    on_file: Callable[[Path, object], None] | None = None,
-) -> tuple[int, int]:
-    """Ingest each file the way ``ragfabric ingest`` does. Returns (ingested, failed)."""
-    from ragfabric_cli.commands.common import collection_by_name, session, user_by_email
-    from ragfabric_core.ingest.pipeline import ingest_document
-
-    failed = 0
-    with session() as db:
-        collection_id = collection_by_name(db, collection, create=True).id if collection else None
-        owner_id = user_by_email(db, owner).id if owner else None
-        db.commit()
-        for file in files:
-            doc = ingest_document(
-                db,
-                filename=file.name,
-                data=file.read_bytes(),
-                collection_id=collection_id,
-                owner_id=owner_id,
-            )
-            if on_file is not None:
-                on_file(file, doc)
-            failed += doc.status == "failed"
-    return len(files) - failed, failed
-
-
 def _present_filenames(names: list[str]) -> set[str]:
     """The sample filenames already ingested successfully. A failed one is not present."""
     from ragfabric_cli.commands.common import session
@@ -585,11 +555,7 @@ def _step_ingest(ctx: Context) -> None:
             _done("ingest", f"{len(samples)} sample documents present")
             return
 
-        def report(file: Path, doc) -> None:
-            error = f" {doc.error}" if doc.error else ""
-            _say(f"ingest: {file.name}: {doc.status} ({doc.num_chunks} chunks){error}")
-
-        ingested, failed = ingest_files(missing, collection=None, owner=None, on_file=report)
+        ingested, failed = ingest_files(missing, collection=None, owner=None, quiet=False)
     _say(f"ingest: {ingested} ingested, {failed} failed")
     if failed:
         raise QuickstartError("some sample documents failed to ingest; see the lines above")
@@ -868,14 +834,11 @@ def quickstart(
     stopped afterwards. Every step that is already done is skipped, so it is
     safe to run again. Nothing is downloaded and no secret is printed.
 
+    \b
     Examples:
-
       ragfabric quickstart
-
       ragfabric quickstart --dir ./my-rag
-
       ragfabric quickstart --docker --yes
-
       ragfabric quickstart --no-model-check
     """
     dir = dir.expanduser().resolve()

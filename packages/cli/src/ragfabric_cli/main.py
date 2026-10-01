@@ -227,7 +227,13 @@ def init(
         False, "--force", help="Overwrite existing .env and ragfabric.yaml."
     ),
 ) -> None:
-    """Create .env and ragfabric.yaml from the examples, then validate."""
+    """Create .env and ragfabric.yaml from the examples, then validate.
+
+    \b
+    Examples:
+      ragfabric init
+      ragfabric init --force
+    """
     import shutil
     from pathlib import Path
 

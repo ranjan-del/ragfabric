@@ -6,10 +6,6 @@ from ragfabric_cli.main import app
 
 runner = CliRunner()
 
-# Owned by the other track; its docstring gets its Examples block there.
-# The merge step removes this set.
-OTHER_TRACK = {"init", "doctor", "quickstart"}
-
 
 def _walk(typer_app: typer.Typer, prefix: tuple[str, ...] = ()):
     for command in typer_app.registered_commands:
@@ -29,8 +25,6 @@ def test_the_walk_finds_the_commands():
 
 @pytest.mark.parametrize("path", PATHS, ids=lambda p: " ".join(p))
 def test_every_command_help_has_examples(path):
-    if path[-1] in OTHER_TRACK:
-        pytest.skip("covered when the tracks merge")
     result = runner.invoke(app, [*path, "--help"])
     assert result.exit_code == 0
     assert "Examples:" in result.output
@@ -51,8 +45,6 @@ def _find_command(path):
 def test_example_flags_exist_on_the_command(path):
     import re
 
-    if path[-1] in OTHER_TRACK:
-        pytest.skip("covered when the tracks merge")
     click_command = typer.main.get_command(app)
     for part in path:
         click_command = click_command.commands[part]

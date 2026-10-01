@@ -16,10 +16,6 @@ DOCS = {
     "docs/getting-started.md": "## Five minute start",
 }
 
-# TEMPORARY: quickstart and doctor are registered by another track, so they are skipped
-# when not registered. The merge step removes UNREGISTERED_OK and the skip below.
-UNREGISTERED_OK = {"quickstart", "doctor"}
-
 
 def _section(path: str, heading: str) -> str:
     text = (ROOT / path).read_text()
@@ -71,8 +67,6 @@ def test_the_sections_quote_commands():
 @pytest.mark.parametrize(("doc", "words"), CASES, ids=[f"{d}:{' '.join(w)}" for d, w in CASES])
 def test_quoted_command_exists_and_has_help(doc, words):
     path = _resolve(words)
-    if path is None and words[0] in UNREGISTERED_OK:
-        pytest.skip(f"{words[0]} is registered by another track; removed at merge")
     assert path is not None, f"{doc} quotes `ragfabric {' '.join(words)}`, which does not exist"
     result = runner.invoke(app, [*path, "--help"])
     assert result.exit_code == 0, result.output

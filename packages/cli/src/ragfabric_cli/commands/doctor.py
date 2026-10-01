@@ -27,12 +27,10 @@ def doctor(
 
     Exits 1 when any check fails. A check that did not run is reported as skip.
 
+    \b
     Examples:
-
       ragfabric doctor
-
       ragfabric doctor --no-network
-
       ragfabric doctor --json
     """
     from ragfabric_core.config import get_settings
