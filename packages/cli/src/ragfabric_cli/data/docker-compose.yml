@@ -1,0 +1,42 @@
+# docker-compose.yml written by `ragfabric init`.
+# Starts PostgreSQL (pgvector) and Redis on loopback for a local RagFabric.
+#   docker compose up -d
+# Then run `ragfabric db upgrade` and `ragfabric serve`.
+
+name: ragfabric
+
+services:
+  postgres:
+    # pgvector/pgvector:0.8.6-pg18 as of 2026-09-21
+    image: pgvector/pgvector@sha256:2ba9ca5f2e7daa0f0e7723cba1ee9167bab54efd3640516a44ac1a928dd67e7a
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ragfabric}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ragfabric}
+      POSTGRES_DB: ${POSTGRES_DB:-ragfabric}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ragfabric} -d ${POSTGRES_DB:-ragfabric}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    # redis:8.8-alpine as of 2026-09-21
+    image: redis@sha256:e2c307e77bcaf306fa9e468bda845165a46c4c015ffd238fb3c92ae5d71d486f
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  postgres_data:
+  redis_data:

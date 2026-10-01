@@ -18,6 +18,8 @@ from ragfabric_cli.commands import graph as graph_commands
 from ragfabric_cli.commands import ingest as ingest_commands
 from ragfabric_cli.commands import users as users_commands
 from ragfabric_cli.commands.ask import ask as ask_command
+from ragfabric_cli.commands.doctor import doctor as doctor_command
+from ragfabric_cli.commands.quickstart import quickstart as quickstart_command
 from ragfabric_cli.commands.reconcile import reconcile as reconcile_command
 from ragfabric_cli.commands.reindex import reindex as reindex_command
 from ragfabric_cli.commands.strategies import strategies as strategies_command
@@ -83,6 +85,8 @@ app.command("reindex")(reindex_command)
 app.command("reconcile")(reconcile_command)
 app.command("ask")(ask_command)
 app.command("strategies")(strategies_command)
+app.command("doctor")(doctor_command)
+app.command("quickstart")(quickstart_command)
 
 
 def _database_url() -> str:
@@ -227,11 +231,10 @@ def init(
     import shutil
     from pathlib import Path
 
-    for example, target in ((".env.example", ".env"), ("ragfabric.example.yaml", "ragfabric.yaml")):
-        src, dst = Path(example), Path(target)
-        if not src.exists():
-            typer.echo(f"{example} not found in the current directory")
-            raise typer.Exit(code=1)
+    from ragfabric_cli.templates import template_path
+
+    for example, target in (("env.example", ".env"), ("ragfabric.example.yaml", "ragfabric.yaml")):
+        src, dst = template_path(example), Path(target)
         if dst.exists() and not force:
             typer.echo(f"{target} already exists (use --force to overwrite)")
             continue

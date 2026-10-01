@@ -70,7 +70,7 @@ from ragfabric_core.generate.contract import CitationViolation, assert_citation_
 from ragfabric_core.models.access import AuditLog
 from ragfabric_core.models.document import QueryLog
 from ragfabric_core.models.runs import RetrievalRun, Source
-from ragfabric_core.providers.base import LLMProvider, Message
+from ragfabric_core.providers.base import LLMProvider, Message, is_offline
 from ragfabric_core.strategies.base import (
     RetrievalContext,
     RetrievedChunk,
@@ -87,6 +87,7 @@ from ragfabric_server.api.routes.search import (
     _cited_llm_calls,
     _counted_strategy,
     _generate,
+    _refuse_agentic_without_model,
     _refuse_unapplied_filters,
     _requested_strategy,
     _strategy_for,
@@ -270,6 +271,7 @@ def ask(
     # rerank override applies to the traditional strategy only).
     name = _requested_strategy(payload.strategy, payload.rerank)
     _refuse_unapplied_filters(name, payload.document_id, payload.format)
+    _refuse_agentic_without_model(name, llm)
     strategy = _strategy_for(payload.rerank, registry, llm, name)
 
     if not payload.stream:
@@ -355,6 +357,18 @@ def ask(
             yield _event("token", {"text": text})
             llm_calls = result.llm_calls
             in_tokens = out_tokens = 0
+        elif is_offline(llm) and not uses_graph_path(result):
+            # The offline provider has no model to stream from. Streaming it
+            # yields nothing, which would fail the citation contract and send
+            # a "corrected" notice for an answer that was never wrong. Answer
+            # extractively (ADR 0004) as one token, with no superseded event.
+            # generate_cited_answer makes no call here, so _cited_llm_calls
+            # adds nothing: no phantom call is recorded.
+            cited = generate_cited_answer(payload.query, result.chunks, llm)
+            text = cited.text
+            yield _event("token", {"text": text})
+            in_tokens, out_tokens = cited.input_tokens, cited.output_tokens
+            llm_calls = result.llm_calls + _cited_llm_calls(cited)
         elif uses_graph_path(result):
             pieces = []
             for delta in llm.stream(

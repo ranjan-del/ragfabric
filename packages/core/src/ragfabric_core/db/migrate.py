@@ -29,3 +29,34 @@ def upgrade(db_url: str, revision: str = "head") -> None:
 
 def downgrade(db_url: str, revision: str = "base") -> None:
     command.downgrade(alembic_config(db_url), revision)
+
+
+def current_revision(db_url: str) -> str | None:
+    """The revision the database is at, or None when no migration has been applied."""
+    from alembic.runtime.migration import MigrationContext
+    from sqlalchemy import create_engine
+
+    engine = create_engine(db_url)
+    try:
+        with engine.connect() as conn:
+            return MigrationContext.configure(conn).get_current_revision()
+    finally:
+        engine.dispose()
+
+
+def head_revision() -> str:
+    """The newest revision the packaged scripts define."""
+    from alembic.script import ScriptDirectory
+
+    head = ScriptDirectory.from_config(alembic_config("sqlite://")).get_current_head()
+    if head is None:
+        raise RuntimeError("the packaged migrations define no revision")
+    return head
+
+
+def known_revisions() -> set[str]:
+    """Every revision id the packaged scripts define."""
+    from alembic.script import ScriptDirectory
+
+    script = ScriptDirectory.from_config(alembic_config("sqlite://"))
+    return {rev.revision for rev in script.walk_revisions()}

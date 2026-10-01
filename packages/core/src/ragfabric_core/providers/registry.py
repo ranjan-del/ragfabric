@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from ragfabric_core.config_file import EmbeddingsConfig, LLMConfig
 from ragfabric_core.providers.anthropic_provider import AnthropicProvider
 from ragfabric_core.providers.base import EmbeddingProvider, LLMProvider, ProviderError
-from ragfabric_core.providers.offline import HashingEmbeddingProvider, ScriptedLLMProvider
+from ragfabric_core.providers.offline import HashingEmbeddingProvider, OfflineLLMProvider
 from ragfabric_core.providers.openai_compat import (
     OllamaEmbeddingProvider,
     OllamaProvider,
@@ -55,7 +55,7 @@ def build_llm_provider(cfg: LLMConfig, env: Mapping[str, str] | None = None) -> 
             base_url=cfg.base_url or DEFAULT_OLLAMA_URL, default_model=model or "llama3.2"
         )
     model = cfg.model if _set(cfg, "model") else None
-    return ScriptedLLMProvider(responses=[], model=model or "scripted")
+    return OfflineLLMProvider(model=model or "scripted")
 
 
 def build_embedding_provider(

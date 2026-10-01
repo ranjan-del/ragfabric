@@ -41,7 +41,7 @@ from ragfabric_core.graph.citations import (
     strip_markers,
 )
 from ragfabric_core.graph.contracts import Subgraph
-from ragfabric_core.providers.base import LLMProvider, Message
+from ragfabric_core.providers.base import LLMProvider, Message, is_offline
 from ragfabric_core.strategies.base import RetrievedChunk, SubQuestionReport
 
 # The exact sentence the contract's NO_EVIDENCE substring must match. Defined
@@ -101,6 +101,16 @@ def generate_cited_answer(
         # extractive_answer() is never called on this path either.
         return CitedAnswer(
             text=NO_EVIDENCE_ANSWER,
+            model="none",
+            generator="extractive",
+            latency_ms=int((time.perf_counter() - started) * 1000),
+        )
+
+    if is_offline(llm):
+        # llm.provider: offline has no model to call. It answers extractively
+        # (ADR 0004), with no call made, so both token counts are exactly zero.
+        return CitedAnswer(
+            text=extractive.extractive_answer(query, [c.model_dump() for c in chunks]),
             model="none",
             generator="extractive",
             latency_ms=int((time.perf_counter() - started) * 1000),

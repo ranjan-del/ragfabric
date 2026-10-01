@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import os
-import re
 import sys
 from functools import lru_cache
 from typing import IO
 
 from rich.console import Console
 
-_AUTHORITY = re.compile(r"(\b[a-z][a-z0-9+.-]*://)([^/\s]*)", re.IGNORECASE)
+from ragfabric_core.diagnostics import mask_url, mask_urls_in
+
+__all__ = ["get_console", "is_rich", "mask_url", "mask_urls_in"]
 
 
 def is_rich(stream: IO[str] | None = None) -> bool:
@@ -32,25 +33,3 @@ def get_console() -> Console:
         soft_wrap=False,
         no_color=bool(os.environ.get("NO_COLOR")),
     )
-
-
-def _mask_authority(match: re.Match[str]) -> str:
-    scheme, authority = match.group(1), match.group(2)
-    if "@" not in authority:
-        return match.group(0)
-    # The password may itself contain '@', so split at the LAST one.
-    userinfo, _, host = authority.rpartition("@")
-    user, colon, _password = userinfo.partition(":")
-    if not colon:
-        return match.group(0)
-    return f"{scheme}{user}:***@{host}"
-
-
-def mask_urls_in(text: str) -> str:
-    """Mask the password of every URL found in ``text``."""
-    return _AUTHORITY.sub(_mask_authority, text)
-
-
-def mask_url(url: str) -> str:
-    """Replace the password in a URL with ``***``; anything else comes back unchanged."""
-    return mask_urls_in(url)
