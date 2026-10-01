@@ -173,4 +173,11 @@ def test_a_broken_pipe_is_quiet(boom_app):
         boom_app.registered_commands[:] = [
             c for c in boom_app.registered_commands if c.name != "pipe-test"
         ]
+    assert result.exit_code == 1
     assert "Unexpected error" not in result.output
+
+
+def test_typer_usage_errors_derive_from_the_public_typer_exception():
+    # errors.py relies on this relationship; a Typer upgrade that breaks it fails here.
+    result = CliRunner().invoke(app, ["nope"], standalone_mode=False)
+    assert isinstance(result.exception, typer.TyperException)

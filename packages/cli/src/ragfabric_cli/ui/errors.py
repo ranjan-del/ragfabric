@@ -10,7 +10,6 @@ import httpx
 import typer
 from pydantic import ValidationError
 from sqlalchemy.exc import OperationalError
-from typer._click.exceptions import ClickException
 
 from ragfabric_cli.ui.console import mask_url, mask_urls_in
 from ragfabric_core.providers.base import ProviderError
@@ -111,7 +110,7 @@ class FriendlyGroup(typer.core.TyperGroup):
     def invoke(self, ctx: typer.Context):  # type: ignore[override]
         try:
             return super().invoke(ctx)
-        except (ClickException, typer.Exit, typer.Abort):
+        except (typer.TyperException, typer.Exit, typer.Abort):
             raise
         except Exception as exc:
             # Piping into `head` closes stdout early; that is not an error.
