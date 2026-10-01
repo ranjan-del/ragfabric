@@ -110,6 +110,7 @@ class Context:
     child_env: dict[str, str] = field(default_factory=dict)
     key_in_env: bool = False
     serve_url: str | None = None
+    server_log: Path | None = None
 
 
 def _say(message: str) -> None:
@@ -732,16 +733,27 @@ def _log_tail(log, limit: int = 1500) -> str:
     return mask_urls_in(log.read().decode("utf-8", "replace")[-limit:])
 
 
+def _last_lines(path: Path, count: int = 20) -> str:
+    """The last ``count`` lines of a log file, every URL password masked."""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    return mask_urls_in("\n".join(text.splitlines()[-count:]))
+
+
 @contextmanager
-def temporary_server(dir: Path, port: int, env: Mapping[str, str] | None = None) -> Iterator[str]:
+def temporary_server(
+    dir: Path, port: int, env: Mapping[str, str] | None = None, log_path: Path | None = None
+) -> Iterator[str]:
     """Run the API in a child process until the block ends, then always stop it.
 
     Yields the base URL once /health answers 200. The process is stopped in
     ``finally``, so success, any exception and KeyboardInterrupt all reach it;
-    one that ignores terminate for STOP_TIMEOUT_S seconds is killed.
+    one that ignores terminate for STOP_TIMEOUT_S seconds is killed. The
+    server's output goes to ``log_path`` when given (the caller decides
+    whether to keep it), otherwise to an anonymous temporary file.
     """
     url = f"http://127.0.0.1:{port}"
-    with tempfile.TemporaryFile() as log:
+    opened = open(log_path, "w+b") if log_path is not None else tempfile.TemporaryFile()  # noqa: SIM115
+    with opened as log:
         proc = subprocess.Popen(
             _server_command(port),
             cwd=dir,
@@ -800,7 +812,9 @@ def _start_server(ctx: Context, stack: ExitStack) -> str:
         port = free_port()
         _say(f"ask: starting a temporary server on 127.0.0.1:{port}")
         try:
-            return stack.enter_context(temporary_server(ctx.dir, port, env=_child_env(ctx)))
+            return stack.enter_context(
+                temporary_server(ctx.dir, port, env=_child_env(ctx), log_path=ctx.server_log)
+            )
         except PortInUse:
             if attempt == 2:
                 raise
@@ -931,14 +945,33 @@ def _credentials(ctx: Context, url: str, email: str, password: str) -> dict[str,
 
 def _step_ask(ctx: Context) -> None:
     from ragfabric_sdk import Client
+    from ragfabric_sdk.errors import RagFabricError
 
     email, password = _admin_credentials(ctx)
-    with ExitStack() as stack:
-        url = _start_server(ctx, stack)
-        credentials = _credentials(ctx, url, email, password)
-        _say(f"ask: {SAMPLE_QUESTION}")
-        with Client(url, timeout=120, **credentials) as client:
-            answer = client.ask(SAMPLE_QUESTION)
+    fd, name = tempfile.mkstemp(prefix="ragfabric-quickstart-server-", suffix=".log")
+    os.close(fd)
+    ctx.server_log = Path(name)
+    keep_log = False
+    try:
+        with ExitStack() as stack:
+            url = _start_server(ctx, stack)
+            credentials = _credentials(ctx, url, email, password)
+            _say(f"ask: {SAMPLE_QUESTION}")
+            with Client(url, timeout=120, **credentials) as client:
+                try:
+                    answer = client.ask(SAMPLE_QUESTION)
+                except RagFabricError as exc:
+                    if (exc.status_code or 0) < 500:
+                        raise
+                    keep_log = True
+                    raise QuickstartError(
+                        f"the temporary server answered HTTP {exc.status_code} to the sample "
+                        f"question ({mask_urls_in(str(exc))}). Last lines of its log:\n"
+                        f"{_last_lines(ctx.server_log)}\nfull log: {ctx.server_log}"
+                    ) from None
+    finally:
+        if not keep_log:
+            ctx.server_log.unlink(missing_ok=True)
     render_answer(
         answer.answer,
         [citation.model_dump() for citation in answer.citations],

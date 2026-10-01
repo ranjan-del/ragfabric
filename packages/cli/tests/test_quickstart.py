@@ -7,6 +7,7 @@ import socket
 import subprocess
 import sys
 import textwrap
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -891,3 +892,58 @@ def test_the_written_compose_file_has_its_own_project_name_and_the_bind_warning(
     runner.invoke(app, ["quickstart", "--dir", str(other), "--docker", "--yes"])
     assert yaml.safe_load((other / "docker-compose.yml").read_text())["name"] != name
     assert "docker compose down" in result.output
+
+
+# final fix wave: a 500 from the temporary server shows its log ----------------
+
+FAILING_SERVER = textwrap.dedent(
+    """
+    import sys
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"status": "ok", "service": "ragfabric"}')
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            print("Traceback: boom while reading postgresql://u:secretpw@h/db", flush=True)
+            self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"detail": "Internal Server Error"}')
+
+        def log_message(self, *args):
+            pass
+
+    HTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
+    """
+)
+
+
+def test_a_500_during_the_sample_question_prints_the_server_log_tail_and_path(
+    monkeypatch, tmp_path
+):
+    script = tmp_path / "failing_server.py"
+    script.write_text(FAILING_SERVER)
+    monkeypatch.setattr(
+        qs, "_server_command", lambda port: [sys.executable, str(script), str(port)]
+    )
+    monkeypatch.setattr(qs, "_admin_credentials", lambda ctx: ("admin@example.com", "pw"))
+    monkeypatch.setattr(qs, "_credentials", lambda ctx, url, email, pw: {"api_key": "rf_x"})
+    ctx = qs.Context(dir=tmp_path, force=False, yes=True, docker=False, model_check=False)
+    with pytest.raises(qs.QuickstartError) as caught:
+        qs._step_ask(ctx)
+    message = str(caught.value)
+    assert "HTTP 500" in message
+    assert "boom while reading postgresql://u:***@h/db" in message
+    assert "secretpw" not in message
+    found = re.search(r"full log: (\S+)", message)
+    assert found, message
+    log = Path(found.group(1))
+    try:
+        assert log.is_file() and "boom" in log.read_text()
+    finally:
+        log.unlink(missing_ok=True)
