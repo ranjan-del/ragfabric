@@ -7,7 +7,7 @@ They live under ``ragfabric_cli/data`` so they ship inside the wheel and
 from importlib.resources import as_file, files
 from pathlib import Path
 
-SAMPLE_QUESTION = "How many days of unused annual leave carry forward?"
+SAMPLE_QUESTION = "How much unused annual leave carries forward into the next year?"
 
 
 def _data_dir() -> Path:

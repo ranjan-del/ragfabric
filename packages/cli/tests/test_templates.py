@@ -75,3 +75,14 @@ def test_init_keeps_existing_files_unless_forced(tmp_path, monkeypatch):
     assert forced.exit_code == 0, forced.stdout
     assert (tmp_path / ".env").read_text() != "MINE=1\n"
     assert "MINE" not in (tmp_path / ".env").read_text()
+
+
+def test_the_sample_question_routes_to_traditional():
+    """I5: the packaged sample question must not route to the agent (no model offline)."""
+    from ragfabric_cli.templates import SAMPLE_QUESTION
+    from ragfabric_core.router.signals import extract_signals, propose
+    from ragfabric_core.strategies.base import StrategyName
+
+    signals = extract_signals(SAMPLE_QUESTION, relation_types=["REPORTS_TO"])
+    proposal = propose(signals, available=list(StrategyName))
+    assert proposal.strategy is StrategyName.TRADITIONAL and proposal.decisive
