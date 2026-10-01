@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import os
-import re
 import sys
 from functools import lru_cache
 from typing import IO
 
 from rich.console import Console
 
-_PASSWORD = re.compile(r"(://[^:/@\s]*:)[^@/\s]+(@)")
+from ragfabric_core.diagnostics import mask_url, mask_urls_in
+
+__all__ = ["get_console", "is_rich", "mask_url", "mask_urls_in"]
 
 
 def is_rich(stream: IO[str] | None = None) -> bool:
@@ -32,8 +33,3 @@ def get_console() -> Console:
         soft_wrap=False,
         no_color=bool(os.environ.get("NO_COLOR")),
     )
-
-
-def mask_url(url: str) -> str:
-    """Replace the password in a URL with ``***``; anything else comes back unchanged."""
-    return _PASSWORD.sub(r"\1***\2", url)
