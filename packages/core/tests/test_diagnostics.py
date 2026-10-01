@@ -477,3 +477,38 @@ def test_without_a_config_file_llm_and_embeddings_are_not_checked(tmp_path, monk
     for name in ("llm", "embeddings"):
         assert by[name].status == "skip"
         assert by[name].detail == "not checked: no ragfabric.yaml (run ragfabric quickstart)"
+
+
+def test_a_dns_host_not_found_is_a_connection_failure_not_a_missing_model(monkeypatch):
+    class NoHost:
+        def complete(self, *a, **k):
+            raise ProviderError("ollama", "Connection error: host not found")
+
+    monkeypatch.setattr(diagnostics, "build_llm_provider", lambda cfg: NoHost())
+    assert diagnostics.check_llm(_ollama_cfg(), network=True).fix == "ollama serve"
+
+
+def test_a_server_speaking_garbage_is_reported_without_raising():
+    """check_server's http.client.HTTPException branch: a non-HTTP reply."""
+    import threading
+
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+
+    def answer():
+        conn, _ = listener.accept()
+        with conn:
+            conn.recv(1024)
+            conn.sendall(b"this is not http\r\n\r\n")
+
+    thread = threading.Thread(target=answer, daemon=True)
+    thread.start()
+    try:
+        result = diagnostics.check_server(f"http://127.0.0.1:{port}")
+    finally:
+        thread.join(timeout=5)
+        listener.close()
+    assert result.status == "warn"
+    assert result.detail == f"no server answered at http://127.0.0.1:{port}"
