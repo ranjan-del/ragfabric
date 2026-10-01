@@ -99,11 +99,19 @@ def test_no_chunks_produces_the_no_evidence_sentence_without_calling_the_model()
     assert out.retried is False
 
 
-def test_the_offline_provider_with_nothing_scripted_answers_extractively():
-    """``llm.provider: offline`` must answer, not 500: ADR 0004 promises extractive answers."""
-    from ragfabric_core.providers.offline import ScriptedLLMProvider
+def _offline_llm():
+    from ragfabric_core.config_file import LLMConfig
+    from ragfabric_core.providers.registry import build_llm_provider
 
-    llm = ScriptedLLMProvider(responses=[], model="scripted")
+    return build_llm_provider(LLMConfig(provider="offline"), env={})
+
+
+def test_the_configured_offline_provider_answers_extractively():
+    """``llm.provider: offline`` must answer, not 500: ADR 0004 promises extractive answers."""
+    from ragfabric_core.providers.base import is_offline
+
+    llm = _offline_llm()
+    assert is_offline(llm)
     out = generate_cited_answer(
         "how much annual leave", chunks("Employees receive 24 days of annual leave."), llm
     )
@@ -111,6 +119,19 @@ def test_the_offline_provider_with_nothing_scripted_answers_extractively():
     assert "24 days of annual leave" in out.text and "[1]" in out.text
     assert out.input_tokens == 0 and out.output_tokens == 0
     assert llm.calls == 0
+
+
+def test_an_exhausted_scripted_double_still_fails_loudly():
+    """A test double whose script ran out is not the offline provider: it must still raise."""
+    import pytest
+
+    from ragfabric_core.providers.base import ProviderError, is_offline
+    from ragfabric_core.providers.offline import ScriptedLLMProvider
+
+    llm = ScriptedLLMProvider(responses=[])
+    assert not is_offline(llm)
+    with pytest.raises(ProviderError, match="script exhausted"):
+        generate_cited_answer("how much leave", chunks("Employees receive 24 days."), llm)
 
 
 def test_a_scripted_provider_with_responses_still_takes_the_llm_path():

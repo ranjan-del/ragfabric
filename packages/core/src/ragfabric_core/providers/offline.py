@@ -180,3 +180,17 @@ class HashingEmbeddingProvider:
             input_tokens=sum(len(tokenize(t)) for t in texts),
             latency_ms=int((time.perf_counter() - started) * 1000),
         )
+
+
+class OfflineLLMProvider(ScriptedLLMProvider):
+    """What ``llm.provider: offline`` builds: no model, and marked as such.
+
+    It is a scripted provider with an empty script, so a stray call still
+    raises, but ``is_offline`` recognises it and the answer paths answer
+    extractively instead of calling it (ADR 0004).
+    """
+
+    offline = True
+
+    def __init__(self, model: str = "scripted") -> None:
+        super().__init__(responses=[], model=model)

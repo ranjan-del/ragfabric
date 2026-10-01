@@ -41,7 +41,7 @@ from ragfabric_core.graph.citations import (
     strip_markers,
 )
 from ragfabric_core.graph.contracts import Subgraph
-from ragfabric_core.providers.base import LLMProvider, Message
+from ragfabric_core.providers.base import LLMProvider, Message, is_offline
 from ragfabric_core.strategies.base import RetrievedChunk, SubQuestionReport
 
 # The exact sentence the contract's NO_EVIDENCE substring must match. Defined
@@ -83,19 +83,6 @@ def build_prompt(query: str, chunks: list[RetrievedChunk], violation: str | None
     return prompt
 
 
-def _offline(llm: LLMProvider) -> bool:
-    """True for the offline provider with nothing scripted: there is no model to ask.
-
-    ``llm.provider: offline`` builds a ScriptedLLMProvider with an empty
-    script. Calling it raises "script exhausted", which turned every offline
-    answer into a server error. A scripted provider that still has responses
-    queued is a test exercising the model path, and keeps taking it.
-    """
-    from ragfabric_core.providers.offline import ScriptedLLMProvider
-
-    return isinstance(llm, ScriptedLLMProvider) and not llm.pending()
-
-
 def generate_cited_answer(
     query: str,
     chunks: list[RetrievedChunk],
@@ -119,7 +106,7 @@ def generate_cited_answer(
             latency_ms=int((time.perf_counter() - started) * 1000),
         )
 
-    if _offline(llm):
+    if is_offline(llm):
         # llm.provider: offline has no model to call. It answers extractively
         # (ADR 0004), with no call made, so both token counts are exactly zero.
         return CitedAnswer(
