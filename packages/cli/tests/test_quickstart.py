@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import socket
 import subprocess
 import sys
@@ -866,3 +867,27 @@ def test_a_written_dot_env_has_a_random_jwt_secret_and_admin_password_never_prin
     other = tmp_path / "other"
     runner.invoke(app, ["quickstart", "--dir", str(other), "--yes"])
     assert read_env_file(other / ".env")["JWT_SECRET"] != values["JWT_SECRET"]
+
+
+# final fix wave: the packaged docker-compose.yml ------------------------------
+
+
+def test_the_written_compose_file_has_its_own_project_name_and_the_bind_warning(
+    tmp_path, no_ollama, no_keys, fake_docker, steps_after_config_are_noops
+):
+    import yaml
+
+    work = tmp_path / "My RAG"
+    result = runner.invoke(app, ["quickstart", "--dir", str(work), "--docker", "--yes"])
+    assert result.exit_code == 0, result.output
+    text = (work / "docker-compose.yml").read_text()
+    name = yaml.safe_load(text)["name"]
+    assert name.startswith("ragfabric-quickstart-my-rag-") and name != "ragfabric"
+    assert re.fullmatch(r"[a-z0-9][a-z0-9_-]*", name)
+    assert "written by `ragfabric quickstart --docker`" in text
+    assert "ragfabric init" not in text
+    assert "change the bind address" in text and "ENVIRONMENT=production" in text
+    other = tmp_path / "other" / "My RAG"
+    runner.invoke(app, ["quickstart", "--dir", str(other), "--docker", "--yes"])
+    assert yaml.safe_load((other / "docker-compose.yml").read_text())["name"] != name
+    assert "docker compose down" in result.output

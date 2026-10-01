@@ -383,6 +383,21 @@ def _set_env_value(path: Path, key: str, value: str) -> None:
     write_private(path, "".join(lines).encode("utf-8"))
 
 
+def compose_project_name(dir: Path) -> str:
+    """A compose project name unique to ``dir``: its name, slugged, plus a short hash."""
+    import hashlib
+
+    slug = re.sub(r"[^a-z0-9]+", "-", dir.name.lower()).strip("-") or "dir"
+    digest = hashlib.sha1(str(dir.resolve()).encode("utf-8")).hexdigest()[:8]
+    return f"ragfabric-quickstart-{slug}-{digest}"
+
+
+def _compose_text(dir: Path) -> str:
+    """The packaged compose file with this directory's project name."""
+    text = template_path("docker-compose.yml").read_text()
+    return re.sub(r"(?m)^name: .*$", f"name: {compose_project_name(dir)}", text, count=1)
+
+
 def _docker_available() -> bool:
     try:
         return (
@@ -539,7 +554,7 @@ def _step_database(ctx: Context) -> None:
         if _docker_available():
             compose = ctx.dir / "docker-compose.yml"
             if not compose.exists() or ctx.force:
-                shutil.copyfile(template_path("docker-compose.yml"), compose)
+                compose.write_text(_compose_text(ctx.dir))
                 _say("database: wrote docker-compose.yml")
             with _spinner("database: starting postgres and redis with docker compose"):
                 _compose_up(ctx.dir)

@@ -1,7 +1,15 @@
-# docker-compose.yml written by `ragfabric init`.
+# docker-compose.yml written by `ragfabric quickstart --docker`.
 # Starts PostgreSQL (pgvector) and Redis on loopback for a local RagFabric.
-#   docker compose up -d
-# Then run `ragfabric db upgrade` and `ragfabric serve`.
+#   docker compose up -d        (quickstart runs this for you)
+#   docker compose down         (stops both; the data volumes are kept)
+#
+# Ports are published on loopback (127.0.0.1) by default. To expose them on a
+# network, change the bind address on the ports you need AND set
+# ENVIRONMENT=production, a real JWT_SECRET, and your own FIRST_ADMIN_* in .env.
+#
+# The project name below is derived from this directory when quickstart writes
+# the file, so it never shares containers or volumes with the repository's own
+# stack or with another quickstart directory.
 
 name: ragfabric
 
