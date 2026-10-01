@@ -21,6 +21,8 @@ from ragfabric_cli.commands.ask import ask as ask_command
 from ragfabric_cli.commands.reconcile import reconcile as reconcile_command
 from ragfabric_cli.commands.reindex import reindex as reindex_command
 from ragfabric_cli.commands.worker import worker as worker_command
+from ragfabric_cli.ui import errors as errors_ui
+from ragfabric_cli.ui.errors import FriendlyGroup, run_app
 from ragfabric_core import __version__
 from ragfabric_core.config_file import load_config, resolve_config_path
 from ragfabric_core.db import migrate
@@ -28,8 +30,21 @@ from ragfabric_core.providers.base import ProviderError
 from ragfabric_core.providers.registry import build_embedding_provider, build_llm_provider
 
 app = typer.Typer(
-    help="RagFabric: self hosted, measurement first RAG platform.", no_args_is_help=True
+    help="RagFabric: self hosted, measurement first RAG platform.",
+    no_args_is_help=True,
+    cls=FriendlyGroup,
 )
+
+
+@app.callback()
+def _root(
+    debug: bool = typer.Option(
+        False, "--debug", help="Show the full traceback instead of a friendly error."
+    ),
+) -> None:
+    errors_ui.DEBUG = debug
+
+
 db_app = typer.Typer(help="Database migrations.")
 config_app = typer.Typer(help="Configuration.")
 app.add_typer(db_app, name="db")
@@ -203,3 +218,12 @@ def serve(
     import uvicorn
 
     uvicorn.run("ragfabric_server.main:app", host=host, port=port, reload=reload)
+
+
+def main() -> None:
+    """Console script entry point."""
+    run_app(app)
+
+
+if __name__ == "__main__":
+    main()
