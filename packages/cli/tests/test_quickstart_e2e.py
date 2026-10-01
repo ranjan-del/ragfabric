@@ -63,6 +63,7 @@ def test_quickstart_from_nothing_to_a_cited_answer_and_again(tmp_path, monkeypat
     assert key not in result.output and key not in again.output
     assert "--token" not in result.output
 
+    assert (tmp_path / ".env").stat().st_mode & 0o777 == 0o600
     # The printed ask step works against `ragfabric serve`, with only RAGFABRIC_URL moved.
     printed = next(line for line in result.output.splitlines() if "ragfabric ask " in line)
     assert printed.strip().startswith(f'cd {tmp_path} && ragfabric ask "{SAMPLE_QUESTION}"')
@@ -90,8 +91,15 @@ def test_quickstart_from_nothing_to_a_cited_answer_and_again(tmp_path, monkeypat
             assert server.poll() is None, "ragfabric serve exited"
             assert time.monotonic() < deadline, "ragfabric serve never became healthy"
             time.sleep(0.2)
+        # .env names port 8000; point it at this server's port. RAGFABRIC_URL in the
+        # environment would make ask ignore .env entirely (ruling R18), key included.
+        dotenv = tmp_path / ".env"
+        dotenv.write_text(
+            dotenv.read_text().replace(
+                "RAGFABRIC_URL=http://127.0.0.1:8000", f"RAGFABRIC_URL=http://127.0.0.1:{port}"
+            )
+        )
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setenv("RAGFABRIC_URL", f"http://127.0.0.1:{port}")
         asked = runner.invoke(app, ["ask", SAMPLE_QUESTION])
     finally:
         server.terminate()
@@ -103,3 +111,30 @@ def test_quickstart_from_nothing_to_a_cited_answer_and_again(tmp_path, monkeypat
     assert asked.exit_code == 0, asked.output
     assert "up to 10 days of unused annual leave carry forward" in asked.output
     assert "leave-policy.md" in asked.output
+
+
+def test_a_force_rerun_leaves_exactly_one_active_quickstart_key(tmp_path, monkeypatch):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    from ragfabric_core.models.access import ApiKey
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    for name in ("RAGFABRIC_API_KEY", "RAGFABRIC_TOKEN", "RAGFABRIC_URL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(qs, "_ollama_models", lambda timeout=2.0: None)
+    first = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--yes"])
+    assert first.exit_code == 0, first.output
+    old_key = read_env_file(tmp_path / ".env")["RAGFABRIC_API_KEY"]
+    again = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--yes", "--force"])
+    assert again.exit_code == 0, again.output
+    new_key = read_env_file(tmp_path / ".env")["RAGFABRIC_API_KEY"]
+    assert new_key != old_key
+    engine = create_engine(f"sqlite:///{tmp_path / 'ragfabric.db'}")
+    with Session(engine) as db:
+        keys = db.query(ApiKey).filter(ApiKey.name == "quickstart").all()
+        active = [k for k in keys if k.is_active]
+    engine.dispose()
+    assert len(keys) == 2 and len(active) == 1
+    assert new_key.startswith(active[0].key_prefix)

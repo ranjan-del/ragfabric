@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import shutil
 import socket
 import subprocess
@@ -58,7 +59,7 @@ def upgrade_hint(dir: Path) -> str:
     """
     return (
         f"ollama pull {OLLAMA_CHAT_MODEL} && ollama pull {OLLAMA_EMBED_MODEL} && "
-        f"cd {dir} && mv ragfabric.yaml ragfabric.yaml.bak && ragfabric quickstart && "
+        f"cd {shlex.quote(str(dir))} && mv ragfabric.yaml ragfabric.yaml.bak && ragfabric quickstart && "
         "ragfabric reindex --yes"
     )
 
@@ -266,7 +267,10 @@ def _step_config(ctx: Context) -> None:
                 continue
             _done("config", f"{target} exists, keeping it (use --force to overwrite)")
             continue
-        shutil.copyfile(src, dst)
+        if target == ".env":
+            _write_private(dst, src.read_bytes())
+        else:
+            shutil.copyfile(src, dst)
         if target == "ragfabric.yaml":
             ctx.config_written = True
         else:
@@ -307,6 +311,14 @@ def _read_env_value(path: Path, key: str) -> str | None:
     return read_env_file(path).get(key) or None
 
 
+def _write_private(path: Path, data: bytes) -> None:
+    """Write ``path`` readable and writable by its owner only (0600): .env holds secrets."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(data)
+    os.chmod(path, 0o600)  # O_CREAT's mode does not apply to a file that already existed
+
+
 def _set_env_value(path: Path, key: str, value: str) -> None:
     lines = path.read_text().splitlines(keepends=True) if path.is_file() else []
     for i, line in enumerate(lines):
@@ -315,7 +327,7 @@ def _set_env_value(path: Path, key: str, value: str) -> None:
             break
     else:
         lines.append(f"{key}={value}\n")
-    path.write_text("".join(lines))
+    _write_private(path, "".join(lines).encode("utf-8"))
 
 
 def _docker_available() -> bool:
@@ -703,12 +715,26 @@ def _create_api_key(ctx: Context, email: str) -> str:
     """Create an API key for the bootstrap admin, the way ``ragfabric keys create`` does."""
     from ragfabric_cli.commands.common import session
     from ragfabric_core.auth.api_keys import create_api_key
+    from ragfabric_core.models.access import ApiKey
     from ragfabric_core.models.user import User
 
     with _bound_runtime(ctx), session() as db:
         user = db.query(User).filter(User.email == email.lower()).first()
         if user is None:
             raise QuickstartError(f"the bootstrap admin {email} was not created by the server")
+        # Retire the keys earlier runs created (a --force rerun writes a new .env,
+        # so the old key would otherwise stay valid with nothing holding it).
+        retired = (
+            db.query(ApiKey)
+            .filter(
+                ApiKey.principal_user_id == user.id,
+                ApiKey.name == API_KEY_NAME,
+                ApiKey.is_active.is_(True),
+            )
+            .all()
+        )
+        for old in retired:
+            old.is_active = False
         _, plaintext = create_api_key(db, name=API_KEY_NAME, user_id=user.id)
         db.commit()
     return plaintext
@@ -716,8 +742,8 @@ def _create_api_key(ctx: Context, email: str) -> str:
 
 def _key_command(ctx: Context, email: str) -> str:
     return (
-        f"cd {ctx.dir} && export RAGFABRIC_API_KEY="
-        f'"$(ragfabric keys create --name cli --user {email} | tail -n 1)"'
+        f"cd {shlex.quote(str(ctx.dir))} && export RAGFABRIC_API_KEY="
+        f'"$(ragfabric keys create --name cli --user {shlex.quote(email)} | tail -n 1)"'
     )
 
 
@@ -791,7 +817,7 @@ def _is_offline(ctx: Context) -> bool:
 
 
 def _next_steps(ctx: Context) -> list[tuple[str, str]]:
-    here = f"cd {ctx.dir} &&"
+    here = f"cd {shlex.quote(str(ctx.dir))} &&"
     question = SAMPLE_QUESTION.replace('"', '\\"')
     ask_why = (
         "ask the running server; RAGFABRIC_URL and RAGFABRIC_API_KEY come from .env"

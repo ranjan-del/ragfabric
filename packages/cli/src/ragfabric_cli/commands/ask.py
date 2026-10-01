@@ -45,7 +45,10 @@ def ask(
     url: str = typer.Option(
         None,
         "--url",
-        help=f"Server URL (env or ./.env RAGFABRIC_URL, default {DEFAULT_URL}).",
+        help=(
+            f"Server URL (env RAGFABRIC_URL, default {DEFAULT_URL}). ./.env is read only "
+            "when no URL, token or key is given."
+        ),
     ),
     token: str = typer.Option(None, "--token", help="JWT bearer token (env RAGFABRIC_TOKEN)."),
     api_key: str = typer.Option(
@@ -88,13 +91,14 @@ def ask(
     url = url or os.environ.get("RAGFABRIC_URL")
     token = token or os.environ.get("RAGFABRIC_TOKEN")
     api_key = api_key or os.environ.get("RAGFABRIC_API_KEY")
-    if not url or not (token or api_key):
-        # Neither a flag nor the environment said: fall back to ./.env, where
-        # ragfabric quickstart writes RAGFABRIC_URL and RAGFABRIC_API_KEY.
+    if not (url or token or api_key):
+        # Nothing came from a flag or the environment: take the URL and the key
+        # from ./.env together, where ragfabric quickstart writes them. Never mix:
+        # a stray .env must not redirect a credential the user supplied to a
+        # host that file names, nor pair its key with a URL from elsewhere.
         dotenv = read_env_file(Path(".env"))
-        url = url or dotenv.get("RAGFABRIC_URL") or None
-        if not (token or api_key):
-            api_key = dotenv.get("RAGFABRIC_API_KEY") or None
+        url = dotenv.get("RAGFABRIC_URL") or None
+        api_key = dotenv.get("RAGFABRIC_API_KEY") or None
     url = url or DEFAULT_URL
     if not token and not api_key:
         typer.echo(

@@ -499,20 +499,113 @@ def test_read_env_file_ignores_comments_and_blanks_and_strips_quotes(tmp_path):
     assert read_env_file(tmp_path / "missing") == {}
 
 
-def test_ask_reads_the_url_and_api_key_from_dot_env(tmp_path, monkeypatch):
+class _RecordingClient:
+    """Stands in for the SDK client: records where ask would connect, then stops."""
+
+    seen: list[dict] = []
+
+    def __init__(self, base_url, token=None, api_key=None, **kwargs):
+        _RecordingClient.seen.append({"url": base_url, "token": token, "api_key": api_key})
+
+    def ask(self, *args, **kwargs):
+        raise RuntimeError("stop here")
+
+    def close(self):
+        pass
+
+
+@pytest.fixture
+def ask_env(tmp_path, monkeypatch):
+    from ragfabric_cli.commands import ask as ask_module
+
     for name in ("RAGFABRIC_API_KEY", "RAGFABRIC_TOKEN", "RAGFABRIC_URL"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.chdir(tmp_path)
-    assert runner.invoke(app, ["ask", "q"]).exit_code == 2  # no credentials anywhere
-    port = qs.free_port()
+    monkeypatch.setattr(ask_module, "Client", _RecordingClient)
+    _RecordingClient.seen = []
     (tmp_path / ".env").write_text(
-        f'# quickstart\nRAGFABRIC_API_KEY="rf_fromdotenv"\nRAGFABRIC_URL=http://127.0.0.1:{port}\n'
+        '# quickstart\nRAGFABRIC_API_KEY="rf_fromdotenv"\nRAGFABRIC_URL=http://evil.example:9\n'
     )
-    result = runner.invoke(app, ["ask", "q", "--no-stream"])
+    return tmp_path
+
+
+def _asked(*args):
+    result = runner.invoke(app, ["ask", "q", "--no-stream", *args])
+    return result, (_RecordingClient.seen[-1] if _RecordingClient.seen else None)
+
+
+def test_ask_with_nothing_set_takes_url_and_key_from_dot_env_together(ask_env):
+    result, seen = _asked()
     assert result.exit_code == 1
-    assert f"could not reach http://127.0.0.1:{port}" in result.output
+    assert seen == {"url": "http://evil.example:9", "token": None, "api_key": "rf_fromdotenv"}
     assert "rf_fromdotenv" not in result.output
-    # The environment still wins over .env.
+
+
+def test_ask_with_a_dot_env_key_and_no_url_uses_the_default_url(ask_env):
+    (ask_env / ".env").write_text("RAGFABRIC_API_KEY=rf_fromdotenv\n")
+    _, seen = _asked()
+    assert seen == {"url": "http://localhost:8000", "token": None, "api_key": "rf_fromdotenv"}
+
+
+def test_ask_with_an_env_key_never_uses_the_dot_env_url(ask_env, monkeypatch):
+    monkeypatch.setenv("RAGFABRIC_API_KEY", "rf_real")
+    _, seen = _asked()
+    assert seen == {"url": "http://localhost:8000", "token": None, "api_key": "rf_real"}
+    _, seen = _asked("--url", "http://127.0.0.1:7")
+    assert seen["url"] == "http://127.0.0.1:7"
+
+
+def test_ask_with_an_env_token_never_uses_the_dot_env_url_or_key(ask_env, monkeypatch):
+    monkeypatch.setenv("RAGFABRIC_TOKEN", "jwt-real")
+    _, seen = _asked()
+    assert seen == {"url": "http://localhost:8000", "token": "jwt-real", "api_key": None}
+
+
+def test_ask_with_an_api_key_flag_never_uses_the_dot_env_url(ask_env):
+    _, seen = _asked("--api-key", "rf_flag")
+    assert seen == {"url": "http://localhost:8000", "token": None, "api_key": "rf_flag"}
+
+
+def test_ask_with_an_env_url_ignores_the_dot_env_key(ask_env, monkeypatch):
     monkeypatch.setenv("RAGFABRIC_URL", "http://127.0.0.1:9")
-    result = runner.invoke(app, ["ask", "q", "--no-stream"])
-    assert "could not reach http://127.0.0.1:9" in result.output
+    result, seen = _asked()
+    assert result.exit_code == 2 and seen is None
+    assert "no credentials" in result.output
+
+
+def test_ask_with_no_credentials_anywhere_exits_2(tmp_path, monkeypatch):
+    for name in ("RAGFABRIC_API_KEY", "RAGFABRIC_TOKEN", "RAGFABRIC_URL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["ask", "q"]).exit_code == 2
+
+
+# fix round 2: .env mode, quoting, key rotation
+
+
+def test_quickstart_writes_dot_env_readable_only_by_its_owner(
+    tmp_path, no_ollama, no_keys, steps_after_config_are_noops
+):
+    result = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--yes"])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / ".env").stat().st_mode & 0o777 == 0o600
+
+
+def test_printed_commands_quote_a_directory_with_a_space(tmp_path):
+    import shlex
+
+    spaced = tmp_path / "my rag"
+    spaced.mkdir()
+    quoted = shlex.quote(str(spaced))
+    assert f"cd {quoted} && mv ragfabric.yaml" in qs.upgrade_hint(spaced)
+    ctx = qs.Context(dir=spaced, force=False, yes=True, docker=False, model_check=False)
+    steps = [command for command, _ in qs._next_steps(ctx)]
+    assert f"cd {quoted} && ragfabric serve" in steps
+    assert all(f"cd {spaced} " not in step for step in steps)
+    command = qs._key_command(ctx, "o'brien@example.com")
+    assert f"cd {quoted} && " in command
+    assert shlex.quote("o'brien@example.com") in command
+    # The whole command still parses as shell words.
+    inner = command.split('"$(', 1)[1].rsplit(')"', 1)[0]
+    assert shlex.split(inner)[:6] == ["ragfabric", "keys", "create", "--name", "cli", "--user"]
+    assert shlex.split(inner)[6] == "o'brien@example.com"
