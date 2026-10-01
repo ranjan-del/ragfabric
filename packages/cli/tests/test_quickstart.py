@@ -321,3 +321,198 @@ def test_docker_reachable_writes_compose_and_a_masked_postgres_url(
     assert "ragfabric:ragfabric@" not in result.output
     # PostgreSQL keeps the template's redis cache; SQLite is the only case forced to memory.
     assert load_config(tmp_path / "ragfabric.yaml").cache.kind == "redis"
+
+
+# fix round 1: upgrade hint, resumability, credentials, next steps, port retry
+
+
+def test_the_upgrade_hint_moves_the_config_aside_and_never_forces(
+    tmp_path, no_ollama, no_keys, steps_after_config_are_noops
+):
+    hint = qs.upgrade_hint(tmp_path)
+    assert hint == (
+        "ollama pull llama3.2:3b && ollama pull nomic-embed-text && "
+        f"cd {tmp_path} && mv ragfabric.yaml ragfabric.yaml.bak && ragfabric quickstart && "
+        "ragfabric reindex --yes"
+    )
+    result = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--yes"])
+    assert result.exit_code == 0, result.output
+    assert "mv ragfabric.yaml ragfabric.yaml.bak" in result.output
+    assert "--force &&" not in result.output and "quickstart --force" not in result.output
+
+
+def test_an_unpatched_template_left_by_a_partial_run_is_patched(
+    tmp_path, no_ollama, no_keys, steps_after_config_are_noops
+):
+    template = templates.template_path("ragfabric.example.yaml").read_bytes()
+    (tmp_path / "ragfabric.yaml").write_bytes(template)
+    (tmp_path / ".env").write_text(f"DATABASE_URL=sqlite:///{tmp_path / 'ragfabric.db'}\n")
+    result = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--yes"])
+    assert result.exit_code == 0, result.output
+    assert "unpatched template" in result.output
+    cfg = load_config(tmp_path / "ragfabric.yaml")
+    assert cfg.llm.provider == "offline" and cfg.cache.kind == "memory"
+
+
+def test_an_edited_ragfabric_yaml_is_still_kept(
+    tmp_path, no_ollama, no_keys, steps_after_config_are_noops
+):
+    edited = templates.template_path("ragfabric.example.yaml").read_bytes() + b"\n# mine\n"
+    (tmp_path / "ragfabric.yaml").write_bytes(edited)
+    result = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--yes"])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "ragfabric.yaml").read_bytes() == edited
+
+
+def test_a_failed_sample_is_ingested_again(tmp_path, no_ollama, no_keys):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    from ragfabric_core.db import migrate
+    from ragfabric_core.models.document import Document
+
+    (tmp_path / "ragfabric.yaml").write_text(
+        "llm:\n  provider: offline\nembeddings:\n  provider: offline\n  dim: 768\n"
+        "cache:\n  kind: memory\n"
+    )
+    db_url = f"sqlite:///{tmp_path / 'ragfabric.db'}"
+    migrate.upgrade(db_url)
+    engine = create_engine(db_url)
+    with Session(engine) as db:
+        db.add(Document(filename="team.md", status="failed", error="boom"))
+        db.commit()
+    ctx = qs.Context(dir=tmp_path, force=False, yes=True, docker=False, model_check=False)
+    ctx.db_url = db_url
+    qs._step_ingest(ctx)
+    with Session(engine) as db:
+        statuses = {
+            (d.filename, d.status) for d in db.query(Document).filter(Document.status == "ready")
+        }
+    engine.dispose()
+    assert statuses == {
+        ("handbook.md", "ready"),
+        ("leave-policy.md", "ready"),
+        ("team.md", "ready"),
+    }
+
+
+class _Response:
+    status_code = 200
+
+    def json(self):
+        return {"access_token": "jwt-not-a-secret-here"}
+
+
+def test_a_kept_env_gets_the_key_command_and_never_a_key(tmp_path, monkeypatch, capsys):
+    env = tmp_path / ".env"
+    env.write_text("DATABASE_URL=sqlite:///x.db\n")
+    before = env.read_bytes()
+    monkeypatch.setattr(qs.httpx, "post", lambda *a, **k: _Response())
+
+    def never(*args, **kwargs):
+        raise AssertionError("no key may be created for a kept .env")
+
+    monkeypatch.setattr(qs, "_create_api_key", never)
+    ctx = qs.Context(dir=tmp_path, force=False, yes=True, docker=False, model_check=False)
+    creds = qs._credentials(ctx, "http://127.0.0.1:1", "admin@example.com", "pw")
+    assert creds == {"token": "jwt-not-a-secret-here"}
+    assert env.read_bytes() == before
+    out = capsys.readouterr().out
+    assert (
+        f"cd {tmp_path} && export RAGFABRIC_API_KEY="
+        '"$(ragfabric keys create --name cli --user admin@example.com | tail -n 1)"'
+    ) in out
+    assert "jwt-not-a-secret-here" not in out
+
+
+def test_a_written_env_gets_the_key_and_url_appended_and_the_key_is_not_printed(
+    tmp_path, monkeypatch, capsys
+):
+    env = tmp_path / ".env"
+    env.write_text("DATABASE_URL=sqlite:///x.db\n")
+    monkeypatch.setattr(qs, "_create_api_key", lambda ctx, email: "rf_secretkeyvalue")
+    ctx = qs.Context(dir=tmp_path, force=False, yes=True, docker=False, model_check=False)
+    ctx.env_written = True
+    assert qs._credentials(ctx, "http://127.0.0.1:1", "admin@example.com", "pw") == {
+        "api_key": "rf_secretkeyvalue"
+    }
+    text = env.read_text()
+    assert "RAGFABRIC_API_KEY=rf_secretkeyvalue\n" in text
+    assert "RAGFABRIC_URL=http://127.0.0.1:8000\n" in text
+    assert "rf_secretkeyvalue" not in capsys.readouterr().out
+
+
+def test_next_steps_prefix_the_directory_and_drop_the_token(tmp_path):
+    ctx = qs.Context(dir=tmp_path, force=False, yes=True, docker=False, model_check=False)
+    ctx.key_in_env = True
+    steps = [command for command, _ in qs._next_steps(ctx)]
+    assert f'cd {tmp_path} && ragfabric ask "{templates.SAMPLE_QUESTION}"' in steps
+    assert f"cd {tmp_path} && ragfabric serve" in steps
+    assert f"cd {tmp_path} && ragfabric doctor" in steps
+    assert f"cd {tmp_path} && ragfabric ingest ./my-docs --recursive" in steps
+    assert "ragfabric strategies" in steps
+    assert not any("--token" in step for step in steps)
+
+
+def test_a_port_taken_before_the_server_binds_is_retried_once(monkeypatch, tmp_path):
+    from contextlib import ExitStack
+
+    script = tmp_path / "fake_server.py"
+    script.write_text(FAKE_SERVER)
+    taken = tmp_path / "taken.py"
+    taken.write_text(
+        "import sys\nprint('ERROR: [Errno 48] error while attempting to bind: "
+        "address already in use')\nsys.exit(1)\n"
+    )
+    commands = iter([[sys.executable, str(taken)], None])
+
+    def command(port):
+        first = next(commands)
+        return first if first is not None else [sys.executable, str(script), str(port)]
+
+    monkeypatch.setattr(qs, "_server_command", command)
+    ctx = qs.Context(dir=tmp_path, force=False, yes=True, docker=False, model_check=False)
+    with ExitStack() as stack:
+        url = qs._start_server(ctx, stack)
+        port = int(url.rsplit(":", 1)[1])
+        assert not _refused(port)
+    assert _refused(port)
+
+
+def test_alembic_info_lines_are_kept_out_of_the_migrate_step(tmp_path, capfd):
+    ctx = qs.Context(dir=tmp_path, force=False, yes=True, docker=False, model_check=False)
+    ctx.db_url = f"sqlite:///{tmp_path / 'ragfabric.db'}"
+    qs._step_migrate(ctx)
+    captured = capfd.readouterr()
+    assert "Running upgrade" not in captured.err + captured.out
+    import logging
+
+    assert logging.root.manager.disable == logging.NOTSET
+
+
+def test_read_env_file_ignores_comments_and_blanks_and_strips_quotes(tmp_path):
+    from ragfabric_cli.envfile import read_env_file
+
+    path = tmp_path / ".env"
+    path.write_text("# a comment\n\nA=1\nB = 'two'\nexport C=\"three\"\nnot a pair\nD=\n# E=no\n")
+    assert read_env_file(path) == {"A": "1", "B": "two", "C": "three", "D": ""}
+    assert read_env_file(tmp_path / "missing") == {}
+
+
+def test_ask_reads_the_url_and_api_key_from_dot_env(tmp_path, monkeypatch):
+    for name in ("RAGFABRIC_API_KEY", "RAGFABRIC_TOKEN", "RAGFABRIC_URL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["ask", "q"]).exit_code == 2  # no credentials anywhere
+    port = qs.free_port()
+    (tmp_path / ".env").write_text(
+        f'# quickstart\nRAGFABRIC_API_KEY="rf_fromdotenv"\nRAGFABRIC_URL=http://127.0.0.1:{port}\n'
+    )
+    result = runner.invoke(app, ["ask", "q", "--no-stream"])
+    assert result.exit_code == 1
+    assert f"could not reach http://127.0.0.1:{port}" in result.output
+    assert "rf_fromdotenv" not in result.output
+    # The environment still wins over .env.
+    monkeypatch.setenv("RAGFABRIC_URL", "http://127.0.0.1:9")
+    result = runner.invoke(app, ["ask", "q", "--no-stream"])
+    assert "could not reach http://127.0.0.1:9" in result.output

@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import os
 from enum import StrEnum
+from pathlib import Path
 
 import typer
 
+from ragfabric_cli.envfile import read_env_file
 from ragfabric_cli.ui.panels import render_answer
 from ragfabric_sdk import Client
 from ragfabric_sdk.errors import RagFabricError
@@ -41,10 +43,14 @@ class Strategy(StrEnum):
 def ask(
     question: str = typer.Argument(..., help="The question to ask."),
     url: str = typer.Option(
-        None, "--url", help=f"Server URL (env RAGFABRIC_URL, default {DEFAULT_URL})."
+        None,
+        "--url",
+        help=f"Server URL (env or ./.env RAGFABRIC_URL, default {DEFAULT_URL}).",
     ),
     token: str = typer.Option(None, "--token", help="JWT bearer token (env RAGFABRIC_TOKEN)."),
-    api_key: str = typer.Option(None, "--api-key", help="rf_ API key (env RAGFABRIC_API_KEY)."),
+    api_key: str = typer.Option(
+        None, "--api-key", help="rf_ API key (env or ./.env RAGFABRIC_API_KEY)."
+    ),
     top_k: int = typer.Option(8, "--top-k", min=1, max=50, help="Chunks to retrieve."),
     threshold: float = typer.Option(
         0.0, "--threshold", min=0.0, max=1.0, help="Similarity threshold."
@@ -79,13 +85,22 @@ def ask(
     corrected answer (bytes already printed cannot be recalled); a machine
     consumer should use --json or --no-stream instead of parsing the stream.
     """
-    url = url or os.environ.get("RAGFABRIC_URL") or DEFAULT_URL
+    url = url or os.environ.get("RAGFABRIC_URL")
     token = token or os.environ.get("RAGFABRIC_TOKEN")
     api_key = api_key or os.environ.get("RAGFABRIC_API_KEY")
+    if not url or not (token or api_key):
+        # Neither a flag nor the environment said: fall back to ./.env, where
+        # ragfabric quickstart writes RAGFABRIC_URL and RAGFABRIC_API_KEY.
+        dotenv = read_env_file(Path(".env"))
+        url = url or dotenv.get("RAGFABRIC_URL") or None
+        if not (token or api_key):
+            api_key = dotenv.get("RAGFABRIC_API_KEY") or None
+    url = url or DEFAULT_URL
     if not token and not api_key:
         typer.echo(
             "no credentials: pass --token or --api-key, or set RAGFABRIC_TOKEN "
-            "or RAGFABRIC_API_KEY",
+            "or RAGFABRIC_API_KEY (in the environment or in ./.env; "
+            "ragfabric quickstart writes one)",
             err=True,
         )
         raise typer.Exit(2)

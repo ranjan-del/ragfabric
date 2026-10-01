@@ -21,7 +21,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -29,6 +29,7 @@ from typing import Literal
 import httpx
 import typer
 
+from ragfabric_cli.envfile import read_env_file
 from ragfabric_cli.templates import SAMPLE_QUESTION, sample_paths, template_path
 from ragfabric_cli.ui import console
 from ragfabric_cli.ui.console import mask_urls_in
@@ -44,14 +45,30 @@ HEALTH_TIMEOUT_S = 30.0
 STOP_TIMEOUT_S = 5.0
 DB_WAIT_S = 60.0
 
-UPGRADE_HINT = (
-    f"ollama pull {OLLAMA_CHAT_MODEL} && ollama pull {OLLAMA_EMBED_MODEL} && "
-    "ragfabric quickstart --force && ragfabric reindex --yes"
-)
+SERVE_URL = "http://127.0.0.1:8000"
+API_KEY_NAME = "quickstart"
+
+
+def upgrade_hint(dir: Path) -> str:
+    """The command that moves an offline setup to a local model.
+
+    Never --force: that would re-copy .env and lose the API key, JWT_SECRET and
+    any Docker DATABASE_URL. Moving ragfabric.yaml aside makes quickstart
+    choose the model again and leaves everything else as it is.
+    """
+    return (
+        f"ollama pull {OLLAMA_CHAT_MODEL} && ollama pull {OLLAMA_EMBED_MODEL} && "
+        f"cd {dir} && mv ragfabric.yaml ragfabric.yaml.bak && ragfabric quickstart && "
+        "ragfabric reindex --yes"
+    )
 
 
 class QuickstartError(Exception):
     """A step failed in a way the user can act on. The message says how."""
+
+
+class PortInUse(QuickstartError):
+    """The temporary server could not bind its port: something took it after free_port."""
 
 
 @dataclass(frozen=True)
@@ -74,6 +91,7 @@ class Context:
     db_url: str = ""
     choice: ModelChoice | None = None
     child_env: dict[str, str] = field(default_factory=dict)
+    key_in_env: bool = False
 
 
 def _say(message: str) -> None:
@@ -238,10 +256,17 @@ def patch_config(text: str, choice: ModelChoice, *, cache_kind: str | None) -> s
 def _step_config(ctx: Context) -> None:
     for template, target in (("env.example", ".env"), ("ragfabric.example.yaml", "ragfabric.yaml")):
         dst = ctx.dir / target
+        src = template_path(template)
         if dst.exists() and not ctx.force:
+            if target == "ragfabric.yaml" and dst.read_bytes() == src.read_bytes():
+                # Byte for byte the packaged template: an earlier run copied it and
+                # stopped before the model step patched it. Nobody edited it.
+                ctx.config_written = True
+                _say("config: ragfabric.yaml is the unpatched template, patching it")
+                continue
             _done("config", f"{target} exists, keeping it (use --force to overwrite)")
             continue
-        shutil.copyfile(template_path(template), dst)
+        shutil.copyfile(src, dst)
         if target == "ragfabric.yaml":
             ctx.config_written = True
         else:
@@ -275,17 +300,11 @@ def _step_model(ctx: Context) -> None:
     _say(f"  why: {choice.reason}")
     if choice.kind == "offline":
         _say("  offline mode: answers are extractive and limited.")
-        _say(f"  upgrade later with: {UPGRADE_HINT}")
+        _say(f"  upgrade later with: {upgrade_hint(ctx.dir)}")
 
 
 def _read_env_value(path: Path, key: str) -> str | None:
-    if not path.is_file():
-        return None
-    for line in path.read_text().splitlines():
-        name, sep, value = line.partition("=")
-        if sep and name.strip() == key:
-            return value.strip().strip("'\"") or None
-    return None
+    return read_env_file(path).get(key) or None
 
 
 def _set_env_value(path: Path, key: str, value: str) -> None:
@@ -465,6 +484,25 @@ def _bound_runtime(ctx: Context) -> Iterator[None]:
         engine.dispose()
 
 
+@contextmanager
+def _quiet_alembic() -> Iterator[None]:
+    """Keep alembic at WARNING while migrating, so its INFO lines stay out of the output.
+
+    Setting the logger level alone does not hold: the packaged env.py runs
+    fileConfig, which puts the alembic logger back to INFO. Disabling INFO
+    for the duration does hold, and is undone afterwards.
+    """
+    import logging
+
+    previous = logging.root.manager.disable
+    logging.getLogger("alembic").setLevel(logging.WARNING)
+    logging.disable(logging.INFO)
+    try:
+        yield
+    finally:
+        logging.disable(previous)
+
+
 def _step_migrate(ctx: Context) -> None:
     from ragfabric_core.db import migrate
 
@@ -476,7 +514,7 @@ def _step_migrate(ctx: Context) -> None:
     if current == head:
         _done("migrate", f"database at {head}")
         return
-    with _spinner("migrate: applying migrations"):
+    with _spinner("migrate: applying migrations"), _quiet_alembic():
         migrate.upgrade(ctx.db_url)
     _say(f"migrate: database upgraded to {head}")
 
@@ -513,11 +551,16 @@ def ingest_files(
 
 
 def _present_filenames(names: list[str]) -> set[str]:
+    """The sample filenames already ingested successfully. A failed one is not present."""
     from ragfabric_cli.commands.common import session
     from ragfabric_core.models.document import Document
 
     with session() as db:
-        rows = db.query(Document.filename).filter(Document.filename.in_(names)).all()
+        rows = (
+            db.query(Document.filename)
+            .filter(Document.filename.in_(names), Document.status == "ready")
+            .all()
+        )
     return {row[0] for row in rows}
 
 
@@ -601,9 +644,12 @@ def temporary_server(dir: Path, port: int, env: Mapping[str, str] | None = None)
             deadline = time.monotonic() + HEALTH_TIMEOUT_S
             while True:
                 if proc.poll() is not None:
-                    raise QuickstartError(
-                        f"the temporary server exited with code {proc.returncode}:\n"
-                        + _log_tail(log)
+                    tail = _log_tail(log)
+                    error = (
+                        PortInUse if "address already in use" in tail.lower() else QuickstartError
+                    )
+                    raise error(
+                        f"the temporary server exited with code {proc.returncode}:\n" + tail
                     )
                 try:
                     if httpx.get(f"{url}/health", timeout=1.0).status_code == 200:
@@ -639,24 +685,84 @@ def _admin_credentials(ctx: Context) -> tuple[str, str]:
     return settings.first_admin_email, settings.first_admin_password
 
 
+def _start_server(ctx: Context, stack: ExitStack) -> str:
+    """Enter a temporary server on a free port, retrying once if the port was taken."""
+    for attempt in (1, 2):
+        port = free_port()
+        _say(f"ask: starting a temporary server on 127.0.0.1:{port}")
+        try:
+            return stack.enter_context(temporary_server(ctx.dir, port, env=_child_env(ctx)))
+        except PortInUse:
+            if attempt == 2:
+                raise
+            _say(f"ask: port {port} was taken before the server bound it, trying another")
+    raise AssertionError("unreachable")
+
+
+def _create_api_key(ctx: Context, email: str) -> str:
+    """Create an API key for the bootstrap admin, the way ``ragfabric keys create`` does."""
+    from ragfabric_cli.commands.common import session
+    from ragfabric_core.auth.api_keys import create_api_key
+    from ragfabric_core.models.user import User
+
+    with _bound_runtime(ctx), session() as db:
+        user = db.query(User).filter(User.email == email.lower()).first()
+        if user is None:
+            raise QuickstartError(f"the bootstrap admin {email} was not created by the server")
+        _, plaintext = create_api_key(db, name=API_KEY_NAME, user_id=user.id)
+        db.commit()
+    return plaintext
+
+
+def _key_command(ctx: Context, email: str) -> str:
+    return (
+        f"cd {ctx.dir} && export RAGFABRIC_API_KEY="
+        f'"$(ragfabric keys create --name cli --user {email} | tail -n 1)"'
+    )
+
+
+def _credentials(ctx: Context, url: str, email: str, password: str) -> dict[str, str]:
+    """Client credentials for the sample question. The key itself is never printed."""
+    env_path = ctx.dir / ".env"
+    existing = _read_env_value(env_path, "RAGFABRIC_API_KEY")
+    if existing:
+        ctx.key_in_env = True
+        _done("api key", "RAGFABRIC_API_KEY is in .env")
+        return {"api_key": existing}
+    if ctx.env_written:
+        key = _create_api_key(ctx, email)
+        _set_env_value(env_path, "RAGFABRIC_API_KEY", key)
+        _set_env_value(env_path, "RAGFABRIC_URL", SERVE_URL)
+        ctx.key_in_env = True
+        _say(
+            f"api key: created key {API_KEY_NAME!r} for {email}; saved to .env as "
+            f"RAGFABRIC_API_KEY, with RAGFABRIC_URL={SERVE_URL}"
+        )
+        return {"api_key": key}
+    res = httpx.post(
+        f"{url}/api/auth/login", data={"username": email, "password": password}, timeout=10
+    )
+    if res.status_code != 200:
+        raise QuickstartError(
+            "could not sign in as the bootstrap admin from .env "
+            f"(HTTP {res.status_code}); check FIRST_ADMIN_EMAIL and FIRST_ADMIN_PASSWORD"
+        )
+    _say(
+        "api key: .env was kept, so no key is written to it. Create one and export it with: "
+        + _key_command(ctx, email)
+    )
+    return {"token": res.json()["access_token"]}
+
+
 def _step_ask(ctx: Context) -> None:
     from ragfabric_sdk import Client
 
     email, password = _admin_credentials(ctx)
-    port = free_port()
-    _say(f"ask: starting a temporary server on 127.0.0.1:{port}")
-    with temporary_server(ctx.dir, port, env=_child_env(ctx)) as url:
-        res = httpx.post(
-            f"{url}/api/auth/login", data={"username": email, "password": password}, timeout=10
-        )
-        if res.status_code != 200:
-            raise QuickstartError(
-                "could not sign in as the bootstrap admin from .env "
-                f"(HTTP {res.status_code}); check FIRST_ADMIN_EMAIL and FIRST_ADMIN_PASSWORD"
-            )
-        token = res.json()["access_token"]
+    with ExitStack() as stack:
+        url = _start_server(ctx, stack)
+        credentials = _credentials(ctx, url, email, password)
         _say(f"ask: {SAMPLE_QUESTION}")
-        with Client(url, token=token, timeout=120) as client:
+        with Client(url, timeout=120, **credentials) as client:
             answer = client.ask(SAMPLE_QUESTION)
     render_answer(
         answer.answer,
@@ -673,21 +779,39 @@ def _step_ask(ctx: Context) -> None:
     _say("ask: temporary server stopped")
 
 
+def _is_offline(ctx: Context) -> bool:
+    if ctx.choice is not None:
+        return ctx.choice.kind == "offline"
+    try:
+        from ragfabric_core.config_file import load_config
+
+        return load_config(ctx.dir / "ragfabric.yaml").llm.provider == "offline"
+    except Exception:  # noqa: BLE001 - an unreadable config just means no upgrade hint
+        return False
+
+
 def _next_steps(ctx: Context) -> list[tuple[str, str]]:
+    here = f"cd {ctx.dir} &&"
     question = SAMPLE_QUESTION.replace('"', '\\"')
+    ask_why = (
+        "ask the running server; RAGFABRIC_URL and RAGFABRIC_API_KEY come from .env"
+        if ctx.key_in_env
+        else "ask the running server, after exporting RAGFABRIC_API_KEY as shown above"
+    )
     last = (
-        (UPGRADE_HINT, "upgrade from offline mode to a local model")
-        if ctx.choice is not None and ctx.choice.kind == "offline"
-        else ("ragfabric config validate --check-providers", "make one live call per provider")
+        (upgrade_hint(ctx.dir), "upgrade from offline mode to a local model")
+        if _is_offline(ctx)
+        else (
+            f"{here} ragfabric config validate --check-providers",
+            "make one live call per provider",
+        )
     )
     return [
-        (f"cd {ctx.dir} && ragfabric serve", "run the API on http://127.0.0.1:8000"),
-        ("ragfabric ingest ./my-docs --recursive", "add your own documents"),
-        (
-            f'ragfabric ask "{question}" --token "$RAGFABRIC_TOKEN"',
-            "ask through the running server (token from POST /api/auth/login)",
-        ),
-        ("ragfabric doctor", "check config, database, migrations and providers"),
+        (f"{here} ragfabric serve", f"run the API on {SERVE_URL}"),
+        (f"{here} ragfabric ingest ./my-docs --recursive", "add your own documents"),
+        (f'{here} ragfabric ask "{question}"', ask_why),
+        (f"{here} ragfabric doctor", "check config, database, migrations and providers"),
+        ("ragfabric strategies", "see the retrieval strategies and when each is best"),
         last,
     ]
 
@@ -726,7 +850,7 @@ def quickstart(
 
       ragfabric quickstart --docker --yes
 
-      ragfabric quickstart --force --no-model-check
+      ragfabric quickstart --no-model-check
     """
     dir = dir.expanduser().resolve()
     dir.mkdir(parents=True, exist_ok=True)

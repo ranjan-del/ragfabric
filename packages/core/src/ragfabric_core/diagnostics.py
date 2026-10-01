@@ -168,14 +168,19 @@ def _provider_fix(provider: str, message: str, model: str | None) -> str:
     return "check the provider settings in ragfabric.yaml"
 
 
+# Never --force: it would re-copy .env and lose keys, JWT_SECRET and DATABASE_URL.
+UPGRADE_STEPS = (
+    "mv ragfabric.yaml ragfabric.yaml.bak && ragfabric quickstart && ragfabric reindex --yes"
+)
+
+
 def check_llm(cfg: RagFabricConfig, *, network: bool) -> CheckResult:
     if cfg.llm.provider == "offline":
         return CheckResult(
             "llm",
             "warn",
             "offline mode: answers are extractive",
-            "install Ollama, or set OPENAI_API_KEY or ANTHROPIC_API_KEY, "
-            "then ragfabric quickstart --force",
+            f"install Ollama, or set OPENAI_API_KEY or ANTHROPIC_API_KEY, then {UPGRADE_STEPS}",
         )
     if not network:
         return CheckResult("llm", "skip", "not checked: network checks are off")
@@ -198,7 +203,7 @@ def check_embeddings(cfg: RagFabricConfig, *, network: bool) -> CheckResult:
             "embeddings",
             "warn",
             "offline mode: hashing embeddings, not semantic",
-            "install Ollama, or set OPENAI_API_KEY, then ragfabric quickstart --force",
+            f"install Ollama, or set OPENAI_API_KEY, then {UPGRADE_STEPS}",
         )
     if not network:
         return CheckResult("embeddings", "skip", "not checked: network checks are off")

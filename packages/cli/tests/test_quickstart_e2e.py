@@ -7,12 +7,19 @@ nothing installed gets.
 
 from __future__ import annotations
 
+import os
 import socket
+import subprocess
+import sys
+import time
 
+import httpx
 from typer.testing import CliRunner
 
 from ragfabric_cli.commands import quickstart as qs
+from ragfabric_cli.envfile import read_env_file
 from ragfabric_cli.main import app
+from ragfabric_cli.templates import SAMPLE_QUESTION
 
 runner = CliRunner()
 
@@ -20,6 +27,8 @@ runner = CliRunner()
 def test_quickstart_from_nothing_to_a_cited_answer_and_again(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    for name in ("RAGFABRIC_API_KEY", "RAGFABRIC_TOKEN", "RAGFABRIC_URL"):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(qs, "_ollama_models", lambda timeout=2.0: None)
     ports: list[int] = []
     real_free_port = qs.free_port
@@ -47,3 +56,50 @@ def test_quickstart_from_nothing_to_a_cited_answer_and_again(tmp_path, monkeypat
     assert again.exit_code == 0, again.output
     assert again.output.count("already done") >= 3
     assert "up to 10 days of unused annual leave carry forward" in again.output
+
+    key = read_env_file(tmp_path / ".env")["RAGFABRIC_API_KEY"]
+    assert key.startswith("rf_")
+    assert read_env_file(tmp_path / ".env")["RAGFABRIC_URL"] == "http://127.0.0.1:8000"
+    assert key not in result.output and key not in again.output
+    assert "--token" not in result.output
+
+    # The printed ask step works against `ragfabric serve`, with only RAGFABRIC_URL moved.
+    printed = next(line for line in result.output.splitlines() if "ragfabric ask " in line)
+    assert printed.strip().startswith(f'cd {tmp_path} && ragfabric ask "{SAMPLE_QUESTION}"')
+    port = real_free_port()
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("DATABASE_URL", "RAGFABRIC_CONFIG", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
+    }
+    server = subprocess.Popen(
+        [sys.executable, "-m", "ragfabric_cli.main", "serve", "--port", str(port)],
+        cwd=tmp_path,
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                if httpx.get(f"http://127.0.0.1:{port}/health", timeout=1).status_code == 200:
+                    break
+            except httpx.HTTPError:
+                pass
+            assert server.poll() is None, "ragfabric serve exited"
+            assert time.monotonic() < deadline, "ragfabric serve never became healthy"
+            time.sleep(0.2)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("RAGFABRIC_URL", f"http://127.0.0.1:{port}")
+        asked = runner.invoke(app, ["ask", SAMPLE_QUESTION])
+    finally:
+        server.terminate()
+        try:
+            server.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            server.kill()
+            server.wait()
+    assert asked.exit_code == 0, asked.output
+    assert "up to 10 days of unused annual leave carry forward" in asked.output
+    assert "leave-policy.md" in asked.output

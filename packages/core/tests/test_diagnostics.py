@@ -114,8 +114,18 @@ def test_llm_offline_is_a_labelled_warn():
     assert result.status == "warn"
     assert result.detail == "offline mode: answers are extractive"
     assert result.fix == (
-        "install Ollama, or set OPENAI_API_KEY or ANTHROPIC_API_KEY, then ragfabric quickstart --force"
+        "install Ollama, or set OPENAI_API_KEY or ANTHROPIC_API_KEY, then "
+        "mv ragfabric.yaml ragfabric.yaml.bak && ragfabric quickstart && ragfabric reindex --yes"
     )
+    assert "--force" not in result.fix
+
+
+def test_embeddings_offline_upgrade_never_suggests_force():
+    result = diagnostics.check_embeddings(_offline_cfg(), network=True)
+    assert result.status == "warn"
+    assert "mv ragfabric.yaml ragfabric.yaml.bak && ragfabric quickstart" in result.fix
+    assert "ragfabric reindex --yes" in result.fix
+    assert "--force" not in result.fix
 
 
 def test_embeddings_offline_is_a_labelled_warn():
