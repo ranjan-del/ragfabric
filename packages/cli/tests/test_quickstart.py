@@ -845,3 +845,24 @@ def test_key_is_active_reads_the_database_in_use(tmp_path):
     ctx = qs.Context(dir=tmp_path, force=False, yes=True, docker=False, model_check=False)
     ctx.db_url = db_url
     assert qs._key_is_active(ctx, "rf_not_a_key_in_this_database") is False
+
+
+# final fix wave: I8, no known secrets in a written .env -----------------------
+
+
+def test_a_written_dot_env_has_a_random_jwt_secret_and_admin_password_never_printed(
+    tmp_path, no_ollama, no_keys, steps_after_config_are_noops
+):
+    from ragfabric_cli.envfile import read_env_file
+
+    result = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--yes"])
+    assert result.exit_code == 0, result.output
+    values = read_env_file(tmp_path / ".env")
+    assert values["JWT_SECRET"] != "change-me" and len(values["JWT_SECRET"]) >= 64
+    assert values["FIRST_ADMIN_PASSWORD"] not in ("", "adminpass123")
+    assert values["JWT_SECRET"] not in result.output
+    assert values["FIRST_ADMIN_PASSWORD"] not in result.output
+    assert (tmp_path / ".env").stat().st_mode & 0o777 == 0o600
+    other = tmp_path / "other"
+    runner.invoke(app, ["quickstart", "--dir", str(other), "--yes"])
+    assert read_env_file(other / ".env")["JWT_SECRET"] != values["JWT_SECRET"]

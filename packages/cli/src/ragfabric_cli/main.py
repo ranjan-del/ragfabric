@@ -237,6 +237,7 @@ def init(
     import shutil
     from pathlib import Path
 
+    from ragfabric_cli.envfile import write_private
     from ragfabric_cli.templates import template_path
 
     for example, target in (("env.example", ".env"), ("ragfabric.example.yaml", "ragfabric.yaml")):
@@ -244,7 +245,10 @@ def init(
         if dst.exists() and not force:
             typer.echo(f"{target} already exists (use --force to overwrite)")
             continue
-        shutil.copyfile(src, dst)
+        if target == ".env":
+            write_private(dst, src.read_bytes())
+        else:
+            shutil.copyfile(src, dst)
         typer.echo(f"wrote {target}")
     from ragfabric_core.runtime import reset_config
 

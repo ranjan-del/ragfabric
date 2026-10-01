@@ -86,3 +86,24 @@ def test_the_sample_question_routes_to_traditional():
     signals = extract_signals(SAMPLE_QUESTION, relation_types=["REPORTS_TO"])
     proposal = propose(signals, available=list(StrategyName))
     assert proposal.strategy is StrategyName.TRADITIONAL and proposal.decisive
+
+
+def test_init_writes_dot_env_readable_only_by_its_owner(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("RAGFABRIC_CONFIG", raising=False)
+    runner.invoke(app, ["init"])
+    assert (tmp_path / ".env").stat().st_mode & 0o777 == 0o600
+
+
+def test_the_env_template_has_no_dead_embedding_dim():
+    assert "EMBEDDING_DIM" not in templates.template_path("env.example").read_text()
+
+
+def test_write_private_lives_in_envfile(tmp_path):
+    from ragfabric_cli.envfile import write_private
+
+    path = tmp_path / "x"
+    path.write_text("old")
+    path.chmod(0o644)
+    write_private(path, b"new")
+    assert path.read_bytes() == b"new" and path.stat().st_mode & 0o777 == 0o600

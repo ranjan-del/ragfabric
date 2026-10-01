@@ -1,4 +1,4 @@
-"""A tiny KEY=VALUE reader for .env files. No dependency, and it never prints a value.
+"""A tiny KEY=VALUE reader and a 0600 writer for .env files. Neither prints a value.
 
 Blank lines and ``#`` comments are ignored, an optional ``export`` prefix is
 accepted, and one pair of matching quotes around a value is stripped.
@@ -6,6 +6,7 @@ accepted, and one pair of matching quotes around a value is stripped.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 
@@ -30,3 +31,11 @@ def read_env_file(path: Path) -> dict[str, str]:
             value = value[1:-1]
         values[name.strip()] = value
     return values
+
+
+def write_private(path: Path, data: bytes) -> None:
+    """Write ``path`` readable and writable by its owner only (0600): .env holds secrets."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(data)
+    os.chmod(path, 0o600)  # O_CREAT's mode does not apply to a file that already existed

@@ -31,7 +31,7 @@ import httpx
 import typer
 
 from ragfabric_cli.commands.ingest import ingest_files
-from ragfabric_cli.envfile import read_env_file
+from ragfabric_cli.envfile import read_env_file, write_private
 from ragfabric_cli.templates import SAMPLE_QUESTION, sample_paths, template_path
 from ragfabric_cli.ui import console
 from ragfabric_cli.ui.console import mask_urls_in
@@ -293,6 +293,28 @@ def patch_config(text: str, choice: ModelChoice, *, cache_kind: str | None) -> s
 # Steps ----------------------------------------------------------------------
 
 
+def _with_fresh_secrets(template: str) -> str:
+    """The env template with a random JWT_SECRET and bootstrap admin password.
+
+    The template's values are published in this repository. Neither is ever
+    printed: the API key quickstart writes is how the user signs in, and the
+    admin password stays in .env for the server's first start.
+    """
+    import secrets
+
+    fresh = {
+        "JWT_SECRET": secrets.token_urlsafe(64),
+        "FIRST_ADMIN_PASSWORD": secrets.token_urlsafe(24),
+    }
+    lines = []
+    for line in template.splitlines(keepends=True):
+        key = line.partition("=")[0].strip()
+        if key in fresh and not line.lstrip().startswith("#"):
+            line = f"{key}={fresh[key]}\n"
+        lines.append(line)
+    return "".join(lines)
+
+
 def _step_config(ctx: Context) -> None:
     for template, target in (("env.example", ".env"), ("ragfabric.example.yaml", "ragfabric.yaml")):
         dst = ctx.dir / target
@@ -307,7 +329,7 @@ def _step_config(ctx: Context) -> None:
             _done("config", f"{target} exists, keeping it (use --force to overwrite)")
             continue
         if target == ".env":
-            _write_private(dst, src.read_bytes())
+            write_private(dst, _with_fresh_secrets(src.read_text()).encode("utf-8"))
         else:
             shutil.copyfile(src, dst)
         if target == "ragfabric.yaml":
@@ -350,14 +372,6 @@ def _read_env_value(path: Path, key: str) -> str | None:
     return read_env_file(path).get(key) or None
 
 
-def _write_private(path: Path, data: bytes) -> None:
-    """Write ``path`` readable and writable by its owner only (0600): .env holds secrets."""
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "wb") as handle:
-        handle.write(data)
-    os.chmod(path, 0o600)  # O_CREAT's mode does not apply to a file that already existed
-
-
 def _set_env_value(path: Path, key: str, value: str) -> None:
     lines = path.read_text().splitlines(keepends=True) if path.is_file() else []
     for i, line in enumerate(lines):
@@ -366,7 +380,7 @@ def _set_env_value(path: Path, key: str, value: str) -> None:
             break
     else:
         lines.append(f"{key}={value}\n")
-    _write_private(path, "".join(lines).encode("utf-8"))
+    write_private(path, "".join(lines).encode("utf-8"))
 
 
 def _docker_available() -> bool:
