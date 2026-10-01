@@ -35,3 +35,32 @@ def test_every_command_help_has_examples(path):
     assert result.exit_code == 0
     assert "Examples:" in result.output
     assert f"ragfabric {' '.join(path[:1])}" in result.output
+
+
+def _find_command(path):
+    node = app
+    for part in path[:-1]:
+        node = next(g.typer_instance for g in node.registered_groups if g.name == part)
+    for command in node.registered_commands:
+        if (command.name or command.callback.__name__.replace("_", "-")) == path[-1]:
+            return command
+    raise AssertionError(path)
+
+
+@pytest.mark.parametrize("path", PATHS, ids=lambda p: " ".join(p))
+def test_example_flags_exist_on_the_command(path):
+    import re
+
+    if path[-1] in OTHER_TRACK:
+        pytest.skip("covered when the tracks merge")
+    click_command = typer.main.get_command(app)
+    for part in path:
+        click_command = click_command.commands[part]
+    known = {opt for param in click_command.params for opt in (*param.opts, *param.secondary_opts)}
+    known.add("--help")
+    out = runner.invoke(app, [*path, "--help"]).output
+    lines = [ln for ln in out.splitlines() if ln.strip().startswith(f"ragfabric {' '.join(path)}")]
+    assert lines
+    for line in lines:
+        for flag in re.findall(r"(?<!\S)(--[a-z][a-z-]*)", line):
+            assert flag in known, f"{line!r} uses unknown {flag}"

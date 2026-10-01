@@ -104,7 +104,7 @@ def ingest(
     \b
     Examples:
       ragfabric ingest ./docs --recursive
-      ragfabric ingest handbook.pdf --collection hr
+      ragfabric ingest handbook.pdf --collection docs
     """
     files = _files(path, recursive)
     if not files:

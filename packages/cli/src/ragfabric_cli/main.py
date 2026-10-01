@@ -121,7 +121,9 @@ def downgrade(revision: str = typer.Option("base", help="Target revision.")) -> 
 
     \b
     Examples:
-      ragfabric db downgrade --revision base
+      ragfabric db downgrade --revision <revision-id>
+
+    Rolling back to base removes every table; name the revision you want.
     """
     migrate.downgrade(_database_url(), revision)
     typer.echo(f"database downgraded to {revision}")

@@ -32,3 +32,15 @@ def test_a_subcommand_does_not_print_the_welcome_screen():
     result = runner.invoke(app, ["version"])
     assert result.exit_code == 0
     assert "quickstart" not in result.output
+
+
+def test_debug_before_a_subcommand_still_runs_it():
+    from ragfabric_cli.ui import errors
+
+    try:
+        result = runner.invoke(app, ["--debug", "version"])
+        assert result.exit_code == 0
+        assert f"ragfabric {__version__}" in result.output
+        assert errors.DEBUG is True
+    finally:
+        errors.DEBUG = False

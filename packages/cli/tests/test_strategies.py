@@ -45,3 +45,16 @@ def test_rich_output_lists_every_name_and_example(monkeypatch):
     for row in ROWS:
         assert row.name in result.output
         assert row.example in result.output
+
+
+@pytest.mark.parametrize("row", [r for r in ROWS if r.name != "auto"], ids=lambda r: r.name)
+def test_relative_cost_is_the_routers_engineering_level(row):
+    from ragfabric_core.router.decision import ENGINEERING_LEVELS
+
+    assert row.relative_cost == ENGINEERING_LEVELS[row.name][1]
+
+
+def test_auto_cost_depends_on_the_choice_and_plain_output_has_no_model_call_counts():
+    auto = next(r for r in ROWS if r.name == "auto")
+    assert auto.relative_cost == "depends on the strategy chosen"
+    assert "model calls" not in runner.invoke(app, ["strategies"]).output

@@ -26,7 +26,7 @@ class CheckView:
 class StrategyRow:
     name: str
     best_at: str
-    model_calls: str
+    relative_cost: str
     example: str
 
 
@@ -222,14 +222,14 @@ def render_checks(results: list[CheckView]) -> None:
 def render_strategies(rows: list[StrategyRow]) -> None:
     if not console.is_rich():
         for row in rows:
-            typer.echo(f"{row.name}: {row.best_at} ({row.model_calls} model calls)")
+            typer.echo(f"{row.name}: {row.best_at} (relative cost: {row.relative_cost})")
             typer.echo(f"  e.g. {row.example}")
         return
     table = Table(title="Strategies")
-    for column in ("Strategy", "Best at", "Model calls", "Example"):
+    for column in ("Strategy", "Best at", "Relative cost", "Example"):
         table.add_column(column, overflow="fold")
     for row in rows:
-        table.add_row(Text(row.name), Text(row.best_at), Text(row.model_calls), Text(row.example))
+        table.add_row(Text(row.name), Text(row.best_at), Text(row.relative_cost), Text(row.example))
     console.get_console().print(table)
 
 

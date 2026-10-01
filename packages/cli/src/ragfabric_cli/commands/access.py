@@ -84,7 +84,7 @@ def add_grant(
 
     \b
     Examples:
-      ragfabric grants add --group hr --collection hr --permission read
+      ragfabric grants add --group hr --collection docs --permission read
     """
     with session() as db:
         g = _group(db, group)
@@ -133,7 +133,7 @@ def create_key(
 
     \b
     Examples:
-      ragfabric keys create --name ci --user you@example.com --collection hr
+      ragfabric keys create --name ci --user you@example.com --collection docs
     """
     with session() as db:
         owner = user_by_email(db, user)
