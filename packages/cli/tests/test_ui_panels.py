@@ -44,5 +44,5 @@ def test_rich_answer_on_a_narrow_terminal_does_not_crash(monkeypatch, capsys):
     finally:
         console.get_console.cache_clear()
     out = capsys.readouterr().out
-    assert "Answer" in out and "leave.pdf p2" in out
+    assert "Answer" in out and "Sources" in out and "leave.pdf" in out
     assert max(len(line) for line in out.splitlines()) <= 40

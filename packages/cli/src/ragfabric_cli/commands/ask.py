@@ -15,7 +15,6 @@ import typer
 
 from ragfabric_cli.ui.panels import render_answer
 from ragfabric_sdk import Client
-from ragfabric_sdk.errors import RagFabricError
 
 DEFAULT_URL = "http://localhost:8000"
 
@@ -113,7 +112,7 @@ def ask(
                     router=answer.router.model_dump() if answer.router is not None else None,
                     fallback_from=answer.fallback_from,
                     subgraph=answer.subgraph.model_dump() if answer.subgraph is not None else None,
-                    dropped_claims=[],
+                    dropped_claims=[claim.model_dump() for claim in answer.dropped_claims],
                     dropped_relationship_claims=[
                         claim.model_dump() for claim in answer.dropped_relationship_claims
                     ],
@@ -126,6 +125,7 @@ def ask(
         router: dict | None = None
         fallback_from: str | None = None
         dropped_relationship_claims: list[dict] = []
+        dropped_claims: list[dict] = []
         run_id = None
         latency_ms = None
         for event in client.ask_stream(question, **params):
@@ -150,6 +150,7 @@ def ask(
                 )
                 typer.echo("\n")
                 typer.echo(event.data.get("text", ""), nl=False)
+                dropped_claims = event.data.get("dropped_claims", [])
                 dropped_relationship_claims = event.data.get("dropped_relationship_claims", [])
             elif event.event == "citations":
                 citations = event.data.get("citations", [])
@@ -164,16 +165,10 @@ def ask(
             router=router,
             fallback_from=fallback_from,
             subgraph=subgraph,
-            dropped_claims=[],
+            dropped_claims=dropped_claims,
             dropped_relationship_claims=dropped_relationship_claims,
         )
         if run_id is not None:
             typer.echo(f"run {run_id} in {latency_ms}ms")
-    except RagFabricError as exc:
-        typer.echo(f"error: {exc}", err=True)
-        raise typer.Exit(1) from exc
-    except Exception as exc:  # connection refused, DNS failure, timeout
-        typer.echo(f"could not reach {url}: {exc}", err=True)
-        raise typer.Exit(1) from exc
     finally:
         client.close()

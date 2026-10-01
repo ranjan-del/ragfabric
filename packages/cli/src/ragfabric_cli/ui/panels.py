@@ -106,8 +106,8 @@ def render_answer(
 ) -> None:
     """Print an answer. ``text`` is None when the tokens were already streamed.
 
-    ``dropped_claims`` is reserved for the final rich layout; only the relationship
-    claims are printed today, exactly as before.
+    ``dropped_claims`` is shown only by the rich layout; the plain output prints the
+    relationship claims alone, exactly as before.
     """
     if not console.is_rich():
         if text is not None:
@@ -118,21 +118,85 @@ def render_answer(
         _print_routing(strategy, router, fallback_from)
         return
 
+    _render_answer_rich(
+        text,
+        citations,
+        strategy=strategy,
+        router=router,
+        fallback_from=fallback_from,
+        subgraph=subgraph,
+        dropped_claims=dropped_claims,
+    )
+
+
+_SNIPPET_WIDTH = 60
+
+
+def _snippet(citation: dict) -> str:
+    """The first 60 characters of the quoted text, or "" when the server sent none."""
+    raw = citation.get("text") or citation.get("snippet") or ""
+    flat = " ".join(str(raw).split())
+    return flat if len(flat) <= _SNIPPET_WIDTH else flat[:_SNIPPET_WIDTH].rstrip() + "…"
+
+
+def _render_answer_rich(
+    text: str | None,
+    citations: list[dict],
+    *,
+    strategy: str | None,
+    router: dict | None,
+    fallback_from: str | None,
+    subgraph: dict | None,
+    dropped_claims: list[dict],
+) -> None:
     out = console.get_console()
     if text is not None:
         out.print(Panel(Text(text), title="Answer", title_align="left"))
     used = [c for c in citations if c.get("used")]
     if used:
-        sources = Table.grid(padding=(0, 1))
+        table = Table(title="Sources", title_justify="left", title_style="bold")
+        table.add_column("#", no_wrap=True)
+        table.add_column("Document", overflow="fold")
+        table.add_column("Page", no_wrap=True)
+        table.add_column("Snippet", overflow="fold")
         for citation in used:
             name = citation.get("filename") or f"document {citation.get('document_id')}"
-            page = f" p{citation['page']}" if citation.get("page") else ""
-            sources.add_row(Text(str(citation["marker"])), Text(f"{name}{page}"))
-        out.print(Text("sources", style="bold"))
-        out.print(sources)
+            page = str(citation["page"]) if citation.get("page") else ""
+            table.add_row(
+                Text(str(citation["marker"])), Text(name), Text(page), Text(_snippet(citation))
+            )
+        out.print(table)
     line = _routing_line(strategy, router, fallback_from)
     if line:
-        out.print(Text(line, style="dim"))
+        # "Strategy  <name> (<source>). <reasoning>": a label and the same sentence.
+        out.print(Text("Strategy  ", style="bold") + Text(line.removeprefix("Strategy: ")))
+    _print_graph_rich(out, subgraph)
+    if dropped_claims:
+        block = Text(style="dim")
+        block.append("Removed (unsupported)", style="dim bold")
+        for claim in dropped_claims:
+            block.append(f"\n  {claim['text']} ({claim['reason']})")
+        out.print(block)
+
+
+def _print_graph_rich(out, subgraph: dict | None) -> None:
+    if subgraph is None:
+        return
+    names = {node["id"]: node["name"] for node in subgraph.get("nodes", [])}
+    edges = subgraph.get("edges", [])
+    if edges:
+        out.print(Text("Graph", style="bold"))
+        for edge in edges:
+            start, end = edge["source_id"], edge["target_id"]
+            if edge.get("reversed"):
+                start, end = end, start
+            out.print(
+                Text(f"  {names.get(start, start)} ─{edge['walked_as']}→ {names.get(end, end)}")
+            )
+    elif subgraph.get("empty_reason"):
+        out.print(Text(f"Graph  nothing walked ({subgraph['empty_reason']})", style="dim"))
+    if subgraph.get("truncated"):
+        out.print(Text("Graph  the walk was cut by the node budget", style="dim"))
 
 
 _STATUS_STYLE = {"pass": "green", "warn": "yellow", "fail": "red", "skip": "dim"}
