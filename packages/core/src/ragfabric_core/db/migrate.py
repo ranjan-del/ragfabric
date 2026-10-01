@@ -52,3 +52,11 @@ def head_revision() -> str:
     if head is None:
         raise RuntimeError("the packaged migrations define no revision")
     return head
+
+
+def known_revisions() -> set[str]:
+    """Every revision id the packaged scripts define."""
+    from alembic.script import ScriptDirectory
+
+    script = ScriptDirectory.from_config(alembic_config("sqlite://"))
+    return {rev.revision for rev in script.walk_revisions()}

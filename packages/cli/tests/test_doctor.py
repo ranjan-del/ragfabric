@@ -37,7 +37,8 @@ def test_exit_is_zero_when_nothing_fails(env):
     assert not any(r["status"] == "fail" for r in json.loads(result.stdout))
 
 
-def test_plain_output_has_a_line_per_check_with_status_and_fix(env):
+def test_plain_output_has_a_line_per_check_with_status_and_fix(env, tmp_path):
+    (tmp_path / "ragfabric.yaml").write_text("llm:\n  provider: ollama\n")
     result = runner.invoke(app, ["doctor", "--no-network"])
     lines = result.stdout.splitlines()
     assert any(line.startswith("fail") and "migrations" in line for line in lines)
@@ -45,7 +46,11 @@ def test_plain_output_has_a_line_per_check_with_status_and_fix(env):
     assert any(line.startswith("skip") and "llm" in line for line in lines)
 
 
-def test_no_network_makes_no_provider_call(env, monkeypatch):
+def test_no_network_makes_no_provider_call(env, monkeypatch, tmp_path):
+    (tmp_path / "ragfabric.yaml").write_text(
+        "llm:\n  provider: ollama\nembeddings:\n  provider: ollama\n"
+    )
+
     def boom(*args, **kwargs):
         raise AssertionError("provider was built")
 
@@ -60,3 +65,12 @@ def test_no_network_makes_no_provider_call(env, monkeypatch):
 
 def test_help_has_examples():
     assert "Examples:" in runner.invoke(app, ["doctor", "--help"]).stdout
+
+
+def test_offline_is_labelled_even_with_no_network(env):
+    rows = {
+        r["name"]: r
+        for r in json.loads(runner.invoke(app, ["doctor", "--no-network", "--json"]).stdout)
+    }
+    assert rows["llm"]["status"] == "warn"
+    assert rows["llm"]["detail"] == "offline mode: answers are extractive"

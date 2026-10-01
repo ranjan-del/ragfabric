@@ -170,9 +170,86 @@ def test_graph_is_skip_when_disabled_and_not_pass():
     assert diagnostics.check_graph(_offline_cfg()).status == "skip"
 
 
-def test_graph_enabled_reports_pass():
+def test_graph_enabled_with_offline_llm_and_no_model_is_warn():
+    cfg = RagFabricConfig.model_validate(
+        {"llm": {"provider": "offline"}, "graph_store": {"enabled": True}}
+    )
+    result = diagnostics.check_graph(cfg)
+    assert result.status == "warn"
+    assert "graph_store.extraction_model" in (result.fix or "")
+
+
+def test_graph_enabled_with_a_model_says_what_was_examined():
+    cfg = RagFabricConfig.model_validate(
+        {
+            "llm": {"provider": "offline"},
+            "graph_store": {"enabled": True, "extraction_model": "m-1"},
+        }
+    )
+    result = diagnostics.check_graph(cfg)
+    assert result.status == "pass"
+    assert result.detail == "graph extraction configured with m-1; extraction not exercised"
+
+
+def test_graph_enabled_with_a_real_llm_uses_the_provider_default():
     cfg = RagFabricConfig.model_validate({"graph_store": {"enabled": True}})
     assert diagnostics.check_graph(cfg).status == "pass"
+
+
+def test_migrations_unknown_revision_says_upgrade_ragfabric(tmp_path):
+    from sqlalchemy import create_engine, text
+
+    url = f"sqlite:///{tmp_path / 'u.db'}"
+    engine = create_engine(url)
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)"))
+        conn.execute(text("INSERT INTO alembic_version VALUES ('zzzz_from_the_future')"))
+    engine.dispose()
+    result = diagnostics.check_migrations(url)
+    assert result.status == "fail"
+    assert result.detail == (
+        "database is at zzzz_from_the_future, which this version of ragfabric does not know"
+    )
+    assert result.fix == "upgrade ragfabric (pip install -U ragfabric)"
+
+
+def test_migrations_behind_says_db_upgrade(tmp_path):
+    result = diagnostics.check_migrations(f"sqlite:///{tmp_path / 'b.db'}")
+    assert result.fix == "ragfabric db upgrade"
+
+
+def test_llm_and_embeddings_catch_any_exception(monkeypatch):
+    def boom(cfg):
+        raise ValueError("bad thing at postgresql://u:pw@h/x")
+
+    monkeypatch.setattr(diagnostics, "build_llm_provider", boom)
+    monkeypatch.setattr(diagnostics, "build_embedding_provider", boom)
+    for check in (diagnostics.check_llm, diagnostics.check_embeddings):
+        result = check(_ollama_cfg(), network=True)
+        assert result.status == "fail"
+        assert result.detail.startswith("ValueError: bad thing")
+        assert "pw" not in result.detail
+
+
+def test_offline_warns_even_without_network():
+    assert diagnostics.check_llm(_offline_cfg(), network=False).status == "warn"
+    assert diagnostics.check_embeddings(_offline_cfg(), network=False).status == "warn"
+
+
+def test_ollama_fixes_are_specific(monkeypatch):
+    class Down:
+        def complete(self, *a, **k):
+            raise ProviderError("ollama", "Connection error.")
+
+    monkeypatch.setattr(diagnostics, "build_llm_provider", lambda cfg: Down())
+    assert diagnostics.check_llm(_ollama_cfg(), network=True).fix == "ollama serve"
+
+    class Missing:
+        def complete(self, *a, **k):
+            raise ProviderError("ollama", "model 'llama3.2:3b' not found")
+
+    monkeypatch.setattr(diagnostics, "build_llm_provider", lambda cfg: Missing())
+    assert diagnostics.check_llm(_ollama_cfg(), network=True).fix == "ollama pull llama3.2:3b"
 
 
 def test_server_warns_when_nothing_listens():
@@ -206,7 +283,8 @@ def test_run_all_returns_every_check_and_skips_network_ones(tmp_path, monkeypatc
     names = [r.name for r in results]
     assert len(names) == len(set(names)) >= 8
     by = {r.name: r for r in results}
-    assert by["llm"].status == "skip" and by["embeddings"].status == "skip"
+    assert by["llm"].status != "pass" and by["embeddings"].status != "pass"
+    assert by["server"].detail == "server probe skipped: network checks are off"
     assert by["migrations"].status == "fail"
 
 
