@@ -309,3 +309,60 @@ def test_mask_urls_in_masks_every_url_in_a_string():
     masked = diagnostics.mask_urls_in(text)
     assert "one" not in masked and "two" not in masked
     assert masked == "tried postgresql://a:***@h1/x then postgresql://b:***@h2/y"
+
+
+# final fix wave: C1 and I7, a client package that is not installed ------------
+
+
+def _hide(monkeypatch, *packages):
+    import importlib.util
+
+    real = importlib.util.find_spec
+
+    def fake(name, *args, **kwargs):
+        return None if name.split(".")[0] in packages else real(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib.util, "find_spec", fake)
+
+
+def test_offline_fixes_start_with_the_pip_install_while_openai_is_missing(monkeypatch):
+    _hide(monkeypatch, "openai")
+    for check in (diagnostics.check_llm, diagnostics.check_embeddings):
+        assert check(_offline_cfg(), network=True).fix.startswith(
+            "pip install 'ragfabric[openai]', then "
+        )
+
+
+def test_a_provider_that_is_not_installed_gets_the_pip_fix(monkeypatch):
+    class NotInstalled:
+        def complete(self, *a, **k):
+            raise ProviderError(
+                "ollama",
+                "openai is not installed. Install it with: pip install 'ragfabric[openai]'",
+            )
+
+    monkeypatch.setattr(diagnostics, "build_llm_provider", lambda cfg: NotInstalled())
+    assert diagnostics.check_llm(_ollama_cfg(), network=True).fix == (
+        "pip install 'ragfabric[openai]'"
+    )
+
+
+def test_the_provider_install_messages_say_pip_install(monkeypatch):
+    from ragfabric_core.providers import anthropic_provider, openai_compat
+
+    def missing():
+        raise ImportError("no")
+
+    monkeypatch.setattr(openai_compat, "_import_openai", missing)
+    monkeypatch.setattr(anthropic_provider, "_import_anthropic", missing)
+    messages = []
+    for build in (
+        lambda: openai_compat._build_client("ollama", "k", None),
+        lambda: anthropic_provider.AnthropicProvider(api_key="k"),
+    ):
+        try:
+            build()
+        except ProviderError as exc:
+            messages.append(str(exc))
+    assert len(messages) == 2
+    assert all("pip install 'ragfabric[" in m and "uv pip" not in m for m in messages)

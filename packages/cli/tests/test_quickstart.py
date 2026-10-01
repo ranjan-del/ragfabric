@@ -609,3 +609,71 @@ def test_printed_commands_quote_a_directory_with_a_space(tmp_path):
     inner = command.split('"$(', 1)[1].rsplit(')"', 1)[0]
     assert shlex.split(inner)[:6] == ["ragfabric", "keys", "create", "--name", "cli", "--user"]
     assert shlex.split(inner)[6] == "o'brien@example.com"
+
+
+# final fix wave: C1, an optional client package that is not installed ---------
+
+
+@pytest.fixture
+def hidden_packages(monkeypatch):
+    """Make importlib.util.find_spec report the named top level packages as missing."""
+    import importlib.util
+
+    real = importlib.util.find_spec
+    hidden: set[str] = set()
+
+    def fake(name, *args, **kwargs):
+        if name.split(".")[0] in hidden:
+            return None
+        return real(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib.util, "find_spec", fake)
+    return hidden
+
+
+def _ollama_up(monkeypatch):
+    monkeypatch.setattr(
+        qs, "_ollama_models", lambda timeout=2.0: ["llama3.2:3b", "nomic-embed-text:latest"]
+    )
+
+
+def test_ollama_running_without_the_openai_package_falls_through_to_offline(
+    monkeypatch, hidden_packages
+):
+    _ollama_up(monkeypatch)
+    hidden_packages.add("openai")
+    choice = qs.choose_model(None, {})
+    assert choice.kind == "offline"
+    assert (
+        "Ollama is running with llama3.2:3b and nomic-embed-text, but its client package "
+        "(openai) is not installed"
+    ) in choice.reason
+    assert "pip install 'ragfabric[openai]'" in choice.reason
+    assert "uv pip" not in choice.reason
+
+
+def test_an_openai_key_without_the_openai_package_falls_through(no_ollama, hidden_packages):
+    hidden_packages.add("openai")
+    choice = qs.choose_model(None, {"OPENAI_API_KEY": SECRET, "ANTHROPIC_API_KEY": "k"})
+    assert choice.kind == "anthropic"
+    assert "OPENAI_API_KEY is set, but its client package (openai) is not installed" in (
+        choice.reason
+    )
+    assert SECRET not in choice.reason
+
+
+def test_an_anthropic_key_without_the_anthropic_package_ends_offline(no_ollama, hidden_packages):
+    hidden_packages.add("anthropic")
+    choice = qs.choose_model(None, {"ANTHROPIC_API_KEY": "k"})
+    assert choice.kind == "offline"
+    assert "client package (anthropic) is not installed" in choice.reason
+    assert "pip install 'ragfabric[anthropic]'" in choice.reason
+
+
+def test_the_upgrade_hint_starts_with_the_pip_install_while_openai_is_missing(
+    tmp_path, hidden_packages
+):
+    hidden_packages.add("openai")
+    assert qs.upgrade_hint(tmp_path).startswith("pip install 'ragfabric[openai]' && ollama pull")
+    hidden_packages.discard("openai")
+    assert qs.upgrade_hint(tmp_path).startswith("ollama pull")

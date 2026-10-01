@@ -12,6 +12,7 @@ any exception and on Ctrl-C, killed if it ignores the request to stop.
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import shlex
@@ -51,16 +52,30 @@ SERVE_URL = "http://127.0.0.1:8000"
 API_KEY_NAME = "quickstart"
 
 
-def upgrade_hint(dir: Path) -> str:
+OPENAI_INSTALL = "pip install 'ragfabric[openai]'"
+ANTHROPIC_INSTALL = "pip install 'ragfabric[anthropic]'"
+
+
+def installed(package: str) -> bool:
+    """True when the optional client ``package`` can be imported. Nothing is imported."""
+    return importlib.util.find_spec(package) is not None
+
+
+def upgrade_hint(dir: Path | None) -> str:
     """The command that moves an offline setup to a local model.
 
     Never --force: that would re-copy .env and lose the API key, JWT_SECRET and
     any Docker DATABASE_URL. Moving ragfabric.yaml aside makes quickstart
-    choose the model again and leaves everything else as it is.
+    choose the model again and leaves everything else as it is. Ollama is
+    served through the openai client package, so the hint installs it first
+    while it is missing. ``dir`` None leaves out the ``cd``, for a list of
+    steps that already changed into the directory.
     """
+    install = f"{OPENAI_INSTALL} && " if not installed("openai") else ""
+    cd = f"cd {shlex.quote(str(dir))} && " if dir is not None else ""
     return (
-        f"ollama pull {OLLAMA_CHAT_MODEL} && ollama pull {OLLAMA_EMBED_MODEL} && "
-        f"cd {shlex.quote(str(dir))} && mv ragfabric.yaml ragfabric.yaml.bak && ragfabric quickstart && "
+        f"{install}ollama pull {OLLAMA_CHAT_MODEL} && ollama pull {OLLAMA_EMBED_MODEL} && "
+        f"{cd}mv ragfabric.yaml ragfabric.yaml.bak && ragfabric quickstart && "
         "ragfabric reindex --yes"
     )
 
@@ -147,7 +162,13 @@ def choose_model(
         else:
             chat = [m for m in models if "embed" not in m]
             embed = [m for m in models if m.split(":")[0] == OLLAMA_EMBED_MODEL]
-            if chat and embed:
+            if chat and embed and not installed("openai"):
+                model = OLLAMA_CHAT_MODEL if OLLAMA_CHAT_MODEL in chat else chat[0]
+                notes.append(
+                    f"Ollama is running with {model} and {OLLAMA_EMBED_MODEL}, but its client "
+                    f"package (openai) is not installed (run: {OPENAI_INSTALL})"
+                )
+            elif chat and embed:
                 model = OLLAMA_CHAT_MODEL if OLLAMA_CHAT_MODEL in chat else chat[0]
                 return ModelChoice(
                     "ollama",
@@ -160,18 +181,24 @@ def choose_model(
                     },
                     f"Ollama is running with {model} and {OLLAMA_EMBED_MODEL}",
                 )
-            missing = []
-            if not chat:
-                missing.append(f"ollama pull {OLLAMA_CHAT_MODEL}")
-            if not embed:
-                missing.append(f"ollama pull {OLLAMA_EMBED_MODEL}")
-            notes.append(
-                "Ollama is running but is missing a model (run: " + "; ".join(missing) + ")"
-            )
+            else:
+                missing = []
+                if not chat:
+                    missing.append(f"ollama pull {OLLAMA_CHAT_MODEL}")
+                if not embed:
+                    missing.append(f"ollama pull {OLLAMA_EMBED_MODEL}")
+                notes.append(
+                    "Ollama is running but is missing a model (run: " + "; ".join(missing) + ")"
+                )
     else:
         notes.append("Ollama was not checked (--no-model-check)")
 
-    if env.get("OPENAI_API_KEY"):
+    if env.get("OPENAI_API_KEY") and not installed("openai"):
+        notes.append(
+            "OPENAI_API_KEY is set, but its client package (openai) is not installed "
+            f"(run: {OPENAI_INSTALL})"
+        )
+    elif env.get("OPENAI_API_KEY"):
         return ModelChoice(
             "openai",
             {"provider": "openai", "model": "gpt-5.4-mini", "base_url": None},
@@ -183,7 +210,12 @@ def choose_model(
             },
             "; ".join([*notes, "OPENAI_API_KEY is set"]),
         )
-    if env.get("ANTHROPIC_API_KEY"):
+    if env.get("ANTHROPIC_API_KEY") and not installed("anthropic"):
+        notes.append(
+            "ANTHROPIC_API_KEY is set, but its client package (anthropic) is not installed "
+            f"(run: {ANTHROPIC_INSTALL})"
+        )
+    elif env.get("ANTHROPIC_API_KEY"):
         dim = _configured_dim(cfg_path)
         return ModelChoice(
             "anthropic",
@@ -205,7 +237,12 @@ def choose_model(
         "; ".join(
             [
                 *notes,
-                "no OPENAI_API_KEY or ANTHROPIC_API_KEY is set, so offline mode: answers are "
+                (
+                    "no model is usable"
+                    if env.get("OPENAI_API_KEY") or env.get("ANTHROPIC_API_KEY")
+                    else "no OPENAI_API_KEY or ANTHROPIC_API_KEY is set"
+                )
+                + ", so offline mode: answers are "
                 "extractive (sentences lifted from your documents, no model writes them) "
                 "and retrieval uses hashing embeddings, not semantic ones",
             ]

@@ -44,7 +44,7 @@ class AnthropicProvider:
                 raise ProviderError(
                     self.name,
                     "anthropic is not installed. Install it with: "
-                    "uv pip install 'ragfabric[anthropic]'",
+                    "pip install 'ragfabric[anthropic]'",
                 ) from exc
             client = anthropic_cls(api_key=api_key)
         self._client = client

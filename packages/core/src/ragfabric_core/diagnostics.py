@@ -8,6 +8,7 @@ carry a URL goes through ``mask_url`` first, so no password is ever printed.
 from __future__ import annotations
 
 import http.client
+import importlib.util
 import re
 import sys
 import urllib.error
@@ -157,14 +158,32 @@ def check_migrations(db_url: str) -> CheckResult:
     )
 
 
+_INSTALL_HINT = re.compile(r"(pip install '[^']+')")
+_PACKAGE_FOR_PROVIDER = {"anthropic": "anthropic"}
+OPENAI_INSTALL = "pip install 'ragfabric[openai]'"
+
+
+def _install_fix(provider: str, message: str) -> str:
+    """The pip command for a provider whose client package is not installed."""
+    found = _INSTALL_HINT.search(message)
+    if found:
+        return found.group(1)
+    package = _PACKAGE_FOR_PROVIDER.get(provider, "openai")
+    return f"pip install 'ragfabric[{package}]'"
+
+
 def _provider_fix(provider: str, message: str, model: str | None) -> str:
     """The most specific fix we can justify from the failure text."""
+    lowered = message.lower()
+    if "is not installed" in lowered:
+        return _install_fix(provider, message)
     if provider == "ollama":
-        lowered = message.lower()
-        if "not found" in lowered or "404" in lowered:
-            return f"ollama pull {model or '<model>'}"
+        # Connection first: a DNS "host not found" is a connection failure, not
+        # a model that needs pulling.
         if "connect" in lowered or "refused" in lowered:
             return "ollama serve"
+        if "not found" in lowered or "404" in lowered:
+            return f"ollama pull {model or '<model>'}"
     return "check the provider settings in ragfabric.yaml"
 
 
@@ -174,13 +193,21 @@ UPGRADE_STEPS = (
 )
 
 
+def _offline_fix(keys: str) -> str:
+    """How to leave offline mode. Ollama and OpenAI need the openai package first."""
+    fix = f"install Ollama, or set {keys}, then {UPGRADE_STEPS}"
+    if importlib.util.find_spec("openai") is None:
+        return f"{OPENAI_INSTALL}, then {fix}"
+    return fix
+
+
 def check_llm(cfg: RagFabricConfig, *, network: bool) -> CheckResult:
     if cfg.llm.provider == "offline":
         return CheckResult(
             "llm",
             "warn",
             "offline mode: answers are extractive",
-            f"install Ollama, or set OPENAI_API_KEY or ANTHROPIC_API_KEY, then {UPGRADE_STEPS}",
+            _offline_fix("OPENAI_API_KEY or ANTHROPIC_API_KEY"),
         )
     if not network:
         return CheckResult("llm", "skip", "not checked: network checks are off")
@@ -203,7 +230,7 @@ def check_embeddings(cfg: RagFabricConfig, *, network: bool) -> CheckResult:
             "embeddings",
             "warn",
             "offline mode: hashing embeddings, not semantic",
-            f"install Ollama, or set OPENAI_API_KEY, then {UPGRADE_STEPS}",
+            _offline_fix("OPENAI_API_KEY"),
         )
     if not network:
         return CheckResult("embeddings", "skip", "not checked: network checks are off")

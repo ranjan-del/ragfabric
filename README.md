@@ -350,14 +350,14 @@ How it picks a model:
 
 | Found | Used |
 |---|---|
-| Ollama running with a chat model and `nomic-embed-text` | Ollama |
-| `OPENAI_API_KEY` set | OpenAI |
-| `ANTHROPIC_API_KEY` set | Anthropic, with offline embeddings |
+| Ollama running with a chat model and `nomic-embed-text`, and the openai extra installed | Ollama |
+| `OPENAI_API_KEY` set, and the openai extra installed | OpenAI |
+| `ANTHROPIC_API_KEY` set, and the anthropic extra installed | Anthropic, with offline embeddings |
 | None of the above | Offline mode. Quickstart labels it: answers are extractive and limited |
 
 Quickstart never downloads a model for you and never overwrites `ragfabric.yaml` or `.env` without
-`--force`. When Ollama is running but a model is missing, it prints the `ollama pull` command. A
-rerun continues where the last run stopped. `--docker` uses PostgreSQL and Redis from a packaged
+`--force`. When Ollama is running but a model is missing, it prints the `ollama pull` command; when an
+extra is missing, it prints `pip install 'ragfabric[openai]'` (or `[anthropic]`). A rerun continues where the last run stopped. `--docker` uses PostgreSQL and Redis from a packaged
 compose file instead of SQLite, `--yes` skips prompts, and `--no-model-check` skips the Ollama probe
 (`--model-check` is the default).
 

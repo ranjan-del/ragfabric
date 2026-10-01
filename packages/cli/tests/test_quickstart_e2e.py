@@ -138,3 +138,30 @@ def test_a_force_rerun_leaves_exactly_one_active_quickstart_key(tmp_path, monkey
     engine.dispose()
     assert len(keys) == 2 and len(active) == 1
     assert new_key.startswith(active[0].key_prefix)
+
+
+def test_ollama_running_without_the_openai_package_still_reaches_a_cited_answer(
+    tmp_path, monkeypatch
+):
+    """C1: a base install (no openai package) with Ollama running ends offline, not broken."""
+    import importlib.util
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    for name in ("RAGFABRIC_API_KEY", "RAGFABRIC_TOKEN", "RAGFABRIC_URL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(
+        qs, "_ollama_models", lambda timeout=2.0: ["llama3.2:3b", "nomic-embed-text:latest"]
+    )
+    real = importlib.util.find_spec
+
+    def without_openai(name, *args, **kwargs):
+        return None if name.split(".")[0] == "openai" else real(name, *args, **kwargs)
+
+    monkeypatch.setattr(importlib.util, "find_spec", without_openai)
+    result = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--yes"])
+    assert result.exit_code == 0, result.output
+    assert "client package (openai) is not installed" in result.output
+    assert "model: offline" in result.output
+    assert "up to 10 days of unused annual leave carry forward" in result.output
+    assert "leave-policy.md" in result.output
