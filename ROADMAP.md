@@ -192,7 +192,7 @@ built. The v0.4.0 release is not tagged yet. See
         ingest and a first cited answer
   - [x] `ragfabric doctor`: a pass or fail check of Python, database, migrations, providers and
         configuration, with the exact command that fixes each failure
-  - [x] `ragfabric strategies`: the four retrieval strategies, what each is best at, and an example
+  - [x] `ragfabric strategies`: the five strategies (auto and the four retrievers), what each is best at, and an example
         question for each
   - [x] Examples in every `--help`, and errors that name the fix instead of a stack trace
   - [x] Progress during `ingest`

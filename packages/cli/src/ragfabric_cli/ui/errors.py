@@ -56,7 +56,8 @@ def friendly_error(exc: BaseException) -> FriendlyError | None:
     if isinstance(exc, AuthError):
         return FriendlyError(
             "The server refused the credentials",
-            "pass --token or --api-key, or set RAGFABRIC_TOKEN",
+            "set RAGFABRIC_API_KEY, or pass --token or --api-key "
+            "(ragfabric quickstart writes a key to .env)",
         )
     if isinstance(exc, RagFabricError):
         return FriendlyError(f"The server returned an error: {mask_urls_in(str(exc))}", None)

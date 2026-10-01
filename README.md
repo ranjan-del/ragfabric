@@ -333,10 +333,16 @@ ragfabric doctor
 `ragfabric quickstart` works in the current directory (or `--dir PATH`). It writes `ragfabric.yaml`
 and `.env` from templates packaged with the install when they are missing, picks a model, sets up
 SQLite, migrates, ingests a small sample corpus, asks a sample question through a temporary server
-and prints the cited answer. It then creates an API key and, when it wrote `.env` itself, stores
-`RAGFABRIC_API_KEY` and `RAGFABRIC_URL` there so this works next:
+and prints the cited answer. The temporary server stops when quickstart ends. When quickstart wrote
+`.env` itself (mode 0600), it also creates an API key and stores `RAGFABRIC_API_KEY` and
+`RAGFABRIC_URL` there. When `.env` already existed it is kept, no key is written, and quickstart
+prints the one command that creates a key.
+
+To ask your own questions, start the server in a second terminal, in the same directory, and ask
+from the first:
 
 ```bash
+ragfabric serve
 ragfabric ask "your question about the sample documents"
 ```
 
@@ -350,10 +356,12 @@ How it picks a model:
 | None of the above | Offline mode. Quickstart labels it: answers are extractive and limited |
 
 Quickstart never downloads a model for you and never overwrites `ragfabric.yaml` or `.env` without
-`--force`. A rerun continues where the last run stopped. `--docker` uses PostgreSQL and Redis from a
-packaged compose file instead of SQLite, and `--yes` skips prompts.
+`--force`. When Ollama is running but a model is missing, it prints the `ollama pull` command. A
+rerun continues where the last run stopped. `--docker` uses PostgreSQL and Redis from a packaged
+compose file instead of SQLite, `--yes` skips prompts, and `--no-model-check` skips the Ollama probe
+(`--model-check` is the default).
 
-To move from offline mode to a real model later, keep `.env` and re-run setup:
+To move from offline mode to a real model later, keep `.env` and re-run setup (never `--force`):
 
 ```bash
 mv ragfabric.yaml ragfabric.yaml.bak
@@ -362,11 +370,12 @@ ragfabric reindex --yes
 ```
 
 `ragfabric doctor` checks Python, config, database, migrations, the LLM, embeddings, graph and the
-server. Each check reports pass, warn, fail or skip with the command that fixes a failure, and the
-exit code is 1 if anything failed. A skipped check says skipped. `--no-network` skips the provider
-and server calls, `--url` points it at a server, and `--json` is for scripts. `ragfabric strategies`
-lists the five strategies, what each is best at, a relative cost and an example question. Bare
-`ragfabric` shows a welcome screen, and `--debug` on any command prints the full traceback.
+server. Each check reports pass, warn, fail or skip with a fix for a failure, and the exit code is 1
+if anything failed. A skipped check says skipped. `--no-network` skips the provider and server calls
+(an offline provider still reports warn), `--url` points it at a server, and `--json` is for
+scripts. `ragfabric strategies` lists the five strategies, what each is best at, a relative cost and
+an example question. Bare `ragfabric` shows a welcome screen, and `ragfabric --debug <command>`
+prints the full traceback.
 
 Something wrong? See [docs/troubleshooting.md](docs/troubleshooting.md#errors-the-cli-explains).
 

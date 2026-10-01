@@ -50,7 +50,12 @@ def test_other_provider_errors_keep_their_message():
 
 
 def test_auth_is_matched_before_the_generic_server_error():
-    assert "refused the credentials" in friendly_error(AuthError("no", 401)).problem
+    fe = friendly_error(AuthError("no", 401))
+    assert "refused the credentials" in fe.problem
+    assert fe.fix == (
+        "set RAGFABRIC_API_KEY, or pass --token or --api-key "
+        "(ragfabric quickstart writes a key to .env)"
+    )
     assert "returned an error" in friendly_error(RagFabricError("bad", 500)).problem
 
 
