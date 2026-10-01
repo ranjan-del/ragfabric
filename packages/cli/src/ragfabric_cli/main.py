@@ -164,11 +164,10 @@ def init(
     import shutil
     from pathlib import Path
 
-    for example, target in ((".env.example", ".env"), ("ragfabric.example.yaml", "ragfabric.yaml")):
-        src, dst = Path(example), Path(target)
-        if not src.exists():
-            typer.echo(f"{example} not found in the current directory")
-            raise typer.Exit(code=1)
+    from ragfabric_cli.templates import template_path
+
+    for example, target in (("env.example", ".env"), ("ragfabric.example.yaml", "ragfabric.yaml")):
+        src, dst = template_path(example), Path(target)
         if dst.exists() and not force:
             typer.echo(f"{target} already exists (use --force to overwrite)")
             continue
