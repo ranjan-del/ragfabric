@@ -232,3 +232,17 @@ def test_a_provider_that_is_not_installed_gets_the_pip_fix():
         )
     )
     assert fe.fix == "pip install 'ragfabric[openai]'"
+
+
+@pytest.mark.parametrize("value", ["127.0.0.1:8000", "localhost:8000"])
+def test_a_url_without_a_scheme_says_it_needs_http(value):
+    client = httpx.Client(base_url=value)
+    try:
+        with pytest.raises(httpx.UnsupportedProtocol) as caught:
+            client.post("/api/ask")
+    finally:
+        client.close()
+    fe = friendly_error(caught.value)
+    assert fe.problem == f"The URL {value} needs http:// or https://"
+    assert fe.fix == "use http://127.0.0.1:8000 (or your server's address)"
+    assert "://" not in fe.problem.replace("http://", "").replace("https://", "")

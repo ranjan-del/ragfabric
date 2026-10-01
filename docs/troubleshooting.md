@@ -16,6 +16,7 @@ reported by `ragfabric doctor`; see [Getting started](getting-started.md#checkin
 | `No RagFabric server at <url>` | `ragfabric serve` |
 | `The server at <url> did not answer in time` | `retry, or check that ragfabric serve is still running` |
 | `Lost the connection to <url>` | `check that ragfabric serve is still running` |
+| `The URL <value> needs http:// or https://` (for example `RAGFABRIC_URL=localhost:8000`) | `use http://127.0.0.1:8000 (or your server's address)` |
 | `The server at <url> is not a RagFabric server` (something else answered with a bare `Not Found`) | `ragfabric serve --port <N>, then set RAGFABRIC_URL=http://127.0.0.1:<N> in .env`, with a free port filled in |
 | `127.0.0.1:<port> is already in use by another program` (from `ragfabric serve`, before uvicorn starts) | `ragfabric serve --port <N>, then set RAGFABRIC_URL=http://127.0.0.1:<N> in .env`, with a free port filled in |
 | `The server refused the credentials` | `set RAGFABRIC_API_KEY, or pass --token or --api-key (ragfabric quickstart writes a key to .env)` |

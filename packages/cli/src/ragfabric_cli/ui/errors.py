@@ -43,8 +43,25 @@ def _migrations_behind_type() -> type | None:
     return MigrationsBehind
 
 
+def _given_url(exc: httpx.TransportError) -> str:
+    """The URL as the user gave it, without the API path the client added."""
+    try:
+        url = exc.request.url
+    except RuntimeError:
+        return "given"
+    raw = str(url)
+    if "://" in raw:
+        return mask_url(f"{url.scheme}://{url.netloc.decode()}")
+    return mask_url(raw.split("/", 1)[0])
+
+
 def friendly_error(exc: BaseException) -> FriendlyError | None:
     """Map an exception to a FriendlyError, or None when it is not one we explain."""
+    if isinstance(exc, httpx.UnsupportedProtocol):
+        return FriendlyError(
+            f"The URL {_given_url(exc)} needs http:// or https://",
+            "use http://127.0.0.1:8000 (or your server's address)",
+        )
     if isinstance(exc, httpx.TransportError):
         try:
             request = exc.request
