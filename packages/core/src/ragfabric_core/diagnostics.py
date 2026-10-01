@@ -31,25 +31,23 @@ SERVER_TIMEOUT_SECONDS = 2
 def mask_url(url: str) -> str:
     """Replace the password in a URL with ``***``; anything else comes back unchanged.
 
-    The authority is everything between ``://`` and the next ``/``, and the
-    password runs to the LAST ``@`` in it, so a password that itself contains
-    ``@`` is masked whole.
+    The userinfo is everything between ``://`` and the LAST ``@``, and the
+    authority ends at the first ``/``, ``?`` or ``#`` after that ``@``. So a
+    password containing ``/``, ``@``, ``:``, ``?`` or ``#`` is masked whole:
+    the mask runs from the first ``:`` of the userinfo to that last ``@``.
     """
     marker = url.find("://")
     if marker == -1:
         return url
     start = marker + 3
-    slash = url.find("/", start)
-    end = len(url) if slash == -1 else slash
-    authority = url[start:end]
-    at = authority.rfind("@")
+    at = url.rfind("@", start)
     if at == -1:
         return url
-    userinfo = authority[:at]
+    userinfo = url[start:at]
     colon = userinfo.find(":")
     if colon == -1:
         return url
-    return url[:start] + userinfo[: colon + 1] + "***" + authority[at:] + url[end:]
+    return url[: start + colon + 1] + "***" + url[at:]
 
 
 def mask_urls_in(text: str) -> str:

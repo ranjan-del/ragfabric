@@ -366,3 +366,26 @@ def test_the_provider_install_messages_say_pip_install(monkeypatch):
             messages.append(str(exc))
     assert len(messages) == 2
     assert all("pip install 'ragfabric[" in m and "uv pip" not in m for m in messages)
+
+
+# final fix wave: I1, mask_url with '/', '@' and ':' in the password -----------
+
+
+def test_mask_url_masks_a_password_containing_a_slash():
+    masked = diagnostics.mask_url("postgresql+psycopg://rf:ab/cd@db.example.com:5432/rag")
+    assert masked == "postgresql+psycopg://rf:***@db.example.com:5432/rag"
+
+
+def test_mask_url_masks_a_password_with_slash_at_and_colon():
+    masked = diagnostics.mask_url("postgresql://rf:a:b@c/d?e#f@db:5432/rag?sslmode=require")
+    assert masked == "postgresql://rf:***@db:5432/rag?sslmode=require"
+
+
+def test_mask_url_leaves_a_url_without_a_password_alone():
+    for url in ("postgresql://rf@db:5432/rag", "http://127.0.0.1:8000/health", "sqlite:///./x.db"):
+        assert diagnostics.mask_url(url) == url
+
+
+def test_mask_urls_in_masks_two_urls_with_slashes_in_their_passwords():
+    text = "a postgresql://u:p/1@h1/x b redis://:s/2@h2:6379/0"
+    assert diagnostics.mask_urls_in(text) == "a postgresql://u:***@h1/x b redis://:***@h2:6379/0"
