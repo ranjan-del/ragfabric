@@ -1,3 +1,5 @@
+import re
+
 import pytest
 import typer
 from typer.testing import CliRunner
@@ -5,6 +7,13 @@ from typer.testing import CliRunner
 from ragfabric_cli.main import app
 
 runner = CliRunner()
+# Typer forces terminal styling when GITHUB_ACTIONS is set, so CI's help text carries ANSI codes.
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _help(*args: str) -> tuple[int, str]:
+    result = runner.invoke(app, [*args, "--help"])
+    return result.exit_code, _ANSI.sub("", result.output)
 
 
 def _walk(typer_app: typer.Typer, prefix: tuple[str, ...] = ()):
@@ -25,10 +34,10 @@ def test_the_walk_finds_the_commands():
 
 @pytest.mark.parametrize("path", PATHS, ids=lambda p: " ".join(p))
 def test_every_command_help_has_examples(path):
-    result = runner.invoke(app, [*path, "--help"])
-    assert result.exit_code == 0
-    assert "Examples:" in result.output
-    assert f"ragfabric {' '.join(path[:1])}" in result.output
+    code, out = _help(*path)
+    assert code == 0
+    assert "Examples:" in out
+    assert f"ragfabric {' '.join(path[:1])}" in out
 
 
 def _find_command(path):
@@ -43,14 +52,13 @@ def _find_command(path):
 
 @pytest.mark.parametrize("path", PATHS, ids=lambda p: " ".join(p))
 def test_example_flags_exist_on_the_command(path):
-    import re
 
     click_command = typer.main.get_command(app)
     for part in path:
         click_command = click_command.commands[part]
     known = {opt for param in click_command.params for opt in (*param.opts, *param.secondary_opts)}
     known.add("--help")
-    out = runner.invoke(app, [*path, "--help"]).output
+    _, out = _help(*path)
     lines = [ln for ln in out.splitlines() if ln.strip().startswith(f"ragfabric {' '.join(path)}")]
     assert lines
     for line in lines:
@@ -61,7 +69,7 @@ def test_example_flags_exist_on_the_command(path):
 @pytest.mark.parametrize("path", PATHS, ids=lambda p: " ".join(p))
 def test_examples_paste_into_a_shell(path):
     """No <placeholder> (a shell redirection when pasted) and no example that overwrites .env."""
-    out = runner.invoke(app, [*path, "--help"]).output
+    _, out = _help(*path)
     lines = [ln.strip() for ln in out.splitlines() if ln.strip().startswith("ragfabric ")]
     for line in lines:
         assert "<" not in line and ">" not in line, line
@@ -69,5 +77,5 @@ def test_examples_paste_into_a_shell(path):
 
 
 def test_the_key_example_uses_the_quickstart_admin():
-    out = runner.invoke(app, ["keys", "create", "--help"]).output
+    _, out = _help("keys", "create")
     assert "--user admin@example.com" in out
