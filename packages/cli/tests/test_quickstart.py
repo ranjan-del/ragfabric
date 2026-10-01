@@ -770,6 +770,14 @@ def test_next_steps_cd_once_and_drop_the_prefix(tmp_path):
     assert not any(" && ragfabric" in command for command, _ in steps[1:] if "mv " not in command)
     serve = next((c, why) for c, why in steps if c.startswith("ragfabric serve"))
     assert "leave running; use a second terminal for the rest" in serve[1]
+    assert serve[1].endswith(f", in {tmp_path}")
+
+
+def test_next_steps_serve_names_no_directory_when_it_is_the_current_one(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    ctx = qs.Context(dir=tmp_path.resolve(), force=False, yes=True, docker=False, model_check=False)
+    serve = next(why for c, why in qs._next_steps(ctx) if c.startswith("ragfabric serve"))
+    assert ", in " not in serve
 
 
 def test_next_steps_have_no_cd_when_the_dir_is_the_current_directory(tmp_path, monkeypatch):

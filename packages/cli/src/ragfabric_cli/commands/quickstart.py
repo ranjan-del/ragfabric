@@ -1017,11 +1017,13 @@ def _next_steps(ctx: Context) -> list[tuple[str, str]]:
         else ("ragfabric config validate --check-providers", "make one live call per provider")
     )
     steps: list[tuple[str, str]] = []
-    if ctx.dir.resolve() != Path.cwd().resolve():
+    elsewhere = ctx.dir.resolve() != Path.cwd().resolve()
+    if elsewhere:
         steps.append((f"cd {shlex.quote(str(ctx.dir))}", "the directory quickstart set up"))
     serve_why = (
         f"run the API on http://127.0.0.1:{port or 8000}; "
         "leave running; use a second terminal for the rest"
+        + (f", in {shlex.quote(str(ctx.dir))}" if elsewhere else "")
     )
     if ctx.docker and not ctx.db_url.startswith("sqlite"):
         serve_why += " (docker compose down stops PostgreSQL and Redis when you are done)"

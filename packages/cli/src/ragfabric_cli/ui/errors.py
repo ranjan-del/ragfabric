@@ -52,7 +52,8 @@ def _given_url(exc: httpx.TransportError) -> str:
     raw = str(url)
     if "://" in raw:
         return mask_url(f"{url.scheme}://{url.netloc.decode()}")
-    return mask_url(raw.split("/", 1)[0])
+    # mask_url needs a scheme to find the userinfo, so lend it one.
+    return mask_url("x://" + raw.split("/", 1)[0])[len("x://") :]
 
 
 def friendly_error(exc: BaseException) -> FriendlyError | None:

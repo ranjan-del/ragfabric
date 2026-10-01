@@ -246,3 +246,15 @@ def test_a_url_without_a_scheme_says_it_needs_http(value):
     assert fe.problem == f"The URL {value} needs http:// or https://"
     assert fe.fix == "use http://127.0.0.1:8000 (or your server's address)"
     assert "://" not in fe.problem.replace("http://", "").replace("https://", "")
+
+
+def test_a_url_without_a_scheme_never_prints_its_password():
+    client = httpx.Client(base_url="rf:secretpw@host:8000")
+    try:
+        with pytest.raises(httpx.UnsupportedProtocol) as caught:
+            client.post("/api/ask")
+    finally:
+        client.close()
+    fe = friendly_error(caught.value)
+    assert "secretpw" not in fe.problem
+    assert fe.problem == "The URL rf:***@host:8000 needs http:// or https://"
