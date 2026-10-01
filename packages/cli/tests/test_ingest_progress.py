@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -98,4 +97,20 @@ def test_failing_file_exits_one_and_shows_error(env, monkeypatch, rich):
     assert result.exit_code == 1
     assert "b.md: failed (0 chunks) parse exploded" in result.stdout
     assert "1 ingested, 1 failed" in result.stdout
-    assert isinstance(env, Path)
+
+
+@pytest.mark.parametrize("rich", [False, True])
+def test_quiet_prints_nothing_but_still_calls_on_file(env, monkeypatch, capsys, rich):
+    monkeypatch.setattr(console, "is_rich", lambda stream=None: rich)
+    seen: list[str] = []
+    result = ingest_module.ingest_files(
+        sorted(env.iterdir()),
+        collection=None,
+        owner=None,
+        on_file=lambda path, doc: seen.append(path.name),
+        quiet=True,
+    )
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == ""
+    assert result == (2, 0)
+    assert seen == ["a.txt", "b.md"]

@@ -37,19 +37,21 @@ def ingest_files(
     collection: str | None,
     owner: str | None,
     on_file: Callable[[Path, Document], None] | None = None,
+    quiet: bool = False,
 ) -> tuple[int, int]:
     """Ingest ``files`` and return ``(ingested, failed)``.
 
     ``collection`` is a collection name (created if missing) and ``owner`` a user email, both
     resolved inside the session this function opens. On a terminal a progress bar is shown and
     only failed files are listed, under it; piped, every file gets its plain line.
+    With ``quiet=True`` nothing is printed and no bar is made; ``on_file`` still fires.
     """
     failed = 0
     with session() as db:
         collection_id = collection_by_name(db, collection, create=True).id if collection else None
         owner_id = user_by_email(db, owner).id if owner else None
         db.commit()
-        rich = console.is_rich()
+        rich = not quiet and console.is_rich()
         progress = (
             Progress(
                 TextColumn("{task.description}"),
@@ -81,7 +83,7 @@ def ingest_files(
                     if doc.status == "failed":
                         progress.console.print(escape(_describe(file, doc)), soft_wrap=True)
                     progress.advance(task)
-                else:
+                elif not quiet:
                     typer.echo(_describe(file, doc))
                 if on_file is not None:
                     on_file(file, doc)
