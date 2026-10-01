@@ -364,3 +364,37 @@ def test_a_graph_question_with_the_graph_off_says_so_in_the_decision():
     )
     assert result.router.query_type == "relationship"
     assert result.router.decisive is True and result.router.source == "signals"
+
+
+# final fix wave: I5, offline mode never routes to the agent or the graph -------
+
+
+class _OfflineLLM:
+    """Marked offline the way the provider built from llm.provider: offline is."""
+
+    offline = True
+    name = "offline"
+    default_model = "extractive"
+
+    def complete(self, *args, **kwargs):
+        raise AssertionError("offline: no model call may be made")
+
+
+@pytest.mark.parametrize(
+    ("question", "skipped"),
+    [
+        ("How many days of unused annual leave carry forward?", "agentic"),
+        ("Who does Ravi Sharma report to?", "graph"),
+        (UNDECIDED, None),
+    ],
+)
+def test_offline_routes_to_traditional_with_no_fallback_and_no_traceback(question, skipped, caplog):
+    auto, fakes = build(llm=_OfflineLLM())
+    with caplog.at_level("WARNING"):
+        result = auto.retrieve(question, ctx())
+    assert result.strategy is S.TRADITIONAL
+    assert result.fallback_from is None
+    assert not fakes[S.AGENTIC].seen and not fakes[S.GRAPH].seen
+    assert not [r for r in caplog.records if r.exc_info]
+    if skipped:
+        assert f"{skipped} needs a model (offline mode)" in result.router.reasoning

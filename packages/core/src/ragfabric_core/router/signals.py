@@ -8,7 +8,7 @@ number (ADR 0004).
 from __future__ import annotations
 
 import re
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 
 from ragfabric_core.router.decision import QueryType
@@ -175,7 +175,19 @@ def _fired(signals: Signals) -> list[tuple[StrategyName, QueryType, str]]:
     return fired
 
 
-def propose(signals: Signals, *, available: Collection[StrategyName]) -> Proposal:
+def propose(
+    signals: Signals,
+    *,
+    available: Collection[StrategyName],
+    unavailable_because: Mapping[StrategyName, str] | None = None,
+) -> Proposal:
+    """The strategy the signals point to among ``available``.
+
+    ``unavailable_because`` names why a strategy is missing from ``available``
+    (``"needs a model (offline mode)"``); the reason then says so instead of
+    the generic "is not available here".
+    """
+    why = unavailable_because or {}
     fallback = next((s for s in _DEFAULT_ORDER if s in available), None)
     if fallback is None:
         raise ValueError("propose needs at least one available strategy")
@@ -185,10 +197,8 @@ def propose(signals: Signals, *, available: Collection[StrategyName]) -> Proposa
     usable = [item for item in fired if item[0] in available]
     for skipped, _, _ in fired:
         if skipped not in available:
-            reasons.append(
-                f"The {skipped.value} strategy is not available for this request, "
-                "so it was not considered."
-            )
+            because = why.get(skipped, "is not available for this request")
+            reasons.append(f"The {skipped.value} strategy {because}, so it was not considered.")
 
     if len(usable) == 1:
         strategy, query_type, reason = usable[0]
@@ -204,8 +214,13 @@ def propose(signals: Signals, *, available: Collection[StrategyName]) -> Proposa
         strategy, decisive = fallback, True
         reasons.insert(
             0,
-            f"{reason.rstrip('.')}, but {_PLAIN_NAMES[skipped]} is not available here, "
-            f"so {_PLAIN_NAMES[fallback]} was used.",
+            f"{reason.rstrip('.')}, but "
+            + (
+                f"{skipped.value} {why[skipped]}"
+                if skipped in why
+                else f"{_PLAIN_NAMES[skipped]} is not available here"
+            )
+            + f", so {_PLAIN_NAMES[fallback]} was used.",
         )
     elif not usable and signals.words <= PLAIN_MAX_WORDS:
         strategy, query_type, decisive = fallback, "simple_factual", True
