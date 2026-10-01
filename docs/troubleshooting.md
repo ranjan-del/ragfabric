@@ -25,6 +25,14 @@ reported by `ragfabric doctor`; see [Getting started](getting-started.md#checkin
 | `Cannot reach <provider>` | `ollama serve` for Ollama, otherwise `check the provider URL` |
 | `<provider>: <message>` (any other provider error) | none printed |
 
+## Quickstart
+
+| Symptom | Likely cause | Confirm and fix |
+|---|---|---|
+| `error: the .env in <dir> is not RagFabric's (DATABASE_URL <url>)` and `fix: ragfabric quickstart --dir ./ragfabric` | The directory already has a `.env` from another program (no `JWT_SECRET`, `FIRST_ADMIN_EMAIL` or `RAGFABRIC_` key), so its `DATABASE_URL` is that program's database. Quickstart stops before migrating and touches nothing | Run quickstart in its own directory: `ragfabric quickstart --dir ./ragfabric` |
+| `error: the .env in <dir> names a database outside it (DATABASE_URL <url>), so nothing was migrated` | A RagFabric `.env` names a database that is not a SQLite file in that directory. `--yes` never accepts it; without `--yes` quickstart asks first (default no) | Answer yes at the prompt if that database is meant for RagFabric, or use a fresh `--dir` |
+| `model: offline` with `but its client package (openai) is not installed` | Ollama or `OPENAI_API_KEY` was found, but the base install has no `openai` package (Anthropic needs `anthropic`) | `pip install 'ragfabric[openai]'` (or `pip install 'ragfabric[anthropic]'`), then the printed upgrade steps |
+
 ## Installation
 
 | Symptom | Likely cause | Confirm and fix |
@@ -34,7 +42,7 @@ reported by `ragfabric doctor`; see [Getting started](getting-started.md#checkin
 | No admin user after first start in production | The shipped bootstrap admin is refused in production by design | Set `FIRST_ADMIN_EMAIL` and `FIRST_ADMIN_PASSWORD` to your own values |
 | `ModuleNotFoundError` on Python 3.14 | Dependencies target 3.12 | `uv venv --python 3.12` |
 | `graph_store.kind: neo4j` in `ragfabric.yaml` fails validation | Neo4j was removed as a graph backend in Phase 6; the graph lives in PostgreSQL now | Set `kind: postgres` or drop the key; see [ADR 0011](adr/0011-postgres-recursive-cte-over-neo4j.md) |
-| The `api` or `worker` container exits at startup with `ProviderError: ollama: openai is not installed. Install it with: uv pip install 'ragfabric[openai]'` | Ollama is the shipped default provider and is served through the OpenAI compatible client, so the `openai` extra is required even for an Ollama-only deployment; an image built from an image tag or commit that predates the Dockerfile's scoped `openai` extra install, or a custom Dockerfile that omits it, will not have the extra | Rebuild the image from current `main`; `deploy/docker/api.Dockerfile` installs the `openai` extra with a scoped `uv sync --frozen --no-dev --inexact --package ragfabric-core --extra openai` step after the workspace sync. If you maintain your own Dockerfile, add the same extra install |
+| The `api` or `worker` container exits at startup with `ProviderError: ollama: openai is not installed. Install it with: pip install 'ragfabric[openai]'` | Ollama is the shipped default provider and is served through the OpenAI compatible client, so the `openai` extra is required even for an Ollama-only deployment; an image built from an image tag or commit that predates the Dockerfile's scoped `openai` extra install, or a custom Dockerfile that omits it, will not have the extra | Rebuild the image from current `main`; `deploy/docker/api.Dockerfile` installs the `openai` extra with a scoped `uv sync --frozen --no-dev --inexact --package ragfabric-core --extra openai` step after the workspace sync. If you maintain your own Dockerfile, add the same extra install |
 
 ## Ingestion
 

@@ -450,6 +450,55 @@ def _use_database(ctx: Context, url: str, what: str) -> None:
         )
 
 
+_RAGFABRIC_ENV_KEYS = ("JWT_SECRET", "FIRST_ADMIN_EMAIL")
+
+
+def _looks_like_ragfabric_env(values: Mapping[str, str]) -> bool:
+    """True when a .env carries a key only RagFabric's template writes."""
+    return any(k in values for k in _RAGFABRIC_ENV_KEYS) or any(
+        k.startswith("RAGFABRIC_") for k in values
+    )
+
+
+def _sqlite_inside(url: str, dir: Path) -> bool:
+    """True for a SQLite file URL whose file is inside ``dir``."""
+    prefix = "sqlite:///"
+    if not url.startswith(prefix):
+        return False
+    path = url[len(prefix) :]
+    if not path or path == ":memory:":
+        return False
+    return Path(path).resolve().is_relative_to(dir.resolve())
+
+
+def _check_kept_database(ctx: Context, url: str) -> None:
+    """Refuse to migrate a database that a kept .env names but RagFabric does not own.
+
+    A .env without any RagFabric key belongs to some other program: its
+    DATABASE_URL is that program's database, so nothing is migrated into it.
+    A RagFabric .env naming anything but a SQLite file in this directory (or
+    the compose PostgreSQL an earlier --docker run wrote) is migrated only
+    when the user says yes at the prompt; --yes never says yes to it.
+    """
+    values = read_env_file(ctx.dir / ".env")
+    fix = "fix: ragfabric quickstart --dir ./ragfabric"
+    if not _looks_like_ragfabric_env(values):
+        raise QuickstartError(
+            f"the .env in {ctx.dir} is not RagFabric's (DATABASE_URL {mask_urls_in(url)})\n{fix}"
+        )
+    if _sqlite_inside(url, ctx.dir) or url == _docker_url(ctx.dir):
+        return
+    if not ctx.yes and typer.confirm(
+        f"Migrate and ingest into the database at {mask_urls_in(url)} named in .env?",
+        default=False,
+    ):
+        return
+    raise QuickstartError(
+        f"the .env in {ctx.dir} names a database outside it (DATABASE_URL {mask_urls_in(url)}), "
+        f"so nothing was migrated\n{fix}"
+    )
+
+
 def _step_database(ctx: Context) -> None:
     if ctx.docker:
         if _docker_available():
@@ -475,7 +524,9 @@ def _step_database(ctx: Context) -> None:
 
     existing = _read_env_value(ctx.dir / ".env", "DATABASE_URL")
     if existing and not ctx.env_written:
-        ctx.db_url = _absolute_sqlite(existing, ctx.dir)
+        url = _absolute_sqlite(existing, ctx.dir)
+        _check_kept_database(ctx, url)
+        ctx.db_url = url
         _done("database", f"using DATABASE_URL from .env ({ctx.db_url})")
         return
     _use_database(ctx, _sqlite_url(ctx.dir), "SQLite")

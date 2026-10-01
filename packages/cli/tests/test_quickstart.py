@@ -146,11 +146,12 @@ def test_an_existing_ragfabric_yaml_is_never_overwritten_without_force(
 ):
     original = b"llm:\n  provider: offline\nembeddings:\n  provider: offline\n  dim: 16\n"
     (tmp_path / "ragfabric.yaml").write_bytes(original)
-    (tmp_path / ".env").write_bytes(b"DATABASE_URL=sqlite:///./mine.db\n")
+    kept_env = b"JWT_SECRET=x\nDATABASE_URL=sqlite:///./mine.db\n"
+    (tmp_path / ".env").write_bytes(kept_env)
     result = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--yes"])
     assert result.exit_code == 0, result.output
     assert (tmp_path / "ragfabric.yaml").read_bytes() == original
-    assert (tmp_path / ".env").read_bytes() == b"DATABASE_URL=sqlite:///./mine.db\n"
+    assert (tmp_path / ".env").read_bytes() == kept_env
     assert "--force" in result.output
 
     result = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--yes", "--force"])
@@ -182,7 +183,9 @@ def test_no_secret_reaches_the_output(
         f"OPENAI_API_KEY={SECRET}\n"
     )
     result = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--yes"])
-    assert result.exit_code == 0, result.output
+    # A .env with no RagFabric key is someone else's: the run stops (C2), masked.
+    assert result.exit_code == 1, result.output
+    assert "u:***@localhost" in result.output
     assert SECRET not in result.output
     assert "hunter2pass" not in result.output
 
@@ -346,7 +349,9 @@ def test_an_unpatched_template_left_by_a_partial_run_is_patched(
 ):
     template = templates.template_path("ragfabric.example.yaml").read_bytes()
     (tmp_path / "ragfabric.yaml").write_bytes(template)
-    (tmp_path / ".env").write_text(f"DATABASE_URL=sqlite:///{tmp_path / 'ragfabric.db'}\n")
+    (tmp_path / ".env").write_text(
+        f"JWT_SECRET=x\nDATABASE_URL=sqlite:///{tmp_path / 'ragfabric.db'}\n"
+    )
     result = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--yes"])
     assert result.exit_code == 0, result.output
     assert "unpatched template" in result.output
@@ -677,3 +682,49 @@ def test_the_upgrade_hint_starts_with_the_pip_install_while_openai_is_missing(
     assert qs.upgrade_hint(tmp_path).startswith("pip install 'ragfabric[openai]' && ollama pull")
     hidden_packages.discard("openai")
     assert qs.upgrade_hint(tmp_path).startswith("ollama pull")
+
+
+# final fix wave: C2, a kept .env that is not RagFabric's ----------------------
+
+
+def test_a_foreign_dot_env_stops_before_migrating_and_leaves_its_database_alone(
+    tmp_path, no_ollama, no_keys, steps_after_config_are_noops
+):
+    elsewhere = tmp_path / "myapp"
+    elsewhere.mkdir()
+    foreign_db = elsewhere / "myapp.db"
+    foreign_db.write_bytes(b"not a ragfabric database")
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / ".env").write_text(f"DATABASE_URL=sqlite:///{foreign_db}\nSECRET_KEY=django\n")
+    result = runner.invoke(app, ["quickstart", "--dir", str(work), "--yes"])
+    assert result.exit_code == 1
+    assert f"the .env in {work} is not RagFabric's (DATABASE_URL sqlite:///{foreign_db})" in (
+        result.output
+    )
+    assert "ragfabric quickstart --dir ./ragfabric" in result.output
+    assert steps_after_config_are_noops == []
+    assert foreign_db.read_bytes() == b"not a ragfabric database"
+
+
+def test_yes_never_accepts_a_non_sqlite_url_from_a_kept_dot_env(
+    tmp_path, no_ollama, no_keys, steps_after_config_are_noops
+):
+    (tmp_path / ".env").write_text(
+        "JWT_SECRET=x\nDATABASE_URL=postgresql+psycopg://u:hunter2@db.example.com:5432/app\n"
+    )
+    result = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--yes"])
+    assert result.exit_code == 1
+    assert "u:***@db.example.com" in result.output and "hunter2" not in result.output
+    assert steps_after_config_are_noops == []
+
+
+def test_a_ragfabric_dot_env_with_sqlite_inside_the_dir_continues(
+    tmp_path, no_ollama, no_keys, steps_after_config_are_noops
+):
+    (tmp_path / ".env").write_text(
+        "JWT_SECRET=x\nFIRST_ADMIN_EMAIL=admin@example.com\nDATABASE_URL=sqlite:///./ragfabric.db\n"
+    )
+    result = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--yes"])
+    assert result.exit_code == 0, result.output
+    assert steps_after_config_are_noops == ["migrate", "ingest", "ask"]
