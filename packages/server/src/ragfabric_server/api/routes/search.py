@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from ragfabric_core.auth.principal import AccessFilter, Principal
 from ragfabric_core.db.session import get_db
+from ragfabric_core.diagnostics import UPGRADE_STEPS
 from ragfabric_core.generate.answer import build_answer
 from ragfabric_core.generate.cited import (
     CitedAnswer,
@@ -302,7 +303,11 @@ def _refuse_agentic_without_model(strategy: str, llm: LLMProvider) -> None:
     if strategy == StrategyName.AGENTIC and is_offline(llm):
         raise HTTPException(
             status_code=422,
-            detail="the agentic strategy needs a model; set llm.provider in ragfabric.yaml",
+            detail=(
+                "the agentic strategy needs a model (offline mode); run ragfabric doctor, then "
+                "follow its upgrade steps: install Ollama, or set OPENAI_API_KEY or "
+                f"ANTHROPIC_API_KEY, then {UPGRADE_STEPS}"
+            ),
         )
 
 

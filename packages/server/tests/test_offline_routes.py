@@ -10,7 +10,11 @@ from ragfabric_core.providers.offline import OfflineLLMProvider
 from ragfabric_server.deps import get_llm_provider
 
 QUESTION = "how many days of annual leave"
-AGENTIC_REFUSAL = "the agentic strategy needs a model; set llm.provider in ragfabric.yaml"
+AGENTIC_REFUSAL = (
+    "the agentic strategy needs a model (offline mode); run ragfabric doctor, then follow its "
+    "upgrade steps: install Ollama, or set OPENAI_API_KEY or ANTHROPIC_API_KEY, then "
+    "mv ragfabric.yaml ragfabric.yaml.bak && ragfabric quickstart && ragfabric reindex --yes"
+)
 
 
 @pytest.fixture()
