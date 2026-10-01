@@ -223,3 +223,12 @@ def test_ask_timeouts_and_dropped_connections_are_friendly(monkeypatch, exc, pro
     assert result.exit_code == 1
     assert problem in result.output and fix in result.output
     assert "Traceback" not in result.output and "Unexpected" not in result.output
+
+
+def test_a_provider_that_is_not_installed_gets_the_pip_fix():
+    fe = friendly_error(
+        ProviderError(
+            "ollama", "openai is not installed. Install it with: pip install 'ragfabric[openai]'"
+        )
+    )
+    assert fe.fix == "pip install 'ragfabric[openai]'"

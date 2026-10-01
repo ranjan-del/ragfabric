@@ -105,6 +105,10 @@ def friendly_error(exc: BaseException) -> FriendlyError | None:
             return FriendlyError(f"{provider} rejected the API key", "check the key in .env")
         if "429" in message or "insufficient_quota" in message:
             return FriendlyError(f"{provider} quota is used up or rate limited", None)
+        if "is not installed" in message:
+            from ragfabric_core.diagnostics import _install_fix
+
+            return FriendlyError(f"{provider}: {message}", _install_fix(provider, message))
         if "Connection" in message:
             fix = "ollama serve" if provider == "ollama" else "check the provider URL"
             return FriendlyError(f"Cannot reach {provider}", fix)

@@ -77,13 +77,13 @@ Each check shows pass, warn, fail or skip. The fixes are doctor's own text:
 |---|---|
 | Python | Passes only on Python 3.13. Otherwise fail: `use Python 3.13` |
 | Config | No `ragfabric.yaml`: warn, `ragfabric quickstart, or ragfabric init`. Invalid: fail with the first bad key, fix `fix the key above` (`ragfabric config validate` lists every error) |
-| Database | Fail: `ragfabric quickstart for SQLite, or docker compose up -d postgres` |
+| Database | A SQLite file that does not exist yet: warn, `no database yet at <path>`, fix `ragfabric quickstart` (the file is not created, and migrations are skipped). Unreachable: fail, `ragfabric quickstart for SQLite, or docker compose up -d postgres` |
 | Migrations behind | Fail, `database is at <rev>, code expects <head>`: `ragfabric db upgrade` |
 | Migrations unknown | Fail, the database is at a revision this version does not know: `upgrade ragfabric (pip install -U ragfabric)` |
-| LLM | Offline mode: warn, `install Ollama, or set OPENAI_API_KEY or ANTHROPIC_API_KEY, then mv ragfabric.yaml ragfabric.yaml.bak && ragfabric quickstart && ragfabric reindex --yes`. A failed call: `ollama pull <model>` (model not found), `ollama serve` (Ollama not reachable), otherwise `check the provider settings in ragfabric.yaml` |
+| LLM | No `ragfabric.yaml`: skip, `not checked: no ragfabric.yaml (run ragfabric quickstart)`. Offline mode: warn, `install Ollama, or set OPENAI_API_KEY or ANTHROPIC_API_KEY, then mv ragfabric.yaml ragfabric.yaml.bak && ragfabric quickstart && ragfabric reindex --yes`, starting with `pip install 'ragfabric[openai]', then` while the openai extra is missing. A failed call: `pip install 'ragfabric[...]'` (client package not installed), `ollama serve` (Ollama not reachable), `ollama pull <model>` (model not found), otherwise `check the provider settings in ragfabric.yaml` |
 | Embeddings | Offline: warn, same upgrade steps (without the Anthropic option). Failed call: as for the LLM. Wrong dimension: `set embeddings.dim to <n> in ragfabric.yaml` |
 | Graph | Warn when graph extraction is enabled with an offline model: `set llm.provider to a real provider, or graph_store.extraction_model`. Skipped when `graph_store.enabled` is false |
-| Server | Warn: `ragfabric serve` |
+| Server | Pass only when `/health` answers 2xx with `"service": "ragfabric"`. Nothing answered: warn, `ragfabric serve`. Something else answered: warn, `<url> is not a RagFabric server (HTTP <code> on /health)`, fix `ragfabric serve --port <N>, then set RAGFABRIC_URL=http://127.0.0.1:<N> in .env`. The URL is `--url`, then `RAGFABRIC_URL`, then `./.env` (read only when no URL, token or key is in the environment) |
 
 `--no-network` skips the provider and server calls and they show as skipped, not passed; an offline
 provider still reports warn. The exit code is 1 if any check failed. `ragfabric strategies` lists

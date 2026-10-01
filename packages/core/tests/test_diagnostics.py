@@ -76,6 +76,7 @@ def test_config_passes_on_a_valid_file(tmp_path):
 
 
 def test_database_passes_on_fresh_sqlite(tmp_path):
+    (tmp_path / "a.db").touch()  # an existing, empty SQLite file
     assert diagnostics.check_database(f"sqlite:///{tmp_path / 'a.db'}").status == "pass"
 
 
@@ -224,6 +225,7 @@ def test_migrations_unknown_revision_says_upgrade_ragfabric(tmp_path):
 
 
 def test_migrations_behind_says_db_upgrade(tmp_path):
+    (tmp_path / "b.db").touch()
     result = diagnostics.check_migrations(f"sqlite:///{tmp_path / 'b.db'}")
     assert result.fix == "ragfabric db upgrade"
 
@@ -293,9 +295,12 @@ def test_run_all_returns_every_check_and_skips_network_ones(tmp_path, monkeypatc
     names = [r.name for r in results]
     assert len(names) == len(set(names)) >= 8
     by = {r.name: r for r in results}
-    assert by["llm"].status != "pass" and by["embeddings"].status != "pass"
     assert by["server"].detail == "server probe skipped: network checks are off"
-    assert by["migrations"].status == "fail"
+    # Before quickstart (I7): no database file yet, no ragfabric.yaml.
+    assert by["database"].status == "warn"
+    assert by["migrations"].status == "skip"
+    assert by["llm"].status == "skip" and by["embeddings"].status == "skip"
+    assert not (tmp_path / "r.db").exists()
 
 
 def test_mask_url_masks_a_password_containing_an_at_sign():
@@ -440,3 +445,35 @@ def test_a_404_health_is_not_ragfabric():
     result = _check_against(404, b'{"detail": "Not Found"}')
     assert result.status == "warn"
     assert result.detail.endswith("is not a RagFabric server (HTTP 404 on /health)")
+
+
+# final fix wave: I7, doctor before quickstart -----------------------------------
+
+
+def test_a_missing_sqlite_file_is_a_warn_and_is_not_created(tmp_path):
+    db = tmp_path / "rag.db"
+    result = diagnostics.check_database(f"sqlite:///{db}")
+    assert result.status == "warn"
+    assert result.detail == f"no database yet at {db}"
+    assert result.fix == "ragfabric quickstart"
+    assert not db.exists()
+    skipped = diagnostics.check_migrations(f"sqlite:///{db}")
+    assert skipped.status == "skip" and not db.exists()
+
+
+def test_a_relative_missing_sqlite_file_is_resolved_against_the_cwd(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = diagnostics.check_database("sqlite:///./rag.db")
+    assert result.status == "warn" and not (tmp_path / "rag.db").exists()
+
+
+def test_without_a_config_file_llm_and_embeddings_are_not_checked(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("RAGFABRIC_CONFIG", raising=False)
+    results = diagnostics.run_all(
+        config_path=None, db_url="sqlite:///:memory:", server_url="http://127.0.0.1:1", network=True
+    )
+    by = {r.name: r for r in results}
+    for name in ("llm", "embeddings"):
+        assert by[name].status == "skip"
+        assert by[name].detail == "not checked: no ragfabric.yaml (run ragfabric quickstart)"

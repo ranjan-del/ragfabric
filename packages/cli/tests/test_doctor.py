@@ -13,6 +13,7 @@ runner = CliRunner()
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     url = f"sqlite:///{tmp_path / 'd.db'}"
+    (tmp_path / "d.db").touch()  # a database that exists but is not migrated
     monkeypatch.setenv("DATABASE_URL", url)
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("RAGFABRIC_CONFIG", raising=False)

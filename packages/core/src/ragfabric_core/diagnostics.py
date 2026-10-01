@@ -108,9 +108,29 @@ def check_config(path: Path | None) -> CheckResult:
     return CheckResult("config", "pass", f"{resolved} is valid")
 
 
+def _missing_sqlite_file(db_url: str) -> Path | None:
+    """The file a SQLite URL names when it does not exist yet, else None.
+
+    Connecting would create it, so a check must look before it connects.
+    """
+    prefix = "sqlite:///"
+    if not db_url.startswith(prefix):
+        return None
+    path = db_url[len(prefix) :].split("?", 1)[0]
+    if not path or path == ":memory:":
+        return None
+    file = Path(path)
+    return None if file.exists() else file
+
+
 def check_database(db_url: str) -> CheckResult:
     from sqlalchemy import create_engine, text
 
+    missing = _missing_sqlite_file(db_url)
+    if missing is not None:
+        return CheckResult(
+            "database", "warn", f"no database yet at {missing}", "ragfabric quickstart"
+        )
     shown = mask_urls_in(db_url)
     kwargs = {} if db_url.startswith("sqlite") else {"connect_args": {"connect_timeout": 3}}
     engine = None
@@ -132,6 +152,8 @@ def check_database(db_url: str) -> CheckResult:
 
 
 def check_migrations(db_url: str) -> CheckResult:
+    if _missing_sqlite_file(db_url) is not None:
+        return CheckResult("migrations", "skip", "not checked: no database yet")
     try:
         current = migrate.current_revision(db_url)
         head = migrate.head_revision()
@@ -345,6 +367,12 @@ def run_all(
     if cfg is None:
         reason = "not checked: the configuration is unreadable"
         results += [CheckResult(name, "skip", reason) for name in ("llm", "embeddings", "graph")]
+    elif resolve_config_path(config_path) is None:
+        # Built-in defaults name Ollama; probing them before quickstart only
+        # reports a provider nobody configured.
+        reason = "not checked: no ragfabric.yaml (run ragfabric quickstart)"
+        results += [CheckResult(name, "skip", reason) for name in ("llm", "embeddings")]
+        results.append(check_graph(cfg))
     else:
         results.append(check_llm(cfg, network=network))
         results.append(check_embeddings(cfg, network=network))
