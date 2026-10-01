@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
+import errno
 import re
 from dataclasses import dataclass
 
-import click
 import httpx
 import typer
 from pydantic import ValidationError
 from sqlalchemy.exc import OperationalError
 
-from ragfabric_cli.ui.console import mask_url
+from ragfabric_cli.ui.console import mask_url, mask_urls_in
 from ragfabric_core.providers.base import ProviderError
 from ragfabric_sdk.errors import AuthError, RagFabricError
 
@@ -50,9 +50,9 @@ def friendly_error(exc: BaseException) -> FriendlyError | None:
             "pass --token or --api-key, or set RAGFABRIC_TOKEN",
         )
     if isinstance(exc, RagFabricError):
-        return FriendlyError(f"The server returned an error: {exc}", None)
+        return FriendlyError(f"The server returned an error: {mask_urls_in(str(exc))}", None)
     if isinstance(exc, OperationalError):
-        found = _URL.search(str(exc))
+        found = _URL.search(mask_urls_in(str(exc)))
         where = mask_url(found.group(0)) if found else "the configured database"
         return FriendlyError(
             f"Cannot reach the database at {where}",
@@ -69,11 +69,13 @@ def friendly_error(exc: BaseException) -> FriendlyError | None:
             detail = f"{loc}: {first['msg']}" if loc else first["msg"]
         else:
             detail = str(exc)
-        return FriendlyError(f"ragfabric.yaml is invalid: {detail}", "ragfabric config validate")
+        return FriendlyError(
+            f"ragfabric.yaml is invalid: {mask_urls_in(detail)}", "ragfabric config validate"
+        )
     if isinstance(exc, ProviderError):
         # ProviderError carries only provider and message, no status code, so the
         # 401 and 429 rows can only match on the message text.
-        message = str(exc)
+        message = mask_urls_in(str(exc))
         provider = exc.provider
         if "401" in message or "invalid_api_key" in message:
             return FriendlyError(f"{provider} rejected the API key", "check the key in .env")
@@ -90,7 +92,7 @@ def report(exc: BaseException) -> None:
     """Print the friendly form of exc (or the unexpected form) to stderr."""
     fe = friendly_error(exc)
     if fe is None:
-        typer.echo(f"Unexpected error: {type(exc).__name__}: {exc}", err=True)
+        typer.echo(f"Unexpected error: {type(exc).__name__}: {mask_urls_in(str(exc))}", err=True)
         typer.echo("rerun with --debug for details", err=True)
         return
     typer.echo(f"Error: {fe.problem}", err=True)
@@ -105,18 +107,15 @@ class FriendlyGroup(typer.core.TyperGroup):
     entry point behave the same.
     """
 
-    def invoke(self, ctx: click.Context):  # type: ignore[override]
+    def invoke(self, ctx: typer.Context):  # type: ignore[override]
         try:
             return super().invoke(ctx)
-        except (
-            click.ClickException,
-            click.exceptions.Exit,
-            click.Abort,
-            typer.Exit,
-            typer.Abort,
-        ):
+        except (typer.TyperException, typer.Exit, typer.Abort):
             raise
         except Exception as exc:
+            # Piping into `head` closes stdout early; that is not an error.
+            if isinstance(exc, BrokenPipeError) or getattr(exc, "errno", None) == errno.EPIPE:
+                raise typer.Exit(1) from None
             if DEBUG:
                 raise
             report(exc)

@@ -120,3 +120,64 @@ def test_an_unexpected_error_asks_for_debug(boom_app):
     assert result.exit_code == 1
     assert "Unexpected error: KeyError" in result.output
     assert "rerun with --debug" in result.output
+
+
+SECRET_URL = "postgresql+psycopg://rf:s3cret@db:5432/rf"
+
+
+def test_the_unexpected_fallback_masks_passwords(boom_app):
+    @boom_app.command("secret-test")
+    def secret() -> None:
+        raise RuntimeError(f"failed against {SECRET_URL}")
+
+    try:
+        result = CliRunner().invoke(boom_app, ["secret-test"])
+    finally:
+        boom_app.registered_commands[:] = [
+            c for c in boom_app.registered_commands if c.name != "secret-test"
+        ]
+    assert "Unexpected error: RuntimeError" in result.output
+    assert "s3cret" not in result.output
+
+
+def test_server_and_provider_messages_mask_passwords():
+    assert "s3cret" not in friendly_error(RagFabricError(f"bad {SECRET_URL}", 500)).problem
+    assert "s3cret" not in friendly_error(ProviderError("openai", f"x {SECRET_URL}")).problem
+
+
+def test_two_urls_in_a_database_error_are_masked():
+    from sqlalchemy.exc import OperationalError
+
+    exc = OperationalError("c", {}, Exception(f"tried {SECRET_URL} then postgresql://u:other@h/d"))
+    fe = friendly_error(exc)
+    assert "s3cret" not in fe.problem and "other" not in fe.problem
+
+
+def test_missing_argument_and_unknown_command_are_usage_errors():
+    runner = CliRunner()
+    for args in (["ask"], ["nope"]):
+        result = runner.invoke(app, args)
+        assert result.exit_code == 2, args
+        assert "Unexpected error" not in result.output
+        assert "Usage" in result.output
+
+
+def test_a_broken_pipe_is_quiet(boom_app):
+    @boom_app.command("pipe-test")
+    def pipe() -> None:
+        raise BrokenPipeError()
+
+    try:
+        result = CliRunner().invoke(boom_app, ["pipe-test"])
+    finally:
+        boom_app.registered_commands[:] = [
+            c for c in boom_app.registered_commands if c.name != "pipe-test"
+        ]
+    assert result.exit_code == 1
+    assert "Unexpected error" not in result.output
+
+
+def test_typer_usage_errors_derive_from_the_public_typer_exception():
+    # errors.py relies on this relationship; a Typer upgrade that breaks it fails here.
+    result = CliRunner().invoke(app, ["nope"], standalone_mode=False)
+    assert isinstance(result.exception, typer.TyperException)
