@@ -468,9 +468,9 @@ See [ROADMAP.md](ROADMAP.md) and [CHANGELOG.md](CHANGELOG.md).
 | v0.1.0 | Initial RAG engine: interfaces, providers, ingestion, access control, Traditional and Vectorless RAG, CLI, Python SDK, console |
 | v0.2.0 | Agentic retrieval with a plain Python state machine, not LangGraph |
 | v0.3.0 | Graph retrieval on PostgreSQL recursive CTEs |
-| v0.4.0 | Adaptive router with fallbacks |
+| v0.4.0 | Adaptive router with fallbacks, the agent routing each sub-question across all four strategies, terminal experience |
 | v0.5.0 | Evaluation framework, dashboards, generated benchmarks |
-| v1.0.0 | Production release: reference UI with Compare and Trace, TypeScript SDK, connectors, hardening, docs site, deployment guides |
+| v1.0.0 | Production release: reference UI with Compare and Trace, TypeScript SDK, connectors, hardening, docs site, deployment guides, public benchmarks against widely used RAG tools with a fix wave |
 
 Later: OIDC and SAML, multi tenant workspaces, more connectors and stores, community summaries for Graph
 RAG, a Helm chart.
