@@ -181,3 +181,40 @@ def test_typer_usage_errors_derive_from_the_public_typer_exception():
     # errors.py relies on this relationship; a Typer upgrade that breaks it fails here.
     result = CliRunner().invoke(app, ["nope"], standalone_mode=False)
     assert isinstance(result.exception, typer.TyperException)
+
+
+def _ask_raising(monkeypatch, exc):
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def close(self):
+            pass
+
+        def ask(self, query, **params):
+            raise exc
+
+    monkeypatch.setattr("ragfabric_cli.commands.ask.Client", FakeClient)
+    return CliRunner().invoke(app, ["ask", "q", "--token", "t", "--no-stream"])
+
+
+@pytest.mark.parametrize(
+    ("exc", "problem", "fix"),
+    [
+        (
+            httpx.ReadTimeout("", request=httpx.Request("POST", "http://h:8000/api/ask")),
+            "The server at http://h:8000 did not answer in time",
+            "retry, or check that ragfabric serve is still running",
+        ),
+        (
+            httpx.RemoteProtocolError("", request=httpx.Request("POST", "http://h:8000/api/ask")),
+            "Lost the connection to http://h:8000",
+            "check that ragfabric serve is still running",
+        ),
+    ],
+)
+def test_ask_timeouts_and_dropped_connections_are_friendly(monkeypatch, exc, problem, fix):
+    result = _ask_raising(monkeypatch, exc)
+    assert result.exit_code == 1
+    assert problem in result.output and fix in result.output
+    assert "Traceback" not in result.output and "Unexpected" not in result.output

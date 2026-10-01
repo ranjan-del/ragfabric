@@ -137,3 +137,76 @@ def test_ask_with_no_server_is_friendly_and_has_no_traceback():
     assert "No RagFabric server at" in result.output
     assert "ragfabric serve" in result.output
     assert "Traceback" not in result.output
+
+
+def _stream_payload() -> str:
+    def ev(name: str, data: dict) -> str:
+        return f"event: {name}\ndata: {json.dumps(data)}\n\n"
+
+    return (
+        ev("retrieval", {"strategy": "graph", "router": _ANSWER["router"]})
+        + ev("token", {"text": "draft "})
+        + ev(
+            "superseded",
+            {
+                "text": "Corrected answer [1].",
+                "dropped_claims": [
+                    {"text": "See http://u:hunter2@host/x for more.", "reason": "unsupported"}
+                ],
+                "dropped_relationship_claims": [],
+            },
+        )
+        + ev("citations", {"citations": _ANSWER["citations"]})
+        + ev("done", {"run_id": 5, "latency_ms": 12})
+    )
+
+
+def _stream_patched(monkeypatch, stream: str) -> None:
+    import ragfabric_sdk.client as sdk_client
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=stream, headers={"content-type": "text/event-stream"})
+
+    real_client = sdk_client.httpx.Client
+
+    def fake_client(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return real_client(*args, **kwargs)
+
+    monkeypatch.setattr(sdk_client.httpx, "Client", fake_client)
+
+
+def test_plain_stream_output_is_exact(monkeypatch):
+    stream = (
+        "event: retrieval\ndata: "
+        + json.dumps({"strategy": "graph", "router": _ANSWER["router"]})
+        + "\n\n"
+        + 'event: token\ndata: {"text": "Ten days [1]."}\n\n'
+        + "event: citations\ndata: "
+        + json.dumps({"citations": _ANSWER["citations"]})
+        + "\n\n"
+        + 'event: done\ndata: {"run_id": 5, "latency_ms": 12}\n\n'
+    )
+    _stream_patched(monkeypatch, stream)
+    result = runner.invoke(app, ["ask", "q", "--token", "t"])
+    assert result.exit_code == 0, result.output
+    assert result.stdout == (
+        "Ten days [1].\n"
+        "sources:\n  [1] leave.pdf p2\n"
+        "Strategy: graph (signals). Why.\n"
+        "run 5 in 12ms\n"
+    )
+
+
+def test_rich_stream_with_superseded_shows_corrected_text_once_and_drops(monkeypatch):
+    _stream_patched(monkeypatch, _stream_payload())
+    _rich(monkeypatch)
+    try:
+        result = runner.invoke(app, ["ask", "q", "--token", "t"])
+    finally:
+        console.get_console.cache_clear()
+    out = result.stdout
+    assert result.exit_code == 0, result.output
+    assert out.count("Corrected answer [1].") == 1
+    assert "Removed (unsupported)" in out and "See http://u:***@host/x for more." in out
+    assert "hunter2" not in out

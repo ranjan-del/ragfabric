@@ -11,6 +11,7 @@ from rich.table import Table
 from rich.text import Text
 
 from ragfabric_cli.ui import console
+from ragfabric_cli.ui.console import mask_urls_in
 
 
 @dataclass(frozen=True)
@@ -175,7 +176,7 @@ def _render_answer_rich(
         block = Text(style="dim")
         block.append("Removed (unsupported)", style="dim bold")
         for claim in dropped_claims:
-            block.append(f"\n  {claim['text']} ({claim['reason']})")
+            block.append(mask_urls_in(f"\n  {claim['text']} ({claim['reason']})"))
         out.print(block)
 
 

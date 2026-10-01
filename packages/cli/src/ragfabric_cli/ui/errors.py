@@ -37,13 +37,22 @@ def _migrations_behind_type() -> type | None:
 
 def friendly_error(exc: BaseException) -> FriendlyError | None:
     """Map an exception to a FriendlyError, or None when it is not one we explain."""
-    if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+    if isinstance(exc, httpx.TransportError):
         try:
             request = exc.request
             url = f"{request.url.scheme}://{request.url.netloc.decode()}"
         except RuntimeError:
             url = "the configured URL"
-        return FriendlyError(f"No RagFabric server at {url}", "ragfabric serve")
+        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+            return FriendlyError(f"No RagFabric server at {url}", "ragfabric serve")
+        if isinstance(exc, httpx.TimeoutException):
+            return FriendlyError(
+                f"The server at {url} did not answer in time",
+                "retry, or check that ragfabric serve is still running",
+            )
+        return FriendlyError(
+            f"Lost the connection to {url}", "check that ragfabric serve is still running"
+        )
     if isinstance(exc, AuthError):
         return FriendlyError(
             "The server refused the credentials",
