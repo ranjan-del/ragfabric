@@ -37,6 +37,13 @@ Ollama probe, on by default). A rerun continues where the last one stopped. No m
 for you. Quickstart prints the `ollama pull` command only when Ollama is running but a model is
 missing, and in the offline upgrade hint.
 
+It ends with the next steps, one command per line with what it does on the line below: a single
+`cd <dir>` first when `--dir` is not the current directory, then `ragfabric serve` (leave it
+running and use a second terminal for the rest; it says `ragfabric serve --port <N>` when another
+program holds port 8000 and `.env` names port N), `ragfabric ingest`, `ragfabric ask`,
+`ragfabric doctor`, `ragfabric strategies`, and the upgrade steps in offline mode. With `--docker`
+it also says that `docker compose down` stops PostgreSQL and Redis.
+
 `ragfabric ask` reads `./.env` only when no URL, token or API key comes from a flag or the
 environment. It then takes `RAGFABRIC_URL` and `RAGFABRIC_API_KEY` from `./.env` together, with the
 URL defaulting to `http://localhost:8000`. On a terminal it shows a panel with the answer, numbered
@@ -52,7 +59,8 @@ ragfabric quickstart
 ragfabric reindex --yes
 ```
 
-`.env` is kept. Do not use `--force` for this.
+`.env` is kept. Do not use `--force` for this. Ollama and OpenAI need the openai extra first
+(`pip install 'ragfabric[openai]'`); quickstart and doctor put that step first while it is missing.
 
 ### Checking your setup
 

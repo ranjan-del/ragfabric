@@ -448,14 +448,15 @@ def test_a_written_env_gets_the_key_and_url_appended_and_the_key_is_not_printed(
     assert "rf_secretkeyvalue" not in capsys.readouterr().out
 
 
-def test_next_steps_prefix_the_directory_and_drop_the_token(tmp_path):
+def test_next_steps_cd_first_and_drop_the_token(tmp_path):
     ctx = qs.Context(dir=tmp_path, force=False, yes=True, docker=False, model_check=False)
     ctx.key_in_env = True
     steps = [command for command, _ in qs._next_steps(ctx)]
-    assert f'cd {tmp_path} && ragfabric ask "{templates.SAMPLE_QUESTION}"' in steps
-    assert f"cd {tmp_path} && ragfabric serve" in steps
-    assert f"cd {tmp_path} && ragfabric doctor" in steps
-    assert f"cd {tmp_path} && ragfabric ingest ./my-docs --recursive" in steps
+    assert steps[0] == f"cd {tmp_path}"
+    assert f'ragfabric ask "{templates.SAMPLE_QUESTION}"' in steps
+    assert any(step.startswith("ragfabric serve") for step in steps)
+    assert "ragfabric doctor" in steps
+    assert "ragfabric ingest ./my-docs --recursive" in steps
     assert "ragfabric strategies" in steps
     assert not any("--token" in step for step in steps)
 
@@ -606,7 +607,7 @@ def test_printed_commands_quote_a_directory_with_a_space(tmp_path):
     assert f"cd {quoted} && mv ragfabric.yaml" in qs.upgrade_hint(spaced)
     ctx = qs.Context(dir=spaced, force=False, yes=True, docker=False, model_check=False)
     steps = [command for command, _ in qs._next_steps(ctx)]
-    assert f"cd {quoted} && ragfabric serve" in steps
+    assert steps[0] == f"cd {quoted}"
     assert all(f"cd {spaced} " not in step for step in steps)
     command = qs._key_command(ctx, "o'brien@example.com")
     assert f"cd {quoted} && " in command
@@ -729,3 +730,47 @@ def test_a_ragfabric_dot_env_with_sqlite_inside_the_dir_continues(
     result = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--yes"])
     assert result.exit_code == 0, result.output
     assert steps_after_config_are_noops == ["migrate", "ingest", "ask"]
+
+
+# final fix wave: I3, copyable next steps --------------------------------------
+
+_BOX = set("─│┌┐└┘├┤┬┴┼╭╮╯╰═║╔╗╚╝")
+
+
+def test_rich_next_steps_at_60_columns_have_no_ellipsis_and_no_box(tmp_path, monkeypatch, capsys):
+    from ragfabric_cli.ui import console
+    from ragfabric_cli.ui.panels import render_next_steps
+
+    deep = tmp_path / ("a-rather-long-directory-name-" * 3) / "my-rag"
+    deep.mkdir(parents=True)
+    ctx = qs.Context(dir=deep, force=False, yes=True, docker=False, model_check=False)
+    ctx.key_in_env = True
+    ctx.choice = qs.choose_model(None, {}, probe=False)  # offline: the long upgrade hint
+    monkeypatch.setattr(console, "is_rich", lambda stream=None: True)
+    monkeypatch.setenv("COLUMNS", "60")
+    console.get_console.cache_clear()
+    try:
+        render_next_steps(qs._next_steps(ctx))
+    finally:
+        console.get_console.cache_clear()
+    out = capsys.readouterr().out
+    assert "…" not in out
+    assert not (_BOX & set(out))
+    flat = "".join(out.split())
+    assert "".join(f"cd {deep}".split()) in flat
+    assert "".join(qs.upgrade_hint(None).split()) in flat
+
+
+def test_next_steps_cd_once_and_drop_the_prefix(tmp_path):
+    ctx = qs.Context(dir=tmp_path, force=False, yes=True, docker=False, model_check=False)
+    steps = qs._next_steps(ctx)
+    assert steps[0][0] == f"cd {tmp_path}"
+    assert not any(" && ragfabric" in command for command, _ in steps[1:] if "mv " not in command)
+    serve = next((c, why) for c, why in steps if c.startswith("ragfabric serve"))
+    assert "leave running; use a second terminal for the rest" in serve[1]
+
+
+def test_next_steps_have_no_cd_when_the_dir_is_the_current_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    ctx = qs.Context(dir=tmp_path.resolve(), force=False, yes=True, docker=False, model_check=False)
+    assert not any(command.startswith("cd ") for command, _ in qs._next_steps(ctx))

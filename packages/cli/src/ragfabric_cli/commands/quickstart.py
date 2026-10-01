@@ -897,7 +897,11 @@ def _is_offline(ctx: Context) -> bool:
 
 
 def _next_steps(ctx: Context) -> list[tuple[str, str]]:
-    here = f"cd {shlex.quote(str(ctx.dir))} &&"
+    """What to run next, copyable as written.
+
+    One ``cd`` step first when --dir is not the current directory, then bare
+    commands: a ``cd <dir> &&`` prefix on every line hid the command itself.
+    """
     port = _serve_port(ctx)
     question = SAMPLE_QUESTION.replace('"', '\\"')
     ask_why = (
@@ -906,21 +910,25 @@ def _next_steps(ctx: Context) -> list[tuple[str, str]]:
         else "ask the running server, after exporting RAGFABRIC_API_KEY as shown above"
     )
     last = (
-        (upgrade_hint(ctx.dir), "upgrade from offline mode to a local model")
+        (upgrade_hint(None), "upgrade from offline mode to a local model")
         if _is_offline(ctx)
-        else (
-            f"{here} ragfabric config validate --check-providers",
-            "make one live call per provider",
-        )
+        else ("ragfabric config validate --check-providers", "make one live call per provider")
     )
+    steps: list[tuple[str, str]] = []
+    if ctx.dir.resolve() != Path.cwd().resolve():
+        steps.append((f"cd {shlex.quote(str(ctx.dir))}", "the directory quickstart set up"))
+    serve_why = (
+        f"run the API on http://127.0.0.1:{port or 8000}; "
+        "leave running; use a second terminal for the rest"
+    )
+    if ctx.docker and not ctx.db_url.startswith("sqlite"):
+        serve_why += " (docker compose down stops PostgreSQL and Redis when you are done)"
     return [
-        (
-            f"{here} ragfabric serve" + (f" --port {port}" if port else ""),
-            f"run the API on http://127.0.0.1:{port or 8000}",
-        ),
-        (f"{here} ragfabric ingest ./my-docs --recursive", "add your own documents"),
-        (f'{here} ragfabric ask "{question}"', ask_why),
-        (f"{here} ragfabric doctor", "check config, database, migrations and providers"),
+        *steps,
+        ("ragfabric serve" + (f" --port {port}" if port else ""), serve_why),
+        ("ragfabric ingest ./my-docs --recursive", "add your own documents"),
+        (f'ragfabric ask "{question}"', ask_why),
+        ("ragfabric doctor", "check config, database, migrations and providers"),
         ("ragfabric strategies", "see the retrieval strategies and when each is best"),
         last,
     ]

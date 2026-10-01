@@ -234,12 +234,21 @@ def render_strategies(rows: list[StrategyRow]) -> None:
 
 
 def render_next_steps(steps: list[tuple[str, str]]) -> None:
+    """Commands to copy: one per line, never boxed, never cut with an ellipsis.
+
+    On a terminal each command is printed in bold on one logical line, with
+    its description on its own dim line below. A command longer than the
+    terminal is left for the terminal to wrap (soft wrap, the "fold" overflow
+    with no inserted newline), so copying it gives one line that pastes and
+    runs as written; Rich never cuts it with an ellipsis.
+    """
     if not console.is_rich():
         typer.echo("next steps:")
         for command, why in steps:
             typer.echo(f"  {command}  # {why}")
         return
-    table = Table.grid(padding=(0, 2))
+    out = console.get_console()
+    out.print(Text("Next steps", style="bold"))
     for command, why in steps:
-        table.add_row(Text(command, style="bold"), Text(why, style="dim"))
-    console.get_console().print(Panel(table, title="Next steps", title_align="left"))
+        out.print(Text(command, style="bold", overflow="fold"), soft_wrap=True)
+        out.print(Text(f"  {why}", style="dim", overflow="fold"))

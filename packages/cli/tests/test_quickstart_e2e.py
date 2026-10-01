@@ -74,7 +74,8 @@ def test_quickstart_from_nothing_to_a_cited_answer_and_again(tmp_path, monkeypat
     assert (tmp_path / ".env").stat().st_mode & 0o777 == 0o600
     # The printed ask step works against `ragfabric serve`, with only RAGFABRIC_URL moved.
     printed = next(line for line in result.output.splitlines() if "ragfabric ask " in line)
-    assert printed.strip().startswith(f'cd {tmp_path} && ragfabric ask "{SAMPLE_QUESTION}"')
+    assert printed.strip().startswith(f'ragfabric ask "{SAMPLE_QUESTION}"')
+    assert f"  cd {tmp_path}  #" in result.output
     port = real_free_port()
     env = {
         k: v
