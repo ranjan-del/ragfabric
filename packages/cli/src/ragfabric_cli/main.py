@@ -125,7 +125,7 @@ def downgrade(revision: str = typer.Option("base", help="Target revision.")) -> 
 
     \b
     Examples:
-      ragfabric db downgrade --revision <revision-id>
+      ragfabric db downgrade --revision "REVISION"
 
     Rolling back to base removes every table; name the revision you want.
     """
@@ -232,7 +232,6 @@ def init(
     \b
     Examples:
       ragfabric init
-      ragfabric init --force
     """
     import shutil
     from pathlib import Path

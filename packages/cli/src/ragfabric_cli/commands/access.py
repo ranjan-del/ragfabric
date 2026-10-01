@@ -133,7 +133,7 @@ def create_key(
 
     \b
     Examples:
-      ragfabric keys create --name ci --user you@example.com --collection docs
+      ragfabric keys create --name ci --user admin@example.com --collection docs
     """
     with session() as db:
         owner = user_by_email(db, user)

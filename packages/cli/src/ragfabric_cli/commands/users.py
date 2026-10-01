@@ -19,7 +19,7 @@ def create(
 
     \b
     Examples:
-      ragfabric users create --email you@example.com --password <password> --role admin
+      ragfabric users create --email you@example.com --password "YOUR-PASSWORD" --role admin
     """
     if role not in {Role.ADMIN.value, Role.USER.value}:
         typer.echo("role must be user or admin")

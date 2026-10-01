@@ -56,3 +56,18 @@ def test_example_flags_exist_on_the_command(path):
     for line in lines:
         for flag in re.findall(r"(?<!\S)(--[a-z][a-z-]*)", line):
             assert flag in known, f"{line!r} uses unknown {flag}"
+
+
+@pytest.mark.parametrize("path", PATHS, ids=lambda p: " ".join(p))
+def test_examples_paste_into_a_shell(path):
+    """No <placeholder> (a shell redirection when pasted) and no example that overwrites .env."""
+    out = runner.invoke(app, [*path, "--help"]).output
+    lines = [ln.strip() for ln in out.splitlines() if ln.strip().startswith("ragfabric ")]
+    for line in lines:
+        assert "<" not in line and ">" not in line, line
+        assert line != "ragfabric init --force", line
+
+
+def test_the_key_example_uses_the_quickstart_admin():
+    out = runner.invoke(app, ["keys", "create", "--help"]).output
+    assert "--user admin@example.com" in out
