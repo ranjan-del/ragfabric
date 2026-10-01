@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from ragfabric_core.auth.principal import AccessFilter, Principal
 from ragfabric_core.db.session import get_db
+from ragfabric_core.diagnostics import UPGRADE_STEPS
 from ragfabric_core.generate.answer import build_answer
 from ragfabric_core.generate.cited import (
     CitedAnswer,
@@ -41,7 +42,7 @@ from ragfabric_core.generate.cited import (
 from ragfabric_core.models.access import AuditLog
 from ragfabric_core.models.document import QueryLog
 from ragfabric_core.models.runs import RetrievalRun, Source
-from ragfabric_core.providers.base import LLMProvider
+from ragfabric_core.providers.base import LLMProvider, is_offline
 from ragfabric_core.router.mode import resolve_requested
 from ragfabric_core.runtime import get_config
 from ragfabric_core.stores.base import LexicalStore
@@ -292,6 +293,24 @@ def _refuse_unapplied_filters(strategy: str, document_id: int | None, fmt: str |
         )
 
 
+def _refuse_agentic_without_model(strategy: str, llm: LLMProvider) -> None:
+    """Refuse an explicit agentic request when the LLM is the offline provider.
+
+    The agent plans and assesses with a model, so there is nothing honest to
+    run. Auto routing is unaffected: it falls back to traditional on its own.
+    Raised before retrieval and before any stream starts, so it is a plain 422.
+    """
+    if strategy == StrategyName.AGENTIC and is_offline(llm):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "the agentic strategy needs a model (offline mode); run ragfabric doctor, then "
+                "follow its upgrade steps: install Ollama, or set OPENAI_API_KEY or "
+                f"ANTHROPIC_API_KEY, then {UPGRADE_STEPS}"
+            ),
+        )
+
+
 def uses_graph_path(result: RetrievalResult) -> bool:
     """A result generated against its walk: the graph strategy's, or an agent's that walked one."""
     return result.strategy == StrategyName.GRAPH or (
@@ -485,6 +504,7 @@ def query(
     """Ask a question and get a cited, grounded answer."""
     name = _requested_strategy(payload.strategy, payload.rerank)
     _refuse_unapplied_filters(name, payload.document_id, payload.format)
+    _refuse_agentic_without_model(name, llm)
     started = time.perf_counter()
     strategy = _strategy_for(payload.rerank, registry, llm, name)
     with start_trace() as tracing:

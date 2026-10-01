@@ -28,6 +28,11 @@ def reindex(
     and a tsv with no term frequency, so BM25 excludes them, and re-embedding
     the whole corpus to fix a lexical column would cost provider money for
     nothing.
+
+    \b
+    Examples:
+      ragfabric reindex --yes
+      ragfabric reindex --lexical-only --yes
     """
     cfg = get_config()
     sf = get_session_factory()

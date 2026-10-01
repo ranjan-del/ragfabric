@@ -12,7 +12,7 @@ import logging
 import time
 from collections.abc import Sequence
 
-from ragfabric_core.providers.base import LLMProvider
+from ragfabric_core.providers.base import LLMProvider, is_offline
 from ragfabric_core.router.classifier import ClassifierOutcome, classify, one_sentence
 from ragfabric_core.router.decision import RouterDecision, levels_for
 from ragfabric_core.router.fallback import combine, empty_reason, fallback_for, fuse
@@ -30,6 +30,9 @@ log = logging.getLogger(__name__)
 # Request filters the graph walk cannot apply. /api/ask refuses them with a 422
 # when a caller names graph; under auto the graph is left out instead.
 _GRAPH_BLIND_FILTERS = ("document_id", "format")
+# Strategies that plan, assess or extract with a model. Offline (ADR 0004)
+# there is none, so auto never routes to them instead of failing and falling back.
+_NEED_A_MODEL = (StrategyName.AGENTIC, StrategyName.GRAPH)
 
 
 class AutoStrategy:
@@ -69,18 +72,32 @@ class AutoStrategy:
         filters = ctx.params.metadata_filters
         if not self._graph_enabled or any(key in filters for key in _GRAPH_BLIND_FILTERS):
             names = [n for n in names if n is not StrategyName.GRAPH]
+        if self._offline:
+            names = [n for n in names if n not in _NEED_A_MODEL]
         return names
+
+    @property
+    def _offline(self) -> bool:
+        return self._llm is not None and is_offline(self._llm)
 
     def retrieve(self, query: str, ctx: RetrievalContext) -> RetrievalResult:
         started = time.perf_counter()
         available = self.available(ctx)
         signals = extract_signals(query, relation_types=self._relation_types)
-        proposal = propose(signals, available=available)
+        proposal = propose(
+            signals,
+            available=available,
+            unavailable_because=(
+                dict.fromkeys(_NEED_A_MODEL, "needs a model (offline mode)")
+                if self._offline
+                else None
+            ),
+        )
         outcome: ClassifierOutcome | None = None
 
         if proposal.decisive:
             decision = _from_proposal(proposal, source="signals")
-        elif self._llm is None or ctx.budget.max_llm_calls < 1:
+        elif self._llm is None or self._offline or ctx.budget.max_llm_calls < 1:
             decision = _from_proposal(proposal, source="signals_fallback")
         else:
             outcome = classify(

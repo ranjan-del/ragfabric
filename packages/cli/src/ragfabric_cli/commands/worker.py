@@ -25,7 +25,13 @@ def _stores():
 def worker(
     once: bool = typer.Option(False, "--once", help="Process at most one job and exit."),
 ) -> None:
-    """Run the indexing worker against the configured queue."""
+    """Run the indexing worker against the configured queue.
+
+    \b
+    Examples:
+      ragfabric worker
+      ragfabric worker --once
+    """
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     cfg = get_config()
     queue = build_queue(cfg)

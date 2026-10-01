@@ -40,7 +40,7 @@ def _build_client(name: str, api_key: str, base_url: str | None) -> Any:
         openai_cls = _import_openai()
     except ImportError as exc:
         raise ProviderError(
-            name, "openai is not installed. Install it with: uv pip install 'ragfabric[openai]'"
+            name, "openai is not installed. Install it with: pip install 'ragfabric[openai]'"
         ) from exc
     return openai_cls(api_key=api_key, base_url=base_url)
 

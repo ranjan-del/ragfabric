@@ -18,9 +18,14 @@ from ragfabric_cli.commands import graph as graph_commands
 from ragfabric_cli.commands import ingest as ingest_commands
 from ragfabric_cli.commands import users as users_commands
 from ragfabric_cli.commands.ask import ask as ask_command
+from ragfabric_cli.commands.doctor import doctor as doctor_command
+from ragfabric_cli.commands.quickstart import quickstart as quickstart_command
 from ragfabric_cli.commands.reconcile import reconcile as reconcile_command
 from ragfabric_cli.commands.reindex import reindex as reindex_command
+from ragfabric_cli.commands.strategies import strategies as strategies_command
 from ragfabric_cli.commands.worker import worker as worker_command
+from ragfabric_cli.ui import errors as errors_ui
+from ragfabric_cli.ui.errors import FriendlyGroup, run_app
 from ragfabric_core import __version__
 from ragfabric_core.config_file import load_config, resolve_config_path
 from ragfabric_core.db import migrate
@@ -28,8 +33,43 @@ from ragfabric_core.providers.base import ProviderError
 from ragfabric_core.providers.registry import build_embedding_provider, build_llm_provider
 
 app = typer.Typer(
-    help="RagFabric: self hosted, measurement first RAG platform.", no_args_is_help=True
+    help="RagFabric: self hosted, measurement first RAG platform.",
+    cls=FriendlyGroup,
 )
+
+DOCS_URL = "https://github.com/ranjan-del/ragfabric/tree/main/docs"
+
+
+@app.callback(invoke_without_command=True)
+def _root(
+    ctx: typer.Context,
+    debug: bool = typer.Option(
+        False, "--debug", help="Show the full traceback instead of a friendly error."
+    ),
+) -> None:
+    errors_ui.DEBUG = debug
+    if ctx.invoked_subcommand is None:
+        _welcome()
+
+
+def _welcome() -> None:
+    """What a bare ``ragfabric`` prints: the version, three ways to start, the docs."""
+    from ragfabric_cli.ui.panels import render_next_steps
+
+    typer.echo(f"ragfabric {__version__}: self hosted, measurement first RAG platform.")
+    typer.echo("")
+    render_next_steps(
+        [
+            ("ragfabric quickstart", "set up and try RagFabric end to end"),
+            ("ragfabric doctor", "check what is and is not working"),
+            ("ragfabric strategies", "see the ways RagFabric can answer"),
+        ]
+    )
+    typer.echo("")
+    typer.echo(f"docs: {DOCS_URL}")
+    typer.echo("ragfabric --help lists every command.")
+
+
 db_app = typer.Typer(help="Database migrations.")
 config_app = typer.Typer(help="Configuration.")
 app.add_typer(db_app, name="db")
@@ -44,6 +84,9 @@ app.command("worker")(worker_command)
 app.command("reindex")(reindex_command)
 app.command("reconcile")(reconcile_command)
 app.command("ask")(ask_command)
+app.command("strategies")(strategies_command)
+app.command("doctor")(doctor_command)
+app.command("quickstart")(quickstart_command)
 
 
 def _database_url() -> str:
@@ -54,20 +97,38 @@ def _database_url() -> str:
 
 @app.command()
 def version() -> None:
-    """Print the installed version."""
+    """Print the installed version.
+
+    \b
+    Examples:
+      ragfabric version
+    """
     typer.echo(f"ragfabric {__version__}")
 
 
 @db_app.command()
 def upgrade(revision: str = typer.Option("head", help="Target revision.")) -> None:
-    """Apply migrations up to REVISION (default head)."""
+    """Apply migrations up to REVISION (default head).
+
+    \b
+    Examples:
+      ragfabric db upgrade
+      ragfabric db upgrade --revision head
+    """
     migrate.upgrade(_database_url(), revision)
     typer.echo(f"database upgraded to {revision}")
 
 
 @db_app.command()
 def downgrade(revision: str = typer.Option("base", help="Target revision.")) -> None:
-    """Roll migrations back to REVISION (default base, which removes every table)."""
+    """Roll migrations back to REVISION (default base, which removes every table).
+
+    \b
+    Examples:
+      ragfabric db downgrade --revision "REVISION"
+
+    Rolling back to base removes every table; name the revision you want.
+    """
     migrate.downgrade(_database_url(), revision)
     typer.echo(f"database downgraded to {revision}")
 
@@ -79,7 +140,13 @@ def config_validate(
         False, "--check-providers", help="Also make one live call per provider."
     ),
 ) -> None:
-    """Load the configuration and report the active implementation for each interface."""
+    """Load the configuration and report the active implementation for each interface.
+
+    \b
+    Examples:
+      ragfabric config validate
+      ragfabric config validate --check-providers
+    """
     resolved = resolve_config_path(path)
     typer.echo(f"config file: {resolved if resolved else 'none (defaults)'}")
     try:
@@ -160,19 +227,27 @@ def init(
         False, "--force", help="Overwrite existing .env and ragfabric.yaml."
     ),
 ) -> None:
-    """Create .env and ragfabric.yaml from the examples, then validate."""
+    """Create .env and ragfabric.yaml from the examples, then validate.
+
+    \b
+    Examples:
+      ragfabric init
+    """
     import shutil
     from pathlib import Path
 
-    for example, target in ((".env.example", ".env"), ("ragfabric.example.yaml", "ragfabric.yaml")):
-        src, dst = Path(example), Path(target)
-        if not src.exists():
-            typer.echo(f"{example} not found in the current directory")
-            raise typer.Exit(code=1)
+    from ragfabric_cli.envfile import write_private
+    from ragfabric_cli.templates import template_path
+
+    for example, target in (("env.example", ".env"), ("ragfabric.example.yaml", "ragfabric.yaml")):
+        src, dst = template_path(example), Path(target)
         if dst.exists() and not force:
             typer.echo(f"{target} already exists (use --force to overwrite)")
             continue
-        shutil.copyfile(src, dst)
+        if target == ".env":
+            write_private(dst, src.read_bytes())
+        else:
+            shutil.copyfile(src, dst)
         typer.echo(f"wrote {target}")
     from ragfabric_core.runtime import reset_config
 
@@ -200,7 +275,28 @@ def serve(
     --host 0.0.0.0 explicitly still works exactly as before for a deployment
     that means to bind every interface (e.g. inside a container behind its
     own network boundary).
+
+    \b
+    Examples:
+      ragfabric serve
+      ragfabric serve --port 8080
     """
+    from ragfabric_core.diagnostics import other_port_fix, port_in_use
+
+    if port_in_use(host, port):
+        typer.echo(f"Error: {host}:{port} is already in use by another program", err=True)
+        typer.echo(f"Fix: {other_port_fix()}", err=True)
+        raise typer.Exit(1)
+
     import uvicorn
 
     uvicorn.run("ragfabric_server.main:app", host=host, port=port, reload=reload)
+
+
+def main() -> None:
+    """Console script entry point."""
+    run_app(app)
+
+
+if __name__ == "__main__":
+    main()

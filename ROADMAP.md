@@ -162,10 +162,10 @@ Phase 6 merged to main on 2026-09-25 as PR #40 (rebase-merge); `[x]` below means
 
 ## v0.4.0 Adaptive router
 
-### Phase 7: Query Router [~]
+### Phase 7: Query Router [x]
 
-7a (the router and the agent's reach to all four strategies) is built; 7b (the terminal experience)
-is not, so the phase stays partial. See
+7a (the router and the agent's reach to all four strategies) and 7b (the terminal experience) are
+built. The v0.4.0 release is not tagged yet. See
 [ADR 0013](docs/adr/0013-router-as-a-strategy.md) and
 [ADR 0014](docs/adr/0014-signals-override-the-planner.md). Router quality is not measured yet.
 
@@ -185,18 +185,18 @@ is not, so the phase stays partial. See
   - [x] `switch_strategy` repairs across all three search tools, not only semantic and lexical
   - [x] Graph evidence (edges and paths) pooled with chunk evidence, with the graph citation
         contract (ADR 0012) applied to relationship claims in agentic answers
-- [ ] Terminal experience for `pip install ragfabric` users (folded into this phase on 2026-09-27
+- [x] Terminal experience for `pip install ragfabric` users (folded into this phase on 2026-09-27
       rather than waiting for Phase 9 or 10, since the CLI is on PyPI from v0.3.1):
-  - [ ] A welcome screen for bare `ragfabric`, pointing to where to start
-  - [ ] `ragfabric quickstart`: guided setup from Docker and PostgreSQL through `init`, a sample
+  - [x] A welcome screen for bare `ragfabric`, pointing to where to start
+  - [x] `ragfabric quickstart`: guided setup from Docker and PostgreSQL through `init`, a sample
         ingest and a first cited answer
-  - [ ] `ragfabric doctor`: a pass or fail check of Python, database, migrations, providers and
+  - [x] `ragfabric doctor`: a pass or fail check of Python, database, migrations, providers and
         configuration, with the exact command that fixes each failure
-  - [ ] `ragfabric strategies`: the four retrieval strategies, what each is best at, and an example
+  - [x] `ragfabric strategies`: the five strategies (auto and the four retrievers), what each is best at, and an example
         question for each
-  - [ ] Examples in every `--help`, and errors that name the fix instead of a stack trace
-  - [ ] Progress during `ingest`
-  - [ ] `ask` output that shows the answer, numbered citations with document names, the strategy
+  - [x] Examples in every `--help`, and errors that name the fix instead of a stack trace
+  - [x] Progress during `ingest`
+  - [x] `ask` output that shows the answer, numbered citations with document names, the strategy
         the router chose and why, and the traversed path for graph answers
 - [ ] **Release v0.4.0**
 

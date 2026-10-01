@@ -3,6 +3,44 @@
 This document grows with each release. Entries state the symptom, the likely cause and how to confirm
 it before changing anything.
 
+## Errors the CLI explains
+
+The CLI turns these expected failures into an `Error:` line and, for most, a `Fix:` line, with exit
+code 1. Rows with no printed fix say so. Any other failure prints `Unexpected error: ...` and
+`rerun with --debug for details`. To see the full traceback, put the option before the command:
+`ragfabric --debug <command> ...`. Schema checks (migrations behind, or unknown to this version) are
+reported by `ragfabric doctor`; see [Getting started](getting-started.md#checking-your-setup).
+
+| Error line | Fix line |
+|---|---|
+| `No RagFabric server at <url>` | `ragfabric serve` |
+| `The server at <url> did not answer in time` | `retry, or check that ragfabric serve is still running` |
+| `Lost the connection to <url>` | `check that ragfabric serve is still running` |
+| `The URL <value> needs http:// or https://` (for example `RAGFABRIC_URL=localhost:8000`) | `use http://127.0.0.1:8000 (or your server's address)` |
+| `The server at <url> is not a RagFabric server` (something else answered with a bare `Not Found`) | `ragfabric serve --port <N>, then set RAGFABRIC_URL=http://127.0.0.1:<N> in .env`, with a free port filled in |
+| `127.0.0.1:<port> is already in use by another program` (from `ragfabric serve`, before uvicorn starts) | `ragfabric serve --port <N>, then set RAGFABRIC_URL=http://127.0.0.1:<N> in .env`, with a free port filled in |
+| `The server refused the credentials` | `set RAGFABRIC_API_KEY, or pass --token or --api-key (ragfabric quickstart writes a key to .env)` |
+| `The server returned an error: <message>` (for example the explicit agentic strategy offline: `the agentic strategy needs a model (offline mode); run ragfabric doctor, then follow its upgrade steps: ...`) | none printed |
+| `Cannot reach the database at <url>` (password masked as `***`) | `ragfabric quickstart for SQLite, or docker compose up -d postgres` |
+| `ragfabric.yaml is invalid: <key>: <message>` (the first error only) | `ragfabric config validate`, which lists every error |
+| `<provider> rejected the API key` | `check the key in .env` |
+| `<provider> quota is used up or rate limited` | none printed |
+| `Cannot reach <provider>` | `ollama serve` for Ollama, otherwise `check the provider URL` |
+| `<provider>: <message>` (any other provider error) | none printed |
+
+## Quickstart
+
+| Symptom | Likely cause | Confirm and fix |
+|---|---|---|
+| `error: the .env in <dir> is not RagFabric's (DATABASE_URL <url>)` and `fix: ragfabric quickstart --dir ./ragfabric` | The directory already has a `.env` from another program (no `JWT_SECRET`, `FIRST_ADMIN_EMAIL` or `RAGFABRIC_` key), so its `DATABASE_URL` is that program's database. Quickstart stops before migrating and touches nothing | Run quickstart in its own directory: `ragfabric quickstart --dir ./ragfabric` |
+| `error: the .env in <dir> names a database outside it (DATABASE_URL <url>), so nothing was migrated` | A RagFabric `.env` names a database that is not a SQLite file in that directory. `--yes` never accepts it; without `--yes` quickstart asks first (default no) | Answer yes at the prompt if that database is meant for RagFabric, or use a fresh `--dir` |
+| `ragfabric ask` exits 2 with `./.env was not read because RAGFABRIC_URL (or --url, --token, --api-key) was given; pass --api-key too, or put the URL in .env` | `.env` is read only when nothing names a URL, token or key, so a URL from the environment or `--url` leaves its key unread | Pass `--api-key` too, or unset `RAGFABRIC_URL` and put the URL in `.env` |
+| `ragfabric doctor` warns `<url> is not a RagFabric server (HTTP <code> on /health)` | Another program answers on that URL; doctor counts a server as RagFabric only when `/health` returns `"service": "ragfabric"`. Doctor takes the URL from `--url`, then `RAGFABRIC_URL`, then `./.env` (only when no URL, token or key is in the environment) | Use the printed fix: `ragfabric serve --port <N>`, then set `RAGFABRIC_URL=http://127.0.0.1:<N>` in `.env` |
+| Quickstart prints `127.0.0.1:8000 is in use by another program, so .env names http://127.0.0.1:<N>` | Something else holds port 8000 | Start the server with the printed `ragfabric serve --port <N>`; `.env` already names that port |
+| `quickstart --docker` asks `.env names <url>. Update DATABASE_URL in .env to <postgres url>?` | An earlier quickstart wrote SQLite into `.env`; `--docker` needs PostgreSQL there. Only `DATABASE_URL` changes (`--yes` answers yes); declining stops before migrating | Answer yes. If the API key in `.env` is not active in the new database, quickstart creates one and replaces `RAGFABRIC_API_KEY` |
+| No `RAGFABRIC_API_KEY` after quickstart, and quickstart printed `api key: .env was kept, so no key is written to it. Create one and export it with: cd <dir> && export RAGFABRIC_API_KEY="$(ragfabric keys create --name cli --user <admin email> | tail -n 1)"` | `.env` already existed, so quickstart wrote nothing into it and signed in with the bootstrap admin instead | Run the printed command (it creates a key for the admin named in `.env`), then `ragfabric ask`; or put that key in `.env` as `RAGFABRIC_API_KEY` |
+| `model: offline` with `but its client package (openai) is not installed` | Ollama or `OPENAI_API_KEY` was found, but the base install has no `openai` package (Anthropic needs `anthropic`) | `pip install 'ragfabric[openai]'` (or `pip install 'ragfabric[anthropic]'`), then the printed upgrade steps |
+
 ## Installation
 
 | Symptom | Likely cause | Confirm and fix |
@@ -12,7 +50,7 @@ it before changing anything.
 | No admin user after first start in production | The shipped bootstrap admin is refused in production by design | Set `FIRST_ADMIN_EMAIL` and `FIRST_ADMIN_PASSWORD` to your own values |
 | `ModuleNotFoundError` on Python 3.14 | Dependencies target 3.12 | `uv venv --python 3.12` |
 | `graph_store.kind: neo4j` in `ragfabric.yaml` fails validation | Neo4j was removed as a graph backend in Phase 6; the graph lives in PostgreSQL now | Set `kind: postgres` or drop the key; see [ADR 0011](adr/0011-postgres-recursive-cte-over-neo4j.md) |
-| The `api` or `worker` container exits at startup with `ProviderError: ollama: openai is not installed. Install it with: uv pip install 'ragfabric[openai]'` | Ollama is the shipped default provider and is served through the OpenAI compatible client, so the `openai` extra is required even for an Ollama-only deployment; an image built from an image tag or commit that predates the Dockerfile's scoped `openai` extra install, or a custom Dockerfile that omits it, will not have the extra | Rebuild the image from current `main`; `deploy/docker/api.Dockerfile` installs the `openai` extra with a scoped `uv sync --frozen --no-dev --inexact --package ragfabric-core --extra openai` step after the workspace sync. If you maintain your own Dockerfile, add the same extra install |
+| The `api` or `worker` container exits at startup with `ProviderError: ollama: openai is not installed. Install it with: pip install 'ragfabric[openai]'` | Ollama is the shipped default provider and is served through the OpenAI compatible client, so the `openai` extra is required even for an Ollama-only deployment; an image built from an image tag or commit that predates the Dockerfile's scoped `openai` extra install, or a custom Dockerfile that omits it, will not have the extra | Rebuild the image from current `main`; `deploy/docker/api.Dockerfile` installs the `openai` extra with a scoped `uv sync --frozen --no-dev --inexact --package ragfabric-core --extra openai` step after the workspace sync. If you maintain your own Dockerfile, add the same extra install |
 
 ## Ingestion
 

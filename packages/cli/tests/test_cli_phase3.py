@@ -1,3 +1,4 @@
+import httpx
 import pytest
 from typer.testing import CliRunner
 
@@ -171,7 +172,7 @@ def test_ask_maps_a_ragfabric_error_to_exit_1(monkeypatch):
     monkeypatch.setattr("ragfabric_cli.commands.ask.Client", FakeClient)
     result = runner.invoke(app, ["ask", "q", "--token", "t"])
     assert result.exit_code == 1
-    assert "bad token" in result.output
+    assert "The server refused the credentials" in result.output
 
 
 def test_ask_maps_a_connection_failure_to_exit_1(monkeypatch):
@@ -183,10 +184,10 @@ def test_ask_maps_a_connection_failure_to_exit_1(monkeypatch):
             pass
 
         def ask_stream(self, query, **params):
-            raise ConnectionError("connection refused")
+            raise httpx.ConnectError("connection refused")
             yield  # pragma: no cover - never reached
 
     monkeypatch.setattr("ragfabric_cli.commands.ask.Client", FakeClient)
     result = runner.invoke(app, ["ask", "q", "--token", "t", "--url", "http://down"])
     assert result.exit_code == 1
-    assert "could not reach http://down" in result.output
+    assert "No RagFabric server at" in result.output

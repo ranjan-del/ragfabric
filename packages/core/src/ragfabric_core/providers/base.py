@@ -80,3 +80,13 @@ class EmbeddingProvider(Protocol):
     dim: int
 
     def embed(self, texts: list[str]) -> EmbeddingResult: ...
+
+
+def is_offline(llm: object) -> bool:
+    """True only for the provider built from ``llm.provider: offline``.
+
+    Checks an explicit marker, never the state of a script: a test double whose
+    responses ran out is not "configured offline", and must keep failing loudly
+    when it is over-called.
+    """
+    return getattr(llm, "offline", False) is True

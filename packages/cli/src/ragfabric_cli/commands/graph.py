@@ -48,7 +48,12 @@ def _survivor_name(db, entity_id: int) -> str:
 
 @merges_app.command("list")
 def list_merges() -> None:
-    """Every recorded merge, oldest first. Undo them newest first."""
+    """Every recorded merge, oldest first. Undo them newest first.
+
+    \b
+    Examples:
+      ragfabric graph merges list
+    """
     with session() as db:
         records = db.query(EntityMerge).order_by(EntityMerge.id).all()
         if not records:
@@ -72,7 +77,12 @@ def _record(db, merge_id: int) -> EntityMerge:
 
 @merges_app.command("show")
 def show_merge(merge_id: int) -> None:
-    """One merge: what was merged into what, by which method, and the evidence for it."""
+    """One merge: what was merged into what, by which method, and the evidence for it.
+
+    \b
+    Examples:
+      ragfabric graph merges show 1
+    """
     with session() as db:
         record = _record(db, merge_id)
         evidence: dict[str, Any] = dict(record.evidence)
@@ -98,7 +108,12 @@ def show_merge(merge_id: int) -> None:
 
 @merges_app.command("undo")
 def undo_merge(merge_id: int) -> None:
-    """Reverse one merge. Refused while any newer merge is still in place."""
+    """Reverse one merge. Refused while any newer merge is still in place.
+
+    \b
+    Examples:
+      ragfabric graph merges undo 1
+    """
     with session() as db:
         try:
             result = unmerge(db, merge_id)

@@ -114,6 +114,8 @@ def test_serve_defaults_to_localhost_only(monkeypatch):
     """
     calls = []
     monkeypatch.setattr("uvicorn.run", lambda app, **kwargs: calls.append(kwargs), raising=False)
+    # Port 8000 may be held by another program on the machine running the tests.
+    monkeypatch.setattr("ragfabric_core.diagnostics.port_in_use", lambda host, port: False)
 
     result = runner.invoke(app, ["serve"])
     assert result.exit_code == 0, result.stdout

@@ -463,3 +463,32 @@ def test_an_unscored_chunk_is_reported_unscored_not_as_zero():
     # Full coverage and no other chunks: (0.5 * 1 + 0.1 * 0) / 0.6.
     assert result["confidence"] == round(0.5 / 0.6, 4)
     assert _confidence(query, zero) == 0.5
+
+
+# final fix wave: I4, never quote a markdown heading or a bare list marker ------
+
+
+def test_select_support_skips_markdown_headings():
+    from ragfabric_core.generate.llm import select_support
+
+    text = "# Leave Policy\n\nThis policy applies to all full time employees of Northwind.\n"
+    support = select_support("What is the leave policy?", [{"text": text, "score": 1.0}])
+    assert len(support) == 1
+    assert support[0]["text"] == "This policy applies to all full time employees of Northwind."
+    assert text[support[0]["start"] : support[0]["end"]] == support[0]["text"]
+
+
+def test_select_support_skips_bare_list_markers():
+    from ragfabric_core.generate.llm import select_support
+
+    text = "Refund policy\n-\nRefunds are paid within 30 days under the refund policy.\n*\n"
+    support = select_support("refund policy", [{"text": text, "score": 1.0}])
+    assert [s["text"] for s in support] != ["-"] and support[0]["text"] not in ("-", "*")
+
+
+def test_a_chunk_of_only_headings_contributes_nothing():
+    from ragfabric_core.generate.llm import select_support
+
+    assert (
+        select_support("leave policy", [{"text": "# Leave Policy\n## Leave", "score": 1.0}]) == []
+    )

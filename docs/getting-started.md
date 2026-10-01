@@ -4,6 +4,97 @@
 > control shipped in Phase 2. Traditional RAG (real embeddings, vector search, cited answers, `ragfabric
 > ask`) shipped in Phase 3. Vectorless RAG arrives in Phase 4.
 
+## Five minute start
+
+For someone who has just run `pip install ragfabric` and has no Docker, database server or API key.
+Everything below runs from any directory.
+
+```bash
+pip install ragfabric
+ragfabric quickstart
+ragfabric doctor
+```
+
+Then start the server in a second terminal, in the same directory (quickstart's temporary server has
+stopped), and ask from the first:
+
+```bash
+ragfabric serve
+ragfabric ask "your question about the sample documents"
+```
+
+| Step | What `ragfabric quickstart` does |
+|---|---|
+| Config | Writes `ragfabric.yaml` and `.env` from the packaged templates when missing. Never overwrites without `--force`. A `.env` it writes is mode 0600 and gets a random `JWT_SECRET` and a random `FIRST_ADMIN_PASSWORD`, neither printed: the API key below is how you sign in |
+| Model | Ollama with a chat model and `nomic-embed-text` and the openai extra installed, else `OPENAI_API_KEY` and the openai extra installed, else `ANTHROPIC_API_KEY` and the anthropic extra installed (with offline embeddings), else offline mode, clearly labelled: answers are extractive and limited. A missing extra is named with its fix, `pip install 'ragfabric[openai]'` or `pip install 'ragfabric[anthropic]'` |
+| Database | SQLite by default. `--docker` starts PostgreSQL and Redis from a packaged compose file |
+| Migrate and ingest | Runs the migrations and ingests a small sample corpus |
+| First answer | Starts a temporary server, asks a sample question the way `ragfabric ask` does, prints the cited answer and stops the server |
+| Key | Only when quickstart wrote `.env` (mode 0600): creates an API key and stores `RAGFABRIC_API_KEY` and `RAGFABRIC_URL` there. When `.env` was kept, no key is written and it prints the command that creates one |
+
+Options: `--dir PATH`, `--docker`, `--force`, `--yes`, and `--model-check/--no-model-check` (the
+Ollama probe, on by default). A rerun continues where the last one stopped. No model is downloaded
+for you. Quickstart prints the `ollama pull` command only when Ollama is running but a model is
+missing, and in the offline upgrade hint.
+
+It ends with the next steps, one command per line with what it does on the line below: a single
+`cd <dir>` first when `--dir` is not the current directory, then `ragfabric serve` (leave it
+running and use a second terminal for the rest; it says `ragfabric serve --port <N>` when another
+program holds port 8000 and `.env` names port N), `ragfabric ingest`, `ragfabric ask`,
+`ragfabric doctor`, `ragfabric strategies`, and the upgrade steps in offline mode. With `--docker`
+it also says that `docker compose down` stops PostgreSQL and Redis.
+
+`ragfabric ask` reads `./.env` only when no URL, token or API key comes from a flag or the
+environment. It then takes `RAGFABRIC_URL` and `RAGFABRIC_API_KEY` from `./.env` together, with the
+URL defaulting to `http://localhost:8000`. On a terminal it shows a panel with the answer, numbered
+sources, the strategy that ran and why, the graph path for graph answers, and any claims removed for
+lacking support. Piped, and with `--json`, the output is plain and unchanged. `ragfabric ingest`
+shows a progress bar on a terminal.
+
+### Moving from offline mode to a real model
+
+```bash
+mv ragfabric.yaml ragfabric.yaml.bak
+ragfabric quickstart
+ragfabric reindex --yes
+```
+
+`.env` is kept. Do not use `--force` for this. Ollama and OpenAI need the openai extra first
+(`pip install 'ragfabric[openai]'`); quickstart and doctor put that step first while it is missing.
+
+### Checking your setup
+
+```bash
+ragfabric doctor
+ragfabric doctor --no-network
+ragfabric doctor --json
+ragfabric strategies
+```
+
+Each check shows pass, warn, fail or skip. The fixes are doctor's own text:
+
+| Check | Result and fix |
+|---|---|
+| Python | Passes only on Python 3.13. Otherwise fail: `use Python 3.13` |
+| Config | No `ragfabric.yaml`: warn, `ragfabric quickstart, or ragfabric init`. Invalid: fail with the first bad key, fix `fix the key above` (`ragfabric config validate` lists every error) |
+| Database | A SQLite file that does not exist yet: warn, `no database yet at <path>`, fix `ragfabric quickstart` (the file is not created, and migrations are skipped). Unreachable: fail, `ragfabric quickstart for SQLite, or docker compose up -d postgres` |
+| Migrations behind | Fail, `database is at <rev>, code expects <head>`: `ragfabric db upgrade` |
+| Migrations unknown | Fail, the database is at a revision this version does not know: `upgrade ragfabric (pip install -U ragfabric)` |
+| LLM | No `ragfabric.yaml`: skip, `not checked: no ragfabric.yaml (run ragfabric quickstart)`. Offline mode: warn, `install Ollama, or set OPENAI_API_KEY or ANTHROPIC_API_KEY, then mv ragfabric.yaml ragfabric.yaml.bak && ragfabric quickstart && ragfabric reindex --yes`, starting with `pip install 'ragfabric[openai]', then` while the openai extra is missing. A failed call: `pip install 'ragfabric[...]'` (client package not installed), `ollama serve` (Ollama not reachable), `ollama pull <model>` (model not found), otherwise `check the provider settings in ragfabric.yaml` |
+| Embeddings | Offline: warn, same upgrade steps (without the Anthropic option). Failed call: as for the LLM. Wrong dimension: `set embeddings.dim to <n> in ragfabric.yaml` |
+| Graph | Warn when graph extraction is enabled with an offline model: `set llm.provider to a real provider, or graph_store.extraction_model`. Skipped when `graph_store.enabled` is false |
+| Server | Pass only when `/health` answers 2xx with `"service": "ragfabric"`. Nothing answered: warn, `ragfabric serve`. Something else answered: warn, `<url> is not a RagFabric server (HTTP <code> on /health)`, fix `ragfabric serve --port <N>, then set RAGFABRIC_URL=http://127.0.0.1:<N> in .env`. The URL is `--url`, then `RAGFABRIC_URL`, then `./.env` (read only when no URL, token or key is in the environment) |
+
+`--no-network` skips the provider and server calls and they show as skipped, not passed; an offline
+provider still reports warn. The exit code is 1 if any check failed. `ragfabric strategies` lists
+auto, traditional, vectorless, agentic and graph with what each is best at, a relative cost (an
+engineering assessment: low, medium or high) and an example question. Bare `ragfabric` shows a
+welcome screen, and `ragfabric --debug <command>` prints the full traceback.
+
+`ragfabric init` also works from any directory now: its templates ship inside the package.
+
+The sections below describe the from-source setup with Docker.
+
 ## Prerequisites
 
 | Need | Version | Notes |
@@ -98,7 +189,7 @@ The real flow, in order: create the configuration, upgrade the database, create 
 folder into a collection, then mint an API key.
 
 ```bash
-ragfabric init                                                    # writes .env and ragfabric.yaml from the examples
+ragfabric init                                                    # writes .env and ragfabric.yaml from the packaged examples
 ragfabric db upgrade                                              # applies migrations, including 0004 (pinned dimension, HNSW index)
 ragfabric users create --email you@example.com --password ... --role admin
 ragfabric ingest ./docs --collection handbook                     # cleans, chunks, embeds, retains the originals, writes both indexes

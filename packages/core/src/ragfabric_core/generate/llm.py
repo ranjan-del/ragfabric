@@ -29,6 +29,14 @@ from ragfabric_core.ingest.embed import content_tokens
 # which would otherwise collapse into one enormous "sentence".
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
 
+# Markdown structure that is never worth quoting: a heading line, and a list
+# marker with nothing after it. A heading shares the question's words ("Leave
+# Policy") without saying anything, so it used to win the score and be quoted.
+_HEADING = re.compile(r"^#{1,6}\s")
+_BARE_MARKER = re.compile(r"^(?:[-*+]|\d+[.)])$")
+# A list marker in front of an item: the item is quoted without it.
+_LEADING_MARKER = re.compile(r"^(?:[-*+]|\d+[.)])\s+")
+
 # Longest sentence we will quote verbatim. A chunk with no punctuation at all is
 # one 800-character sentence; quoting all of it makes an unreadable answer.
 _MAX_SENTENCE = 320
@@ -138,6 +146,12 @@ def select_support(
         best: tuple[float, int, int, int] | None = None
         for start, end in sentence_spans(text):
             sentence = text[start:end]
+            if _HEADING.match(sentence) or _BARE_MARKER.match(sentence):
+                continue
+            marker = _LEADING_MARKER.match(sentence)
+            if marker:
+                start += marker.end()
+                sentence = text[start:end]
             tokens = content_tokens(sentence)
             if not tokens:
                 continue
