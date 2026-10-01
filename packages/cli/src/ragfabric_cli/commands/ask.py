@@ -15,8 +15,10 @@ from pathlib import Path
 import typer
 
 from ragfabric_cli.envfile import read_env_file
+from ragfabric_cli.ui.errors import NotRagFabricServer
 from ragfabric_cli.ui.panels import render_answer
 from ragfabric_sdk import Client
+from ragfabric_sdk.errors import NotFoundError
 
 DEFAULT_URL = "http://localhost:8000"
 
@@ -95,7 +97,8 @@ def ask(
     url = url or os.environ.get("RAGFABRIC_URL")
     token = token or os.environ.get("RAGFABRIC_TOKEN")
     api_key = api_key or os.environ.get("RAGFABRIC_API_KEY")
-    if not (url or token or api_key):
+    dotenv_skipped = bool(url or token or api_key)
+    if not dotenv_skipped:
         # Nothing came from a flag or the environment: take the URL and the key
         # from ./.env together, where ragfabric quickstart writes them. Never mix:
         # a stray .env must not redirect a credential the user supplied to a
@@ -105,6 +108,13 @@ def ask(
         api_key = dotenv.get("RAGFABRIC_API_KEY") or None
     url = url or DEFAULT_URL
     if not token and not api_key:
+        if dotenv_skipped and read_env_file(Path(".env")).get("RAGFABRIC_API_KEY"):
+            typer.echo(
+                "./.env was not read because RAGFABRIC_URL (or --url, --token, --api-key) "
+                "was given; pass --api-key too, or put the URL in .env",
+                err=True,
+            )
+            raise typer.Exit(2)
         typer.echo(
             "no credentials: pass --token or --api-key, or set RAGFABRIC_TOKEN "
             "or RAGFABRIC_API_KEY (in the environment or in ./.env; "
@@ -124,75 +134,84 @@ def ask(
 
     client = Client(url, token=token, api_key=api_key)
     try:
-        if as_json or no_stream:
-            answer = client.ask(question, **params)
-            if as_json:
-                typer.echo(answer.model_dump_json(indent=2))
-            else:
-                render_answer(
-                    answer.answer,
-                    [citation.model_dump() for citation in answer.citations],
-                    strategy=answer.strategy,
-                    router=answer.router.model_dump() if answer.router is not None else None,
-                    fallback_from=answer.fallback_from,
-                    subgraph=answer.subgraph.model_dump() if answer.subgraph is not None else None,
-                    dropped_claims=[claim.model_dump() for claim in answer.dropped_claims],
-                    dropped_relationship_claims=[
-                        claim.model_dump() for claim in answer.dropped_relationship_claims
-                    ],
-                )
-            return
-
-        citations: list[dict] = []
-        subgraph: dict | None = None
-        ran: str | None = None
-        router: dict | None = None
-        fallback_from: str | None = None
-        dropped_relationship_claims: list[dict] = []
-        dropped_claims: list[dict] = []
-        run_id = None
-        latency_ms = None
-        for event in client.ask_stream(question, **params):
-            if event.event == "retrieval":
-                subgraph = event.data.get("subgraph")
-                ran = event.data.get("strategy")
-                router = event.data.get("router")
-                fallback_from = event.data.get("fallback_from")
-            elif event.event == "token":
-                typer.echo(event.data.get("text", ""), nl=False)
-            elif event.event == "superseded":
-                # The caller already saw the rejected tokens printed above,
-                # and there is no way to un-print a terminal: say so on
-                # stderr (never mixed into a piped stdout file) and then put
-                # the full corrected answer on stdout so a script reading
-                # stdout still ends up with the complete, correct text, even
-                # though it is preceded by the stale draft.
-                typer.echo(
-                    "\nnotice: the streamed answer above failed the citation "
-                    "contract and was corrected; the corrected answer follows.",
-                    err=True,
-                )
-                typer.echo("\n")
-                typer.echo(event.data.get("text", ""), nl=False)
-                dropped_claims = event.data.get("dropped_claims", [])
-                dropped_relationship_claims = event.data.get("dropped_relationship_claims", [])
-            elif event.event == "citations":
-                citations = event.data.get("citations", [])
-            elif event.event == "done":
-                run_id = event.data.get("run_id")
-                latency_ms = event.data.get("latency_ms")
-        typer.echo("")
-        render_answer(
-            None,
-            citations,
-            strategy=ran,
-            router=router,
-            fallback_from=fallback_from,
-            subgraph=subgraph,
-            dropped_claims=dropped_claims,
-            dropped_relationship_claims=dropped_relationship_claims,
-        )
-        if run_id is not None:
-            typer.echo(f"run {run_id} in {latency_ms}ms")
+        _ask(client, question, params, as_json=as_json, no_stream=no_stream)
+    except NotFoundError as exc:
+        # FastAPI's own 404 for an unknown route: whatever answered is not RagFabric.
+        if str(exc) == "Not Found":
+            raise NotRagFabricServer(url) from exc
+        raise
     finally:
         client.close()
+
+
+def _ask(client: Client, question: str, params: dict, *, as_json: bool, no_stream: bool) -> None:
+    if as_json or no_stream:
+        answer = client.ask(question, **params)
+        if as_json:
+            typer.echo(answer.model_dump_json(indent=2))
+        else:
+            render_answer(
+                answer.answer,
+                [citation.model_dump() for citation in answer.citations],
+                strategy=answer.strategy,
+                router=answer.router.model_dump() if answer.router is not None else None,
+                fallback_from=answer.fallback_from,
+                subgraph=answer.subgraph.model_dump() if answer.subgraph is not None else None,
+                dropped_claims=[claim.model_dump() for claim in answer.dropped_claims],
+                dropped_relationship_claims=[
+                    claim.model_dump() for claim in answer.dropped_relationship_claims
+                ],
+            )
+        return
+
+    citations: list[dict] = []
+    subgraph: dict | None = None
+    ran: str | None = None
+    router: dict | None = None
+    fallback_from: str | None = None
+    dropped_relationship_claims: list[dict] = []
+    dropped_claims: list[dict] = []
+    run_id = None
+    latency_ms = None
+    for event in client.ask_stream(question, **params):
+        if event.event == "retrieval":
+            subgraph = event.data.get("subgraph")
+            ran = event.data.get("strategy")
+            router = event.data.get("router")
+            fallback_from = event.data.get("fallback_from")
+        elif event.event == "token":
+            typer.echo(event.data.get("text", ""), nl=False)
+        elif event.event == "superseded":
+            # The caller already saw the rejected tokens printed above,
+            # and there is no way to un-print a terminal: say so on
+            # stderr (never mixed into a piped stdout file) and then put
+            # the full corrected answer on stdout so a script reading
+            # stdout still ends up with the complete, correct text, even
+            # though it is preceded by the stale draft.
+            typer.echo(
+                "\nnotice: the streamed answer above failed the citation "
+                "contract and was corrected; the corrected answer follows.",
+                err=True,
+            )
+            typer.echo("\n")
+            typer.echo(event.data.get("text", ""), nl=False)
+            dropped_claims = event.data.get("dropped_claims", [])
+            dropped_relationship_claims = event.data.get("dropped_relationship_claims", [])
+        elif event.event == "citations":
+            citations = event.data.get("citations", [])
+        elif event.event == "done":
+            run_id = event.data.get("run_id")
+            latency_ms = event.data.get("latency_ms")
+    typer.echo("")
+    render_answer(
+        None,
+        citations,
+        strategy=ran,
+        router=router,
+        fallback_from=fallback_from,
+        subgraph=subgraph,
+        dropped_claims=dropped_claims,
+        dropped_relationship_claims=dropped_relationship_claims,
+    )
+    if run_id is not None:
+        typer.echo(f"run {run_id} in {latency_ms}ms")

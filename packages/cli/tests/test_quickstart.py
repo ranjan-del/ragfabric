@@ -435,6 +435,7 @@ def test_a_written_env_gets_the_key_and_url_appended_and_the_key_is_not_printed(
 ):
     env = tmp_path / ".env"
     env.write_text("DATABASE_URL=sqlite:///x.db\n")
+    monkeypatch.setattr(qs, "port_in_use", lambda host, port: False)
     monkeypatch.setattr(qs, "_create_api_key", lambda ctx, email: "rf_secretkeyvalue")
     ctx = qs.Context(dir=tmp_path, force=False, yes=True, docker=False, model_check=False)
     ctx.env_written = True
@@ -575,7 +576,7 @@ def test_ask_with_an_env_url_ignores_the_dot_env_key(ask_env, monkeypatch):
     monkeypatch.setenv("RAGFABRIC_URL", "http://127.0.0.1:9")
     result, seen = _asked()
     assert result.exit_code == 2 and seen is None
-    assert "no credentials" in result.output
+    assert "./.env was not read because RAGFABRIC_URL" in result.output
 
 
 def test_ask_with_no_credentials_anywhere_exits_2(tmp_path, monkeypatch):

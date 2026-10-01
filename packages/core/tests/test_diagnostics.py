@@ -389,3 +389,54 @@ def test_mask_url_leaves_a_url_without_a_password_alone():
 def test_mask_urls_in_masks_two_urls_with_slashes_in_their_passwords():
     text = "a postgresql://u:p/1@h1/x b redis://:s/2@h2:6379/0"
     assert diagnostics.mask_urls_in(text) == "a postgresql://u:***@h1/x b redis://:***@h2:6379/0"
+
+
+# final fix wave: I2, a server that is not RagFabric ----------------------------
+
+
+def _serve_once(status: int, body: bytes):
+    """A tiny HTTP server in a thread answering every GET with ``status`` and ``body``."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - the http.server API
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server
+
+
+def _check_against(status: int, body: bytes):
+    server = _serve_once(status, body)
+    try:
+        return diagnostics.check_server(f"http://127.0.0.1:{server.server_address[1]}")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_server_passes_only_when_health_identifies_ragfabric():
+    result = _check_against(200, b'{"status": "ok", "service": "ragfabric"}')
+    assert result.status == "pass"
+
+
+def test_a_2xx_health_from_another_program_is_not_ragfabric():
+    result = _check_against(200, b'{"status": "ok"}')
+    assert result.status == "warn"
+    assert result.detail.endswith("is not a RagFabric server (HTTP 200 on /health)")
+    assert "ragfabric serve --port " in result.fix and "in .env" in result.fix
+
+
+def test_a_404_health_is_not_ragfabric():
+    result = _check_against(404, b'{"detail": "Not Found"}')
+    assert result.status == "warn"
+    assert result.detail.endswith("is not a RagFabric server (HTTP 404 on /health)")

@@ -10,13 +10,32 @@ from pathlib import Path
 import typer
 
 from ragfabric_cli.commands.ask import DEFAULT_URL
+from ragfabric_cli.envfile import read_env_file
 from ragfabric_cli.ui.panels import CheckView, render_checks
 from ragfabric_core import diagnostics
 
 
+def _server_url(flag: str | None) -> str:
+    """The server to probe, by ask's precedence (R18).
+
+    --url, then RAGFABRIC_URL; ./.env is read only when the environment names
+    no URL, token or key, so doctor probes the server ask would talk to.
+    """
+    if flag:
+        return flag
+    names = ("RAGFABRIC_URL", "RAGFABRIC_TOKEN", "RAGFABRIC_API_KEY")
+    if os.environ.get("RAGFABRIC_URL"):
+        return os.environ["RAGFABRIC_URL"]
+    if not any(os.environ.get(name) for name in names):
+        from_dotenv = read_env_file(Path(".env")).get("RAGFABRIC_URL")
+        if from_dotenv:
+            return from_dotenv
+    return DEFAULT_URL
+
+
 def doctor(
     url: str | None = typer.Option(
-        None, "--url", help=f"Server URL (env RAGFABRIC_URL, default {DEFAULT_URL})."
+        None, "--url", help=f"Server URL (env RAGFABRIC_URL, then ./.env, default {DEFAULT_URL})."
     ),
     no_network: bool = typer.Option(
         False, "--no-network", help="Skip the checks that call a model provider or the server."
@@ -40,7 +59,7 @@ def doctor(
     results = diagnostics.run_all(
         config_path=Path(config_env) if config_env else None,
         db_url=db_url,
-        server_url=url or os.environ.get("RAGFABRIC_URL") or DEFAULT_URL,
+        server_url=_server_url(url),
         network=not no_network,
     )
     if as_json:

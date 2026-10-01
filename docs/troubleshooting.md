@@ -16,6 +16,8 @@ reported by `ragfabric doctor`; see [Getting started](getting-started.md#checkin
 | `No RagFabric server at <url>` | `ragfabric serve` |
 | `The server at <url> did not answer in time` | `retry, or check that ragfabric serve is still running` |
 | `Lost the connection to <url>` | `check that ragfabric serve is still running` |
+| `The server at <url> is not a RagFabric server` (something else answered with a bare `Not Found`) | `ragfabric serve --port <N>, then set RAGFABRIC_URL=http://127.0.0.1:<N> in .env`, with a free port filled in |
+| `127.0.0.1:<port> is already in use by another program` (from `ragfabric serve`, before uvicorn starts) | `ragfabric serve --port <N>, then set RAGFABRIC_URL=http://127.0.0.1:<N> in .env`, with a free port filled in |
 | `The server refused the credentials` | `set RAGFABRIC_API_KEY, or pass --token or --api-key (ragfabric quickstart writes a key to .env)` |
 | `The server returned an error: <message>` (for example the explicit agentic strategy with no model: `the agentic strategy needs a model; set llm.provider in ragfabric.yaml`) | none printed |
 | `Cannot reach the database at <url>` (password masked as `***`) | `ragfabric quickstart for SQLite, or docker compose up -d postgres` |
@@ -31,6 +33,9 @@ reported by `ragfabric doctor`; see [Getting started](getting-started.md#checkin
 |---|---|---|
 | `error: the .env in <dir> is not RagFabric's (DATABASE_URL <url>)` and `fix: ragfabric quickstart --dir ./ragfabric` | The directory already has a `.env` from another program (no `JWT_SECRET`, `FIRST_ADMIN_EMAIL` or `RAGFABRIC_` key), so its `DATABASE_URL` is that program's database. Quickstart stops before migrating and touches nothing | Run quickstart in its own directory: `ragfabric quickstart --dir ./ragfabric` |
 | `error: the .env in <dir> names a database outside it (DATABASE_URL <url>), so nothing was migrated` | A RagFabric `.env` names a database that is not a SQLite file in that directory. `--yes` never accepts it; without `--yes` quickstart asks first (default no) | Answer yes at the prompt if that database is meant for RagFabric, or use a fresh `--dir` |
+| `ragfabric ask` exits 2 with `./.env was not read because RAGFABRIC_URL (or --url, --token, --api-key) was given; pass --api-key too, or put the URL in .env` | `.env` is read only when nothing names a URL, token or key, so a URL from the environment or `--url` leaves its key unread | Pass `--api-key` too, or unset `RAGFABRIC_URL` and put the URL in `.env` |
+| `ragfabric doctor` warns `<url> is not a RagFabric server (HTTP <code> on /health)` | Another program answers on that URL; doctor counts a server as RagFabric only when `/health` returns `"service": "ragfabric"`. Doctor takes the URL from `--url`, then `RAGFABRIC_URL`, then `./.env` (only when no URL, token or key is in the environment) | Use the printed fix: `ragfabric serve --port <N>`, then set `RAGFABRIC_URL=http://127.0.0.1:<N>` in `.env` |
+| Quickstart prints `127.0.0.1:8000 is in use by another program, so .env names http://127.0.0.1:<N>` | Something else holds port 8000 | Start the server with the printed `ragfabric serve --port <N>`; `.env` already names that port |
 | `model: offline` with `but its client package (openai) is not installed` | Ollama or `OPENAI_API_KEY` was found, but the base install has no `openai` package (Anthropic needs `anthropic`) | `pip install 'ragfabric[openai]'` (or `pip install 'ragfabric[anthropic]'`), then the printed upgrade steps |
 
 ## Installation

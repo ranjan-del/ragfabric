@@ -278,6 +278,13 @@ def serve(
       ragfabric serve
       ragfabric serve --port 8080
     """
+    from ragfabric_core.diagnostics import other_port_fix, port_in_use
+
+    if port_in_use(host, port):
+        typer.echo(f"Error: {host}:{port} is already in use by another program", err=True)
+        typer.echo(f"Fix: {other_port_fix()}", err=True)
+        raise typer.Exit(1)
+
     import uvicorn
 
     uvicorn.run("ragfabric_server.main:app", host=host, port=port, reload=reload)

@@ -7,9 +7,12 @@ carry a URL goes through ``mask_url`` first, so no password is ever printed.
 
 from __future__ import annotations
 
+import errno
 import http.client
 import importlib.util
+import json
 import re
+import socket
 import sys
 import urllib.error
 import urllib.request
@@ -270,13 +273,51 @@ def check_graph(cfg: RagFabricConfig) -> CheckResult:
     )
 
 
+def free_port() -> int:
+    """A TCP port on 127.0.0.1 that nothing is listening on right now."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def port_in_use(host: str, port: int) -> bool:
+    """True when binding ``host:port`` fails because something else holds it.
+
+    Binds the way uvicorn does (SO_REUSEADDR set), so the answer matches
+    what ``ragfabric serve`` would hit.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind((host, port))
+        except OSError as exc:
+            return exc.errno == errno.EADDRINUSE
+    return False
+
+
+def other_port_fix(port: int | None = None) -> str:
+    """Run RagFabric on a free port and point .env at it."""
+    port = port or free_port()
+    return f"ragfabric serve --port {port}, then set RAGFABRIC_URL=http://127.0.0.1:{port} in .env"
+
+
+def _is_ragfabric_health(body: bytes) -> bool:
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return False
+    return isinstance(data, dict) and data.get("service") == "ragfabric"
+
+
 def check_server(url: str) -> CheckResult:
+    """Pass only on a 2xx /health whose JSON says ``"service": "ragfabric"``."""
     target = url.rstrip("/") + "/health"
     try:
         with urllib.request.urlopen(target, timeout=SERVER_TIMEOUT_SECONDS) as response:  # noqa: S310
-            if 200 <= response.status < 300:
-                return CheckResult("server", "pass", f"{mask_urls_in(url)} is healthy")
             status = response.status
+            body = response.read()
+            if 200 <= status < 300 and _is_ragfabric_health(body):
+                return CheckResult("server", "pass", f"{mask_urls_in(url)} is healthy")
     except urllib.error.HTTPError as exc:
         status = exc.code
     except (OSError, ValueError, http.client.HTTPException):
@@ -286,8 +327,8 @@ def check_server(url: str) -> CheckResult:
     return CheckResult(
         "server",
         "warn",
-        f"{mask_urls_in(url)} answered HTTP {status} on /health",
-        "ragfabric serve",
+        f"{mask_urls_in(url)} is not a RagFabric server (HTTP {status} on /health)",
+        other_port_fix(),
     )
 
 

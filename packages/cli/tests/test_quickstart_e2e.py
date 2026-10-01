@@ -59,7 +59,15 @@ def test_quickstart_from_nothing_to_a_cited_answer_and_again(tmp_path, monkeypat
 
     key = read_env_file(tmp_path / ".env")["RAGFABRIC_API_KEY"]
     assert key.startswith("rf_")
-    assert read_env_file(tmp_path / ".env")["RAGFABRIC_URL"] == "http://127.0.0.1:8000"
+    written_url = read_env_file(tmp_path / ".env")["RAGFABRIC_URL"]
+    from ragfabric_core.diagnostics import port_in_use
+
+    if port_in_use("127.0.0.1", 8000):
+        # Another program holds 8000 (I2): .env names a free port and serve is told it.
+        assert written_url != "http://127.0.0.1:8000"
+        assert f"ragfabric serve --port {written_url.rsplit(':', 1)[1]}" in result.output
+    else:
+        assert written_url == "http://127.0.0.1:8000"
     assert key not in result.output and key not in again.output
     assert "--token" not in result.output
 
@@ -91,12 +99,12 @@ def test_quickstart_from_nothing_to_a_cited_answer_and_again(tmp_path, monkeypat
             assert server.poll() is None, "ragfabric serve exited"
             assert time.monotonic() < deadline, "ragfabric serve never became healthy"
             time.sleep(0.2)
-        # .env names port 8000; point it at this server's port. RAGFABRIC_URL in the
+        # Point .env at this server's port. RAGFABRIC_URL in the
         # environment would make ask ignore .env entirely (ruling R18), key included.
         dotenv = tmp_path / ".env"
         dotenv.write_text(
             dotenv.read_text().replace(
-                "RAGFABRIC_URL=http://127.0.0.1:8000", f"RAGFABRIC_URL=http://127.0.0.1:{port}"
+                f"RAGFABRIC_URL={written_url}", f"RAGFABRIC_URL=http://127.0.0.1:{port}"
             )
         )
         monkeypatch.chdir(tmp_path)

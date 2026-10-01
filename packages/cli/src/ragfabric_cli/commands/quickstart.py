@@ -17,7 +17,6 @@ import os
 import re
 import shlex
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
@@ -37,6 +36,7 @@ from ragfabric_cli.templates import SAMPLE_QUESTION, sample_paths, template_path
 from ragfabric_cli.ui import console
 from ragfabric_cli.ui.console import mask_urls_in
 from ragfabric_cli.ui.panels import render_answer, render_next_steps
+from ragfabric_core.diagnostics import free_port, port_in_use
 
 OLLAMA_TAGS_URL = "http://localhost:11434/api/tags"
 OLLAMA_BASE_URL = "http://localhost:11434/v1"
@@ -109,6 +109,7 @@ class Context:
     choice: ModelChoice | None = None
     child_env: dict[str, str] = field(default_factory=dict)
     key_in_env: bool = False
+    serve_url: str | None = None
 
 
 def _say(message: str) -> None:
@@ -652,13 +653,6 @@ def _step_ingest(ctx: Context) -> None:
 # Ask ------------------------------------------------------------------------
 
 
-def free_port() -> int:
-    """A TCP port on 127.0.0.1 that nothing is listening on right now."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
 def _server_command(port: int) -> list[str]:
     return [
         sys.executable,
@@ -801,6 +795,30 @@ def _key_command(ctx: Context, email: str) -> str:
     )
 
 
+def _choose_serve_url() -> str:
+    """http://127.0.0.1:8000, or a free port when another program holds 8000."""
+    if port_in_use("127.0.0.1", 8000):
+        return f"http://127.0.0.1:{free_port()}"
+    return SERVE_URL
+
+
+def _serve_port(ctx: Context) -> int | None:
+    """The port ``ragfabric serve`` must use for .env's RAGFABRIC_URL, or None for 8000."""
+    from urllib.parse import urlsplit
+
+    url = ctx.serve_url or _read_env_value(ctx.dir / ".env", "RAGFABRIC_URL")
+    if not url:
+        return None
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return None
+    if parts.hostname not in ("127.0.0.1", "localhost") or port in (None, 8000):
+        return None
+    return port
+
+
 def _credentials(ctx: Context, url: str, email: str, password: str) -> dict[str, str]:
     """Client credentials for the sample question. The key itself is never printed."""
     env_path = ctx.dir / ".env"
@@ -812,12 +830,20 @@ def _credentials(ctx: Context, url: str, email: str, password: str) -> dict[str,
     if ctx.env_written:
         key = _create_api_key(ctx, email)
         _set_env_value(env_path, "RAGFABRIC_API_KEY", key)
-        _set_env_value(env_path, "RAGFABRIC_URL", SERVE_URL)
+        serve_url = _choose_serve_url()
+        _set_env_value(env_path, "RAGFABRIC_URL", serve_url)
         ctx.key_in_env = True
+        ctx.serve_url = serve_url
         _say(
             f"api key: created key {API_KEY_NAME!r} for {email}; saved to .env as "
-            f"RAGFABRIC_API_KEY, with RAGFABRIC_URL={SERVE_URL}"
+            f"RAGFABRIC_API_KEY, with RAGFABRIC_URL={serve_url}"
         )
+        if serve_url != SERVE_URL:
+            _say(
+                "api key: 127.0.0.1:8000 is in use by another program, so .env names "
+                f"{serve_url}; start the server with: ragfabric serve --port "
+                f"{serve_url.rsplit(':', 1)[1]}"
+            )
         return {"api_key": key}
     res = httpx.post(
         f"{url}/api/auth/login", data={"username": email, "password": password}, timeout=10
@@ -872,6 +898,7 @@ def _is_offline(ctx: Context) -> bool:
 
 def _next_steps(ctx: Context) -> list[tuple[str, str]]:
     here = f"cd {shlex.quote(str(ctx.dir))} &&"
+    port = _serve_port(ctx)
     question = SAMPLE_QUESTION.replace('"', '\\"')
     ask_why = (
         "ask the running server; RAGFABRIC_URL and RAGFABRIC_API_KEY come from .env"
@@ -887,7 +914,10 @@ def _next_steps(ctx: Context) -> list[tuple[str, str]]:
         )
     )
     return [
-        (f"{here} ragfabric serve", f"run the API on {SERVE_URL}"),
+        (
+            f"{here} ragfabric serve" + (f" --port {port}" if port else ""),
+            f"run the API on http://127.0.0.1:{port or 8000}",
+        ),
         (f"{here} ragfabric ingest ./my-docs --recursive", "add your own documents"),
         (f'{here} ragfabric ask "{question}"', ask_why),
         (f"{here} ragfabric doctor", "check config, database, migrations and providers"),

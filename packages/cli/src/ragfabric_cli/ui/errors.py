@@ -21,6 +21,14 @@ DEBUG = False
 _URL = re.compile(r"\b[a-z+]+://\S+")
 
 
+class NotRagFabricServer(Exception):
+    """Something answered at ``url``, but with FastAPI's bare 404: not a RagFabric server."""
+
+    def __init__(self, url: str) -> None:
+        super().__init__(f"not a RagFabric server: {url}")
+        self.url = url
+
+
 @dataclass(frozen=True)
 class FriendlyError:
     problem: str
@@ -52,6 +60,12 @@ def friendly_error(exc: BaseException) -> FriendlyError | None:
             )
         return FriendlyError(
             f"Lost the connection to {url}", "check that ragfabric serve is still running"
+        )
+    if isinstance(exc, NotRagFabricServer):
+        from ragfabric_core.diagnostics import other_port_fix
+
+        return FriendlyError(
+            f"The server at {mask_url(exc.url)} is not a RagFabric server", other_port_fix()
         )
     if isinstance(exc, AuthError):
         return FriendlyError(
