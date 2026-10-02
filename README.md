@@ -40,8 +40,9 @@
 17. [What works today (v1)](#what-works-today-v1)
 18. [Limitations](#limitations)
 19. [Roadmap and future improvements](#roadmap-and-future-improvements)
-20. [Contributing](#contributing)
-21. [License](#license)
+20. [Project documentation](#project-documentation)
+21. [Contributing](#contributing)
+22. [License](#license)
 
 ---
 
@@ -545,6 +546,23 @@ See [ROADMAP.md](ROADMAP.md) and [CHANGELOG.md](CHANGELOG.md).
 
 Later: OIDC and SAML, multi tenant workspaces, more connectors and stores, community summaries for Graph
 RAG, a Helm chart.
+
+## Project documentation
+
+Every flagship repository documents the same ten things. Status shows what exists today.
+
+| Section | Document | Status |
+|---|---|---|
+| README | [README.md](README.md) | Written |
+| Architecture | [docs/architecture.md](docs/architecture.md) | Written |
+| Design decisions | [docs/adr/](docs/adr/) | Written |
+| Benchmarks | [docs/benchmarks/README.md](docs/benchmarks/README.md) | Partial |
+| Failure cases | [docs/failure-cases.md](docs/failure-cases.md) | Partial |
+| Evaluation | [docs/evaluation.md](docs/evaluation.md) | Written |
+| Trade-offs | [docs/trade-offs.md](docs/trade-offs.md) | Partial |
+| Deployment | [docs/deployment.md](docs/deployment.md) | Partial |
+| Cost | [docs/cost.md](docs/cost.md) | To be written |
+| Future work | [ROADMAP.md](ROADMAP.md) | Written |
 
 ## Contributing
 
