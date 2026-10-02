@@ -31,3 +31,15 @@
 Documents describing features that have not shipped carry a status line at the top. They are written
 before the code on purpose: the explanation is the specification, and the implementation must match it
 or the document is corrected in the same pull request.
+
+## Flagship standard documents
+
+Added for the flagship documentation standard (see the README section "Project documentation"). Each is a stub until filled in.
+
+| Document | Status |
+|---|---|
+| [benchmarks/README.md](benchmarks/README.md) | partial |
+| [cost.md](cost.md) | to be written |
+| [deployment.md](deployment.md) | partial |
+| [failure-cases.md](failure-cases.md) | partial |
+| [trade-offs.md](trade-offs.md) | partial |

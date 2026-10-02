@@ -15,6 +15,12 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 | v0.5.0 | Evaluation framework | Corpus, question set, metrics, `make eval`, dashboards, generated benchmarks |
 | v1.0.0 | Production release | Reference UI with Compare and Trace, TypeScript SDK, connectors, hardening, docs site, deployment guides, public benchmarks and fix wave (Phase 11) |
 
+## [Unreleased]
+
+### Added
+
+- Flagship documentation standard: a "Project documentation" table in the README covering README, Architecture, Design decisions, Benchmarks, Failure cases, Evaluation, Trade-offs, Deployment, Cost and Future work, with stub documents for the sections not yet written
+
 ## [0.4.0] - unreleased
 
 ### Added
