@@ -293,18 +293,24 @@ def _refuse_unapplied_filters(strategy: str, document_id: int | None, fmt: str |
         )
 
 
-def _refuse_agentic_without_model(strategy: str, llm: LLMProvider) -> None:
-    """Refuse an explicit agentic request when the LLM is the offline provider.
+_NEEDS_A_MODEL = (StrategyName.AGENTIC, StrategyName.GRAPH)
 
-    The agent plans and assesses with a model, so there is nothing honest to
-    run. Auto routing is unaffected: it falls back to traditional on its own.
-    Raised before retrieval and before any stream starts, so it is a plain 422.
+
+def _refuse_without_model(strategy: str, llm: LLMProvider) -> None:
+    """Refuse an explicit agentic or graph request when the LLM is the offline provider.
+
+    The agent plans and assesses with a model. The graph strategy reads the
+    question with a model, and offline nothing extracted a graph at ingestion
+    either, so it would return little. In both cases there is nothing honest
+    to run. Auto routing is unaffected: it falls back to traditional on its
+    own. Raised before retrieval and before any stream starts, so it is a
+    plain 422.
     """
-    if strategy == StrategyName.AGENTIC and is_offline(llm):
+    if strategy in _NEEDS_A_MODEL and is_offline(llm):
         raise HTTPException(
             status_code=422,
             detail=(
-                "the agentic strategy needs a model (offline mode); run ragfabric doctor, then "
+                f"the {strategy} strategy needs a model (offline mode); run ragfabric doctor, then "
                 "follow its upgrade steps: install Ollama, or set OPENAI_API_KEY or "
                 f"ANTHROPIC_API_KEY, then {UPGRADE_STEPS}"
             ),
@@ -504,7 +510,7 @@ def query(
     """Ask a question and get a cited, grounded answer."""
     name = _requested_strategy(payload.strategy, payload.rerank)
     _refuse_unapplied_filters(name, payload.document_id, payload.format)
-    _refuse_agentic_without_model(name, llm)
+    _refuse_without_model(name, llm)
     started = time.perf_counter()
     strategy = _strategy_for(payload.rerank, registry, llm, name)
     with start_trace() as tracing:

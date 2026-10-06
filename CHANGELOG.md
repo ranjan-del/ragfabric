@@ -136,6 +136,10 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 - `ragfabric quickstart --docker` refuses a `.env` that is not RagFabric's before it writes
   `docker-compose.yml` or runs `docker compose up`, so a refusal no longer leaves containers
   running. (#55)
+- An explicit `graph` strategy request in offline mode is now a 422 that points to `ragfabric
+  doctor` and the upgrade steps, the same as the explicit `agentic` one, on `/api/ask` (streamed
+  or not) and `/api/search/query`. Offline, nothing extracts a graph and nothing reads the
+  question, so the request returned little. `auto` is unaffected. (#55)
 
 ## [0.3.1] - 2026-09-26
 
