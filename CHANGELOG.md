@@ -129,6 +129,13 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
   when it sat next to a relation phrase, and the identifier boost never applied. Lower case forms
   (`rf-4312`, `gpt-4`) and a letter after the number (`RF-4312a`) stay out on purpose; upper case
   names such as `GPT-4` now match. (#59)
+- `ragfabric quickstart --force` keeps the existing `.env`'s `FIRST_ADMIN_PASSWORD` instead of
+  writing a new one. The database keeps the bootstrap admin's first password, so a new one in
+  `.env` made signing in from `.env` fail with HTTP 401 once `RAGFABRIC_API_KEY` was removed. A
+  password in a `.env` that is not RagFabric's is never carried over. (#55)
+- `ragfabric quickstart --docker` refuses a `.env` that is not RagFabric's before it writes
+  `docker-compose.yml` or runs `docker compose up`, so a refusal no longer leaves containers
+  running. (#55)
 
 ## [0.3.1] - 2026-09-26
 

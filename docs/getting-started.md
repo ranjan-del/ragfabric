@@ -25,7 +25,7 @@ ragfabric ask "your question about the sample documents"
 
 | Step | What `ragfabric quickstart` does |
 |---|---|
-| Config | Writes `ragfabric.yaml` and `.env` from the packaged templates when missing. Never overwrites without `--force`. A `.env` it writes is mode 0600 and gets a random `JWT_SECRET` and a random `FIRST_ADMIN_PASSWORD`, neither printed: the API key below is how you sign in |
+| Config | Writes `ragfabric.yaml` and `.env` from the packaged templates when missing. Never overwrites without `--force`. A `.env` it writes is mode 0600 and gets a random `JWT_SECRET` and a random `FIRST_ADMIN_PASSWORD`, neither printed: the API key below is how you sign in. `--force` keeps the existing `.env`'s `FIRST_ADMIN_PASSWORD`, because the database keeps the admin's first password |
 | Model | Ollama with a chat model and `nomic-embed-text` and the openai extra installed, else `OPENAI_API_KEY` and the openai extra installed, else `ANTHROPIC_API_KEY` and the anthropic extra installed (with offline embeddings), else offline mode, clearly labelled: answers are extractive and limited. A missing extra is named with its fix, `pip install 'ragfabric[openai]'` or `pip install 'ragfabric[anthropic]'` |
 | Database | SQLite by default. `--docker` starts PostgreSQL and Redis from a packaged compose file |
 | Migrate and ingest | Runs the migrations and ingests a small sample corpus |

@@ -955,3 +955,62 @@ def test_a_500_during_the_sample_question_prints_the_server_log_tail_and_path(
         assert log.is_file() and "boom" in log.read_text()
     finally:
         log.unlink(missing_ok=True)
+
+
+# issue #55: --force keeps the admin password, --docker refuses a foreign .env first ----
+
+
+def test_force_keeps_the_existing_admin_password(
+    tmp_path, no_ollama, no_keys, steps_after_config_are_noops
+):
+    """The database keeps the bootstrap admin's first password, so a --force rerun
+    that wrote a new one into .env would make signing in from .env fail (HTTP 401)."""
+    (tmp_path / ".env").write_text(
+        "JWT_SECRET=x\nFIRST_ADMIN_EMAIL=admin@example.com\n"
+        "FIRST_ADMIN_PASSWORD=the-password-the-database-has\n"
+    )
+    result = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--yes", "--force"])
+    assert result.exit_code == 0, result.output
+    env = qs.read_env_file(tmp_path / ".env")
+    assert env["FIRST_ADMIN_PASSWORD"] == "the-password-the-database-has"
+    assert "the-password-the-database-has" not in result.output
+    assert env["JWT_SECRET"] != "x"
+
+
+def test_force_without_an_existing_password_writes_a_fresh_one(
+    tmp_path, no_ollama, no_keys, steps_after_config_are_noops
+):
+    (tmp_path / ".env").write_text("JWT_SECRET=x\nFIRST_ADMIN_EMAIL=admin@example.com\n")
+    result = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--yes", "--force"])
+    assert result.exit_code == 0, result.output
+    password = qs.read_env_file(tmp_path / ".env")["FIRST_ADMIN_PASSWORD"]
+    template = qs.read_env_file(templates.template_path("env.example"))["FIRST_ADMIN_PASSWORD"]
+    assert password and password != template
+
+
+def test_force_never_carries_a_password_over_from_a_foreign_dot_env(
+    tmp_path, no_ollama, no_keys, steps_after_config_are_noops
+):
+    (tmp_path / ".env").write_text("SECRET_KEY=django\nFIRST_ADMIN_PASSWORD=someone-elses\n")
+    result = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--yes", "--force"])
+    assert result.exit_code == 0, result.output
+    assert qs.read_env_file(tmp_path / ".env")["FIRST_ADMIN_PASSWORD"] != "someone-elses"
+
+
+def test_docker_with_a_foreign_dot_env_refuses_before_compose(
+    tmp_path, monkeypatch, no_ollama, no_keys, steps_after_config_are_noops
+):
+    """Nothing is written and no container is started for a .env that is not RagFabric's."""
+    monkeypatch.setattr(qs, "_docker_available", lambda: True)
+    started = []
+    monkeypatch.setattr(qs, "_compose_up", lambda dir: started.append(dir))
+    monkeypatch.setattr(qs, "_wait_for_database", lambda url, timeout=60.0: None)
+    foreign = "DATABASE_URL=sqlite:////elsewhere/myapp.db\nSECRET_KEY=django\n"
+    (tmp_path / ".env").write_text(foreign)
+    result = runner.invoke(app, ["quickstart", "--dir", str(tmp_path), "--docker", "--yes"])
+    assert result.exit_code == 1
+    assert f"the .env in {tmp_path} is not RagFabric's" in result.output
+    assert started == []
+    assert not (tmp_path / "docker-compose.yml").exists()
+    assert (tmp_path / ".env").read_text() == foreign
+    assert steps_after_config_are_noops == []
