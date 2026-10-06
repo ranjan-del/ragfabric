@@ -1,6 +1,6 @@
 [project]
 name = "ragfabric-server"
-version = "0.3.1"
+version = "0.4.0"
 description = "RagFabric HTTP API (FastAPI)."
 readme = "README.md"
 license = "Apache-2.0"
@@ -15,7 +15,7 @@ classifiers = [
   "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
 ]
 dependencies = [
-  "ragfabric-core==0.3.1",
+  "ragfabric-core==0.4.0",
   "fastapi>=0.141",
   "uvicorn[standard]>=0.52",
   "python-multipart>=0.0.32",

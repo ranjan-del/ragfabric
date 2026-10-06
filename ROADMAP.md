@@ -165,7 +165,7 @@ Phase 6 merged to main on 2026-09-25 as PR #40 (rebase-merge); `[x]` below means
 ### Phase 7: Query Router [x]
 
 7a (the router and the agent's reach to all four strategies) and 7b (the terminal experience) are
-built. The v0.4.0 release is not tagged yet. See
+built and released as v0.4.0 on 2026-10-07. See
 [ADR 0013](docs/adr/0013-router-as-a-strategy.md) and
 [ADR 0014](docs/adr/0014-signals-override-the-planner.md). Router quality is not measured yet.
 
@@ -198,7 +198,7 @@ built. The v0.4.0 release is not tagged yet. See
   - [x] Progress during `ingest`
   - [x] `ask` output that shows the answer, numbered citations with document names, the strategy
         the router chose and why, and the traversed path for graph answers
-- [ ] **Release v0.4.0**
+- [x] **Release v0.4.0**: tagged `v0.4.0` with a GitHub release and GHCR images on 2026-10-07
 
 ## v0.5.0 Evaluation framework
 
