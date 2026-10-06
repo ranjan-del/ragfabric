@@ -1850,7 +1850,7 @@ wheels = [
 
 [[package]]
 name = "ragfabric"
-version = "0.3.1"
+version = "0.4.0"
 source = { editable = "packages/cli" }
 dependencies = [
     { name = "ragfabric-core" },
@@ -1892,7 +1892,7 @@ provides-extras = ["openai", "anthropic", "chroma", "bm25", "rerank"]
 
 [[package]]
 name = "ragfabric-core"
-version = "0.3.1"
+version = "0.4.0"
 source = { editable = "packages/core" }
 dependencies = [
     { name = "alembic" },
@@ -1962,7 +1962,7 @@ provides-extras = ["chroma", "bm25", "rerank", "openai", "anthropic"]
 
 [[package]]
 name = "ragfabric-sdk"
-version = "0.3.1"
+version = "0.4.0"
 source = { editable = "packages/sdk-python" }
 dependencies = [
     { name = "httpx" },
@@ -1977,7 +1977,7 @@ requires-dist = [
 
 [[package]]
 name = "ragfabric-server"
-version = "0.3.1"
+version = "0.4.0"
 source = { editable = "packages/server" }
 dependencies = [
     { name = "fastapi" },

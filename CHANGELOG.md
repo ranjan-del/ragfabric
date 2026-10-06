@@ -17,14 +17,11 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-07
+
 ### Added
 
 - Flagship documentation standard: a "Project documentation" table in the README covering README, Architecture, Design decisions, Benchmarks, Failure cases, Evaluation, Trade-offs, Deployment, Cost and Future work, with stub documents for the sections not yet written
-
-## [0.4.0] - unreleased
-
-### Added
-
 - **Query router (Phase 7a).** `strategy: auto`, a fifth registry entry, so the API, CLI and SDK
   accept it with no separate wiring. Free signals decide when exactly one rule fires, with no model
   call. Otherwise one classifier call decides, and a confidence below `router.min_confidence` (or a

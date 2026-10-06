@@ -1,6 +1,6 @@
 [project]
 name = "ragfabric"
-version = "0.3.1"
+version = "0.4.0"
 description = "RagFabric: self hosted, measurement first RAG platform. Installs the engine, the API and the ragfabric command."
 readme = "README.md"
 license = "Apache-2.0"
@@ -15,18 +15,18 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-  "ragfabric-core==0.3.1",
-  "ragfabric-server==0.3.1",
-  "ragfabric-sdk==0.3.1",
+  "ragfabric-core==0.4.0",
+  "ragfabric-server==0.4.0",
+  "ragfabric-sdk==0.4.0",
   "typer>=0.27",
 ]
 
 [project.optional-dependencies]
-openai = ["ragfabric-core[openai]==0.3.1"]
-anthropic = ["ragfabric-core[anthropic]==0.3.1"]
-chroma = ["ragfabric-core[chroma]==0.3.1"]
-bm25 = ["ragfabric-core[bm25]==0.3.1"]
-rerank = ["ragfabric-core[rerank]==0.3.1"]
+openai = ["ragfabric-core[openai]==0.4.0"]
+anthropic = ["ragfabric-core[anthropic]==0.4.0"]
+chroma = ["ragfabric-core[chroma]==0.4.0"]
+bm25 = ["ragfabric-core[bm25]==0.4.0"]
+rerank = ["ragfabric-core[rerank]==0.4.0"]
 
 [project.scripts]
 ragfabric = "ragfabric_cli.main:main"
