@@ -121,6 +121,15 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
   `/api/search/query` and `/api/search/semantic`, whatever `router.mode` says, so the rerank is
   applied. A request naming `auto` with `rerank` is routed and the rerank is not applied.
 
+### Fixed
+
+- Identifier detection recognises an upper case key with one hyphen and a number (`RF-4312`,
+  `JIRA-12`, `ISO-9001`), a fifth documented pattern in `stores/boosting.py`. Before this, such a
+  key was read as a named entity, so a question about it was routed to Traditional, or to Graph
+  when it sat next to a relation phrase, and the identifier boost never applied. Lower case forms
+  (`rf-4312`, `gpt-4`) and a letter after the number (`RF-4312a`) stay out on purpose; upper case
+  names such as `GPT-4` now match. (#59)
+
 ## [0.3.1] - 2026-09-26
 
 Packaging only, so the release can be installed from PyPI. No code changes.

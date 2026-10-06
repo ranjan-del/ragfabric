@@ -21,7 +21,7 @@ would be reaching past that filter and returning something the principal is
 not allowed to read. Reordering cannot do that; introducing can.
 
 **Identifier detection is a documented regex set, not a feeling.** A token is
-an identifier if it matches any one of the four patterns below. Each exists
+an identifier if it matches any one of the five patterns below. Each exists
 for a reason, and each has a negative case in the tests so the rule stays a
 rule rather than drifting into "whatever made the last example pass".
 """
@@ -53,7 +53,19 @@ _CAMEL = re.compile(r"^[A-Za-z]*[a-z][A-Z][A-Za-z0-9]*$")
 #    dot or a hyphen, optionally prefixed with v and suffixed with a tag.
 _VERSION = re.compile(r"^v?\d+(?:[.\-]\d+)+(?:[.\-]?[A-Za-z0-9]+)*$")
 
-_IDENTIFIER_PATTERNS = (_UNDERSCORED, _DIGIT_AND_LETTER, _CAMEL, _VERSION)
+# 5. An issue or standards key: an upper case prefix, one hyphen, then digits.
+#    RF-4312, JIRA-12, ISO-9001. Requiring an upper case prefix keeps ordinary
+#    hyphenated words (state-of-the-art) and lower case product names (gpt-4,
+#    covid-19) out. Upper case names such as COVID-19 and GPT-4 do match; that
+#    is accepted, because their exact form matters and a boost only reorders
+#    chunks already retrieved. A key typed in lower case (rf-4312) or with a
+#    letter after the number (RF-4312a) is left out on purpose: admitting
+#    either would admit every lower case word-hyphen-number. The prefix is
+#    capped at ten characters so a shouted word before a number does not
+#    qualify too easily.
+_KEY = re.compile(r"^[A-Z][A-Z0-9]{0,9}-\d+$")
+
+_IDENTIFIER_PATTERNS = (_UNDERSCORED, _DIGIT_AND_LETTER, _CAMEL, _VERSION, _KEY)
 
 # Straight and typographic double quotes both count, because a query pasted
 # out of a word processor should not silently lose its phrase.

@@ -139,7 +139,8 @@ the version pattern needs a leading digit). Checked directly: the signals extrac
 router is correct given what it was told, and it inherits a gap in the Phase 4 boosting rule. The
 traditional strategy did return the right chunk first (chunk 3, the runbook's RF-4312 line),
 so this run does not show a wrong answer, only that the exact-match rule did not fire on the
-most identifier-shaped question in the set. It is recorded, not fixed here.
+most identifier-shaped question in the set. It is recorded, not fixed here. It was fixed later in
+issue #59, which added a fifth pattern for an upper case key with a hyphen and a number.
 
 **2. The planner repeated the Phase 5 mistake.** The 8B model again chose `lexical_search` for
 paraphrase sub-questions, and `graph_search`, although listed, was never planned on the

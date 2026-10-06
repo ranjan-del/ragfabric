@@ -27,6 +27,7 @@ def run(question, available=ALL):
         ("What does ERR_QUOTA_4419 mean?", S.VECTORLESS, "exact_match"),
         ('Where is "annual leave carry forward" defined?', S.VECTORLESS, "exact_match"),
         ("ERR_QUOTA_4419", S.VECTORLESS, "exact_match"),
+        ("What is the status of RF-4312?", S.VECTORLESS, "exact_match"),
         ("Who does Ravi Sharma report to?", S.GRAPH, "relationship"),
         ("Which team owns Billing?", S.GRAPH, "relationship"),
         ("Compare the leave policy for Pune and Delhi", S.AGENTIC, "comparison"),
@@ -41,6 +42,14 @@ def test_a_single_signal_is_decisive(question, strategy, query_type):
         True,
         query_type,
     )
+
+
+def test_a_ticket_key_is_an_identifier_not_an_entity():
+    """A key such as RF-4312 is not a named entity, so a ticket number next to a
+    relation phrase must never trigger the graph rule on its own (issue #59)."""
+    signals = extract_signals("Who owns RF-4312?", relation_types=RELATIONS)
+    assert "RF-4312" in signals.identifiers
+    assert "RF-4312" not in signals.entities
 
 
 def test_conflicting_signals_are_not_decisive():
