@@ -87,8 +87,8 @@ from ragfabric_server.api.routes.search import (
     _cited_llm_calls,
     _counted_strategy,
     _generate,
-    _refuse_agentic_without_model,
     _refuse_unapplied_filters,
+    _refuse_without_model,
     _requested_strategy,
     _strategy_for,
     _usage,
@@ -271,7 +271,7 @@ def ask(
     # rerank override applies to the traditional strategy only).
     name = _requested_strategy(payload.strategy, payload.rerank)
     _refuse_unapplied_filters(name, payload.document_id, payload.format)
-    _refuse_agentic_without_model(name, llm)
+    _refuse_without_model(name, llm)
     strategy = _strategy_for(payload.rerank, registry, llm, name)
 
     if not payload.stream:

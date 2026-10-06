@@ -121,6 +121,26 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
   `/api/search/query` and `/api/search/semantic`, whatever `router.mode` says, so the rerank is
   applied. A request naming `auto` with `rerank` is routed and the rerank is not applied.
 
+### Fixed
+
+- Identifier detection recognises an upper case key with one hyphen and a number (`RF-4312`,
+  `JIRA-12`, `ISO-9001`), a fifth documented pattern in `stores/boosting.py`. Before this, such a
+  key was read as a named entity, so a question about it was routed to Traditional, or to Graph
+  when it sat next to a relation phrase, and the identifier boost never applied. Lower case forms
+  (`rf-4312`, `gpt-4`) and a letter after the number (`RF-4312a`) stay out on purpose; upper case
+  names such as `GPT-4` now match. (#59)
+- `ragfabric quickstart --force` keeps the existing `.env`'s `FIRST_ADMIN_PASSWORD` instead of
+  writing a new one. The database keeps the bootstrap admin's first password, so a new one in
+  `.env` made signing in from `.env` fail with HTTP 401 once `RAGFABRIC_API_KEY` was removed. A
+  password in a `.env` that is not RagFabric's is never carried over. (#55)
+- `ragfabric quickstart --docker` refuses a `.env` that is not RagFabric's before it writes
+  `docker-compose.yml` or runs `docker compose up`, so a refusal no longer leaves containers
+  running. (#55)
+- An explicit `graph` strategy request in offline mode is now a 422 that points to `ragfabric
+  doctor` and the upgrade steps, the same as the explicit `agentic` one, on `/api/ask` (streamed
+  or not) and `/api/search/query`. Offline, nothing extracts a graph and nothing reads the
+  question, so the request returned little. `auto` is unaffected. (#55)
+
 ## [0.3.1] - 2026-09-26
 
 Packaging only, so the release can be installed from PyPI. No code changes.

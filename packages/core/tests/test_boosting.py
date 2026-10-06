@@ -35,6 +35,17 @@ def chunk(chunk_id: int, text: str = "", score: float | None = 1.0) -> Retrieved
         ("retry", False),
         ("limit", False),
         ("The", False),
+        # an upper case key with a hyphen and a numeric suffix, with negatives
+        ("RF-4312", True),
+        ("JIRA-12", True),
+        ("X-1", True),
+        ("ISO-9001", True),
+        ("rf-4312", False),
+        ("RF-4312a", False),
+        ("ab-1", False),
+        ("state-of-the-art", False),
+        ("covid-19", False),
+        ("gpt-4", False),
     ],
 )
 def test_identifier_detection(token, expected):

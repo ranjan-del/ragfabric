@@ -20,7 +20,7 @@ reported by `ragfabric doctor`; see [Getting started](getting-started.md#checkin
 | `The server at <url> is not a RagFabric server` (something else answered with a bare `Not Found`) | `ragfabric serve --port <N>, then set RAGFABRIC_URL=http://127.0.0.1:<N> in .env`, with a free port filled in |
 | `127.0.0.1:<port> is already in use by another program` (from `ragfabric serve`, before uvicorn starts) | `ragfabric serve --port <N>, then set RAGFABRIC_URL=http://127.0.0.1:<N> in .env`, with a free port filled in |
 | `The server refused the credentials` | `set RAGFABRIC_API_KEY, or pass --token or --api-key (ragfabric quickstart writes a key to .env)` |
-| `The server returned an error: <message>` (for example the explicit agentic strategy offline: `the agentic strategy needs a model (offline mode); run ragfabric doctor, then follow its upgrade steps: ...`) | none printed |
+| `The server returned an error: <message>` (for example the explicit agentic or graph strategy offline: `the agentic strategy needs a model (offline mode); run ragfabric doctor, then follow its upgrade steps: ...`, or the same with `graph`) | none printed |
 | `Cannot reach the database at <url>` (password masked as `***`) | `ragfabric quickstart for SQLite, or docker compose up -d postgres` |
 | `ragfabric.yaml is invalid: <key>: <message>` (the first error only) | `ragfabric config validate`, which lists every error |
 | `<provider> rejected the API key` | `check the key in .env` |

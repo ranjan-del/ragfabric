@@ -294,18 +294,19 @@ def patch_config(text: str, choice: ModelChoice, *, cache_kind: str | None) -> s
 # Steps ----------------------------------------------------------------------
 
 
-def _with_fresh_secrets(template: str) -> str:
+def _with_fresh_secrets(template: str, admin_password: str | None = None) -> str:
     """The env template with a random JWT_SECRET and bootstrap admin password.
 
     The template's values are published in this repository. Neither is ever
     printed: the API key quickstart writes is how the user signs in, and the
     admin password stays in .env for the server's first start.
+    ``admin_password`` keeps an existing password instead of a fresh one.
     """
     import secrets
 
     fresh = {
         "JWT_SECRET": secrets.token_urlsafe(64),
-        "FIRST_ADMIN_PASSWORD": secrets.token_urlsafe(24),
+        "FIRST_ADMIN_PASSWORD": admin_password or secrets.token_urlsafe(24),
     }
     lines = []
     for line in template.splitlines(keepends=True):
@@ -314,6 +315,22 @@ def _with_fresh_secrets(template: str) -> str:
             line = f"{key}={fresh[key]}\n"
         lines.append(line)
     return "".join(lines)
+
+
+def _kept_admin_password(env_path: Path) -> str | None:
+    """The FIRST_ADMIN_PASSWORD a --force rerun must keep, or None for a fresh one.
+
+    The server creates the bootstrap admin once, on its first start, so the
+    database keeps the first password. Writing a new one into .env would make
+    every later sign in from .env fail. Only RagFabric's own .env is read: a
+    password in someone else's .env is not the one this database holds.
+    """
+    if not env_path.is_file():
+        return None
+    values = read_env_file(env_path)
+    if not _looks_like_ragfabric_env(values):
+        return None
+    return values.get("FIRST_ADMIN_PASSWORD") or None
 
 
 def _step_config(ctx: Context) -> None:
@@ -330,7 +347,8 @@ def _step_config(ctx: Context) -> None:
             _done("config", f"{target} exists, keeping it (use --force to overwrite)")
             continue
         if target == ".env":
-            write_private(dst, _with_fresh_secrets(src.read_text()).encode("utf-8"))
+            text = _with_fresh_secrets(src.read_text(), _kept_admin_password(dst))
+            write_private(dst, text.encode("utf-8"))
         else:
             shutil.copyfile(src, dst)
         if target == "ragfabric.yaml":
@@ -483,11 +501,7 @@ def _use_database(ctx: Context, url: str, what: str) -> None:
     if current is not None and _absolute_sqlite(current, ctx.dir) == url:
         _done("database", f"{what} at {url}")
         return
-    if not _looks_like_ragfabric_env(read_env_file(env_path)):
-        raise QuickstartError(
-            f"the .env in {ctx.dir} is not RagFabric's (DATABASE_URL "
-            f"{mask_urls_in(current or 'not set')})\nfix: ragfabric quickstart --dir ./ragfabric"
-        )
+    _refuse_a_foreign_env(ctx)
     shown = mask_urls_in(current) if current else "no database"
     if not ctx.yes and not typer.confirm(
         f".env names {shown}. Update DATABASE_URL in .env to {mask_urls_in(url)}?",
@@ -499,6 +513,25 @@ def _use_database(ctx: Context, url: str, what: str) -> None:
         )
     _set_env_value(env_path, "DATABASE_URL", url)
     _say(f"database: {what} at {url}; updated DATABASE_URL in .env (was {shown})")
+
+
+def _refuse_a_foreign_env(ctx: Context) -> None:
+    """Stop when a kept .env belongs to another program, before anything is written or started.
+
+    --docker runs this before docker-compose.yml is written and compose runs,
+    so a refusal leaves no container behind.
+    """
+    env_path = ctx.dir / ".env"
+    if ctx.env_written or not env_path.is_file():
+        return
+    values = read_env_file(env_path)
+    if _looks_like_ragfabric_env(values):
+        return
+    current = values.get("DATABASE_URL") or None
+    raise QuickstartError(
+        f"the .env in {ctx.dir} is not RagFabric's (DATABASE_URL "
+        f"{mask_urls_in(current or 'not set')})\nfix: ragfabric quickstart --dir ./ragfabric"
+    )
 
 
 _RAGFABRIC_ENV_KEYS = ("JWT_SECRET", "FIRST_ADMIN_EMAIL")
@@ -553,6 +586,7 @@ def _check_kept_database(ctx: Context, url: str) -> None:
 def _step_database(ctx: Context) -> None:
     if ctx.docker:
         if _docker_available():
+            _refuse_a_foreign_env(ctx)
             compose = ctx.dir / "docker-compose.yml"
             if not compose.exists() or ctx.force:
                 compose.write_text(_compose_text(ctx.dir))
@@ -1046,7 +1080,12 @@ def quickstart(
         False, "--docker", help="Use PostgreSQL and Redis from docker compose instead of SQLite."
     ),
     force: bool = typer.Option(
-        False, "--force", help="Overwrite existing .env, ragfabric.yaml and docker-compose.yml."
+        False,
+        "--force",
+        help=(
+            "Overwrite existing .env, ragfabric.yaml and docker-compose.yml "
+            "(.env keeps its FIRST_ADMIN_PASSWORD)."
+        ),
     ),
     yes: bool = typer.Option(False, "--yes", help="Do not ask; take the default at every prompt."),
     model_check: bool = typer.Option(

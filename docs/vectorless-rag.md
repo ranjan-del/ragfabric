@@ -75,8 +75,12 @@ with vector results in hybrid search.
 
 ### Boosting
 
-Quoted phrases are matched as phrases. Tokens that look like identifiers (mixed letters, digits and
-dashes) get a boost. Metadata filters (collection, document type, date range) apply before ranking.
+Quoted phrases are matched as phrases. Tokens that look like identifiers get a boost. A token is an
+identifier if it matches one of five documented patterns in `stores/boosting.py`: an underscore
+between word characters (`ERR_QUOTA_4419`), a digit and a letter together (`utf8`), an internal
+capital (`CamelCase`), a dotted or hyphenated version (`v2.1.4`), or an upper case key with one
+hyphen and a number (`RF-4312`, `ISO-9001`). Lower case hyphenated forms such as `gpt-4` or
+`rf-4312` are left out on purpose, because admitting them would admit ordinary hyphenated words. Metadata filters (collection, document type, date range) apply before ranking.
 
 ## Where it performs well
 
