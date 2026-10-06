@@ -1,6 +1,10 @@
 # deploy/docker/ui.Dockerfile  (build context: repository root)
 # node:24-alpine as of 2026-09-21
-FROM node@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS build
+# The build stage runs on the builder's own platform. Its output is static HTML,
+# CSS and JavaScript, identical on every architecture, so only the nginx stage
+# below is built per platform. Running npm ci for arm64 under QEMU emulation
+# crashed with an illegal instruction and hung the v0.3.1 and v0.4.0 releases.
+FROM --platform=$BUILDPLATFORM node@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS build
 WORKDIR /app
 COPY apps/assistant/package.json apps/assistant/package-lock.json ./
 RUN npm ci
