@@ -80,7 +80,9 @@ router:
 limits:                       # enforced, not just read: upload rejects an over-size or wrong-type file,
   max_upload_mb: 50            # the rate limiter uses rate_limit_per_minute as its window
   allowed_types: [pdf, docx, pptx, txt, csv, md]
-  rate_limit_per_minute: 60
+  rate_limit_per_minute: 60   # default for a new API key; each key keeps its own value
+  user_rate_limit_per_minute: 120  # per signed-in user
+  auth_attempts_per_minute: 10     # login and register, per client address
 
 telemetry:
   otlp_endpoint: null         # off by default; e.g. http://otel-collector:4318

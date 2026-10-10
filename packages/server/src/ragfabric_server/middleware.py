@@ -68,7 +68,6 @@ class RequestContextMiddleware:
                 "unhandled error on %s %s",
                 scope.get("method", ""),
                 scope.get("path", ""),
-                extra={"request_id": request_id},
             )
             if response_started:
                 raise
@@ -99,7 +98,6 @@ class RequestContextMiddleware:
                 status,
                 duration_ms,
                 extra={
-                    "request_id": request_id,
                     "method": method,
                     "path": path,
                     "status": status,

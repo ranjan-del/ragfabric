@@ -70,7 +70,7 @@ Each decision has its reason. Rejected options follow in their own table.
 | D7 | **Rate limiting stays a fixed one-minute window on the existing `Cache` interface**, made atomic on Redis (INCR and EXPIRE in one transaction) | It already exists, it is tested, and a fixed window is cheap and predictable. A sliding window or token bucket is more precise at the window edge, where the worst case is twice the limit for one second; that is acceptable for capacity protection, and it is documented |
 | D8 | **Three subjects, each with its own limit**: API keys (`rate_limit_per_minute` per key, as today), signed-in users (`limits.user_rate_limit_per_minute`, default 120) and unauthenticated auth attempts per client address (`limits.auth_attempts_per_minute`, default 10, on login and register) | Today a signed-in user is unlimited, and login is the one endpoint that most needs a limit, because it is where passwords are guessed |
 | D9 | **A request is charged once**, however many dependencies resolve the caller | Routes that depend on both `get_current_user` and `get_access_filter` resolve the caller twice. Charging twice would halve every user's real limit |
-| D10 | **429 carries `Retry-After`** (seconds to the next window) and a JSON body naming the limit | Clients, the SDK and proxies can back off correctly rather than retrying blind |
+| D10 | **429 carries `Retry-After`** (seconds to the next window), `X-RateLimit-Limit` and `X-RateLimit-Remaining`; the body stays `{"detail": "Rate limit exceeded"}` | Clients, the SDK and proxies can back off correctly rather than retrying blind. Keeping the body unchanged means no existing client breaks |
 | D11 | **If the limiter's store is unreachable, the request is allowed** and an ERROR line is logged with the request id | Rate limiting protects capacity, not data. An outage of Redis should not become an outage of the API. Access control is unaffected because it does not live in the cache. Password guessing stays slow because bcrypt is slow by design. The trade-off is written down in the deployment guide |
 | D12 | **Client address comes from the ASGI scope**, which uvicorn fills from `X-Forwarded-For` only when the peer is in `FORWARDED_ALLOW_IPS` | Parsing `X-Forwarded-For` ourselves would let any client pick its own address and dodge the auth limit. uvicorn's proxy handling is the one place to configure trust; the guides set it for Caddy |
 | D13 | **Upload validation moves into core** (`ragfabric_core/ingest/validate.py`), used by the API, `ragfabric ingest` and every connector | Three entry points with three copies of the rules would drift. Today the CLI and the future connectors would accept a file the API refuses |
@@ -147,8 +147,9 @@ group the same way.
 | Signed-in user | `user:<id>` | `limits.user_rate_limit_per_minute` (120) | `get_current_user` |
 | Auth attempt | `auth:<client address>` | `limits.auth_attempts_per_minute` (10) | login and register routes |
 
-Charged at most once per request, tracked on `request.state`. A 429 carries `Retry-After` and
-`{"detail": "Rate limit exceeded", "limit": N, "retry_after": S}`. With `cache.kind: memory` each
+Charged at most once per request, tracked on `request.state`. A 429 carries `Retry-After`,
+`X-RateLimit-Limit` and `X-RateLimit-Remaining`, with the existing body
+`{"detail": "Rate limit exceeded"}`. With `cache.kind: memory` each
 process counts on its own, which the configuration guide states.
 
 ### Upload validation
