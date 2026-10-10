@@ -203,18 +203,22 @@ built and released as v0.4.0 on 2026-10-07. See
 ## v0.5.0 Evaluation framework
 
 ### Phase 8: Evaluation
-- [ ] Shipped synthetic corpus and `questions.json` in eight categories, bring-your-own questions
-- [ ] Retrieval metrics: precision, recall, hit rate, MRR
-- [ ] Generation metrics: correctness, faithfulness, context relevance, citation correctness
-- [ ] System metrics: latency split, calls, tokens, cost. Complexity score documented as an engineering assessment
-- [ ] Cross encoder reranking measured against llm and none
-- [ ] `make eval` persists runs and regenerates `docs/benchmarks/latest.md`
-- [ ] Console dashboards: latency percentiles, cost per day, fallback rate, quality trend
+- [x] Shipped synthetic corpus and `questions.json` in eight categories, bring-your-own questions
+- [x] Retrieval metrics: precision, recall, hit rate, MRR
+- [x] Generation metrics: correctness, faithfulness, context relevance, citation correctness
+- [x] System metrics: latency split, calls, tokens, cost. Complexity score documented as an engineering assessment
+- [x] Cross encoder reranking measured against llm and none (as `traditional+rerank=...` targets; the
+      cross encoder is skipped with a reason when the `rerank` extra is not installed)
+- [x] `make eval` persists runs and regenerates `docs/benchmarks/latest.md`
+- [x] Console dashboards: latency percentiles, cost per day, calls per strategy, fallback rate, quality
+      trend, **as data** (`GET /api/eval/dashboard`). The pages that draw them move to Phase 9 with the
+      Evaluation page (design decision D17)
 - [ ] **Release v0.5.0**
 
 ## v1.0.0 Production release
 
 ### Phase 9: Assistant UI, TypeScript SDK
+- [ ] Console dashboard pages over the Phase 8 data (`/api/eval/dashboard`, `/api/eval/runs`)
 - [ ] Ask with router card and clickable citations, Compare (four strategies side by side), Trace, Evaluation pages
 - [ ] `@ragfabric/sdk` generated from the OpenAPI spec
 
