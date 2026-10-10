@@ -26,13 +26,19 @@ export class AnswerState {
   readonly done = signal<DoneEvent['data'] | null>(null);
   readonly error = signal<string | null>(null);
 
-  start(): void {
+  /** Back to nothing asked. */
+  reset(): void {
     this.text.set('');
     this.retrieval.set(null);
     this.superseded.set(null);
     this.citations.set([]);
     this.done.set(null);
     this.error.set(null);
+    this.status.set('idle');
+  }
+
+  start(): void {
+    this.reset();
     this.status.set('running');
   }
 

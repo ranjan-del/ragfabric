@@ -17,8 +17,12 @@ export class AskService {
     return this.sdk.stream(requests.askStream(query, options));
   }
 
-  /** Start streaming into `state`. Unsubscribe to abort the request. */
-  run(state: AnswerState, query: string, options: AskOptions): Subscription {
+  /**
+   * Start streaming into `state`. Unsubscribe to abort the request. `onEnd`
+   * runs once when the stream finishes or fails, which is how Compare starts
+   * its next column.
+   */
+  run(state: AnswerState, query: string, options: AskOptions, onEnd?: () => void): Subscription {
     state.start();
     return this.stream(query, options).subscribe({
       next: (event) => {
@@ -31,8 +35,14 @@ export class AskService {
           });
         }
       },
-      error: (error: unknown) => state.fail(describeError(error, 'The answer could not be streamed.')),
-      complete: () => state.complete(),
+      error: (error: unknown) => {
+        state.fail(describeError(error, 'The answer could not be streamed.'));
+        onEnd?.();
+      },
+      complete: () => {
+        state.complete();
+        onEnd?.();
+      },
     });
   }
 }

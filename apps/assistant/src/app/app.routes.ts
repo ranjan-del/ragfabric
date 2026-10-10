@@ -30,6 +30,12 @@ export const routes: Routes = [
     canActivate: [authGuard],
     loadComponent: () => import('./pages/ask/ask.component').then((m) => m.AskComponent),
   },
+  {
+    path: 'compare',
+    canActivate: [authGuard],
+    loadComponent: () =>
+      import('./pages/compare/compare.component').then((m) => m.CompareComponent),
+  },
   // The v1 Search page became Ask (Phase 9, decision D18); old links still land.
   { path: 'search', redirectTo: 'ask', pathMatch: 'full' },
   {
