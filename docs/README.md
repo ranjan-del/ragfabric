@@ -14,6 +14,7 @@
 | [learning/lexical-vs-semantic.md](learning/lexical-vs-semantic.md) | The same ground with no code or schema: the mental model and why the two approaches fail in differently shaped ways | Phase 4 |
 | [learning/agentic-first-run.md](learning/agentic-first-run.md) | A record of one real agent run against a local model, including what the model did badly. Not a benchmark | Phase 5 |
 | [learning/graph-extraction-first-run.md](learning/graph-extraction-first-run.md) | A record of one real extraction run against a local model: what it got right, missed and invented. Not a benchmark | Phase 6 |
+| [learning/assistant-first-run.md](learning/assistant-first-run.md) | A record of one real session driving Ask, Compare and Trace across all four strategies through the SDK and the UI, including what went wrong. Not a benchmark | Phase 9 |
 | [traditional-rag.md](traditional-rag.md) | Embeddings, vector search, thresholds, reranking, citation contract | Shipped in v0.1.0 (Phase 3) |
 | [vectorless-rag.md](vectorless-rag.md) | BM25, PostgreSQL full text, fusion | Concept complete; implementation v0.1.0 |
 | [agentic-rag.md](agentic-rag.md) | Plain state machine, sub-question ledger, six repair moves, three stop conditions, budgets | Phase 5: core merged for v0.2.0, not yet exposed on the API, CLI or SDK |
