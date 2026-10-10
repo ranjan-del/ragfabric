@@ -28,11 +28,24 @@ export const METRICS: readonly { key: keyof EvalMetrics; label: string }[] = [
   { key: 'citation_correct', label: 'Citation correctness' },
 ];
 
+/** The quality trend grouped per target, each oldest first as the API lists it. */
+export function trendsByTarget(points: readonly QualityPoint[]): { target: string; points: QualityPoint[] }[] {
+  const groups = new Map<string, QualityPoint[]>();
+  for (const point of points) {
+    groups.set(point.target, [...(groups.get(point.target) ?? []), point]);
+  }
+  return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([target, pts]) => ({ target, points: pts }));
+}
+
 /**
  * An SVG polyline for a quality trend on a 0 to 1 scale. A null point breaks
  * the line rather than dropping it to zero.
  */
-export function trendPath(points: readonly QualityPoint[], width: number, height: number): string {
+export function trendPath(
+  points: readonly Pick<QualityPoint, 'correctness'>[],
+  width: number,
+  height: number,
+): string {
   if (points.length === 0) {
     return '';
   }

@@ -1,9 +1,9 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { EvalDashboard, EvalRun, RagFabricError } from '@ragfabric/sdk';
+import { EvalDashboard, EvalRun, QualityPoint, RagFabricError } from '@ragfabric/sdk';
 
 import { count, ms, percent, score, usd } from '../../answer/format';
-import { METRICS, batchNames, runsOf, trendPath } from '../../evaluation/batches';
+import { METRICS, batchNames, runsOf, trendPath, trendsByTarget } from '../../evaluation/batches';
 import { describeError } from '../../services/http-error';
 import { EvaluationService } from '../../services/evaluation.service';
 import { BarChartComponent, BarRow } from '../../ui';
@@ -134,16 +134,16 @@ function unavailable(error: unknown, what: string): string {
           <section class="card block" data-test="fallback">
             <h3>Fallback rate</h3>
             <p class="big">{{ percent(d.fallback_rate.rate) }}</p>
-            <p class="muted small">{{ d.fallback_rate.fallbacks }} of {{ d.fallback_rate.auto_runs }} auto runs fell back to traditional.</p>
-            <h3>Calls per strategy</h3>
+            <p class="muted small">{{ d.fallback_rate.fallbacks }} of {{ d.fallback_rate.runs }} runs in the last {{ d.window_days }} days fell back to traditional.</p>
+            <h3>LLM calls per strategy</h3>
             <ui-bar-chart [rows]="callRows()" [format]="countFormat" label="LLM calls per strategy" />
           </section>
           <section class="card block" data-test="quality-trend">
             <h3>Quality trend (mean correctness per batch)</h3>
-            @for (t of d.quality_trend; track t.strategy) {
+            @for (t of trends(); track t.target) {
               <div class="trend">
-                <span class="trend-label">{{ t.strategy }}</span>
-                <svg viewBox="0 0 200 40" preserveAspectRatio="none" role="img" [attr.aria-label]="t.strategy + ' correctness over batches'">
+                <span class="trend-label">{{ t.target }}</span>
+                <svg viewBox="0 0 200 40" preserveAspectRatio="none" role="img" [attr.aria-label]="t.target + ' correctness over batches'">
                   <path [attr.d]="path(t.points)" fill="none" stroke="currentColor" stroke-width="2" />
                 </svg>
                 <span class="muted">{{ score(lastPoint(t.points)) }}</span>
@@ -202,6 +202,7 @@ export class EvaluationComponent implements OnInit {
   readonly countFormat = (v: number) => count(v);
 
   readonly names = computed(() => batchNames(this.runs()));
+  readonly trends = computed(() => trendsByTarget(this.dashboard()?.quality_trend ?? []));
   readonly batchRuns = computed(() => runsOf(this.runs(), this.batch()));
   readonly scoredRuns = computed(() => this.batchRuns().filter((r) => !r.summary.skipped));
   // A skipped target never ran, so its row carries no models or commit worth showing.
@@ -248,34 +249,34 @@ export class EvaluationComponent implements OnInit {
   }
 
   latencyRows(which: 'p50' | 'p95'): BarRow[] {
-    return (this.dashboard()?.latency ?? []).map((l) => ({
-      label: l.strategy,
-      value: which === 'p50' ? l.p50_ms : l.p95_ms,
+    return Object.entries(this.dashboard()?.latency_ms ?? {}).map(([strategy, l]) => ({
+      label: strategy,
+      value: which === 'p50' ? l.p50 : l.p95,
       note: `${l.runs} runs`,
     }));
   }
 
   costRows(): BarRow[] {
     return (this.dashboard()?.cost_per_day ?? []).map((c) => ({
-      label: c.day,
+      label: c.date,
       value: c.estimated_cost_usd,
       note: c.unpriced_runs > 0 ? `${c.unpriced_runs} unpriced` : undefined,
     }));
   }
 
   callRows(): BarRow[] {
-    return (this.dashboard()?.calls_per_strategy ?? []).map((c) => ({
-      label: c.strategy,
+    return Object.entries(this.dashboard()?.calls_per_strategy ?? {}).map(([strategy, c]) => ({
+      label: strategy,
       value: c.llm_calls,
-      note: `${c.retrieval_calls} retrieval, ${c.runs} runs`,
+      note: `${count(c.retrieval_calls)} retrieval, ${c.runs} runs`,
     }));
   }
 
-  path(points: EvalDashboard['quality_trend'][number]['points']): string {
+  path(points: readonly QualityPoint[]): string {
     return trendPath(points, 200, 40);
   }
 
-  lastPoint(points: EvalDashboard['quality_trend'][number]['points']): number | null {
+  lastPoint(points: readonly QualityPoint[]): number | null {
     return points.length === 0 ? null : (points[points.length - 1]?.correctness ?? null);
   }
 }

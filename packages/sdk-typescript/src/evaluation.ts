@@ -2,12 +2,13 @@
 //
 // Phase 8 (issue #9) adds GET /api/eval/runs, /api/eval/runs/{id} and
 // /api/eval/dashboard. It was not merged when Phase 9 was built, so these
-// shapes are typed by hand (decision D20 of the Phase 9 design): the run,
-// result and summary shapes from Phase 8's store and runner as they stood on
-// its branch on 2026-10-10 (store.run_dict, store.result_dict,
-// runner.summarise), the dashboard from its design alone. When Phase 8
-// merges, its routes appear in openapi.json; these interfaces are then
-// replaced by aliases of the generated types and the pages re-verified.
+// shapes are typed by hand (decision D20 of the Phase 9 design) from the
+// response shapes Phase 8 documents in its design ("Response shapes (as built
+// in Task 11)") and from its store, runner and route on its branch on
+// 2026-10-10. Its routes return plain dicts with no response model, so even
+// after it merges the specification types them as unknown and these stay
+// hand typed until those routes declare response models. When Phase 8
+// merges, the pages are re-verified against the live routes.
 
 /**
  * Mean scores for one target, overall or for one question category.
@@ -100,55 +101,54 @@ export interface EvalRunDetail extends EvalRun {
   results: EvalResult[];
 }
 
-// The dashboard's shape is not yet fixed by Phase 8 (its Task 11); the
-// interfaces below follow its design's description and are the least certain
-// part of this file.
-
+/** Latency percentiles of live runs for one strategy (nearest rank). */
 export interface LatencyPercentiles {
-  strategy: string;
-  p50_ms: number | null;
-  p95_ms: number | null;
+  p50: number | null;
+  p95: number | null;
   runs: number;
+}
+
+export interface StrategyCalls {
+  runs: number;
+  llm_calls: number | null;
+  retrieval_calls: number | null;
 }
 
 export interface CostPerDay {
-  day: string;
-  estimated_cost_usd: number | null;
+  date: string;
   runs: number;
-  /** Runs whose model is not in pricing.yaml: counted, never priced as zero. */
+  /** Null for a day whose runs were all unpriced; never priced as zero. */
+  estimated_cost_usd: number | null;
   unpriced_runs: number;
 }
 
-export interface CallsPerStrategy {
-  strategy: string;
-  llm_calls: number;
-  retrieval_calls: number;
-  runs: number;
-}
-
 export interface FallbackRate {
-  /** Share of auto runs where the routed strategy found nothing and traditional answered. */
-  rate: number | null;
+  runs: number;
   fallbacks: number;
-  auto_runs: number;
+  rate: number | null;
 }
 
+/** One finished evaluation run in the quality trend; the list is oldest first. */
 export interface QualityPoint {
+  run_id: number;
   batch: string;
-  started_at: string;
+  target: string;
+  started_at: string | null;
+  judge: string | null;
+  hit: number | null;
+  reciprocal_rank: number | null;
   correctness: number | null;
+  citation_correct: number | null;
 }
 
-export interface QualityTrend {
-  strategy: string;
-  points: QualityPoint[];
-}
-
+/** GET /api/eval/dashboard?days=N. Live system numbers come from retrieval_runs, quality from evaluation runs. */
 export interface EvalDashboard {
-  days: number;
-  latency: LatencyPercentiles[];
+  window_days: number;
+  since: string;
+  runs: number;
+  latency_ms: Record<string, LatencyPercentiles>;
+  calls_per_strategy: Record<string, StrategyCalls>;
   cost_per_day: CostPerDay[];
-  calls_per_strategy: CallsPerStrategy[];
   fallback_rate: FallbackRate;
-  quality_trend: QualityTrend[];
+  quality_trend: QualityPoint[];
 }
