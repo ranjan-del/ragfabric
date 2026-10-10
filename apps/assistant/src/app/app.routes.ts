@@ -36,6 +36,11 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./pages/compare/compare.component').then((m) => m.CompareComponent),
   },
+  {
+    path: 'trace/:runId',
+    canActivate: [authGuard],
+    loadComponent: () => import('./pages/trace/trace.component').then((m) => m.TraceComponent),
+  },
   // The v1 Search page became Ask (Phase 9, decision D18); old links still land.
   { path: 'search', redirectTo: 'ask', pathMatch: 'full' },
   {
