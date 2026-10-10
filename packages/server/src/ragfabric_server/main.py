@@ -33,6 +33,7 @@ from ragfabric_server.api.routes import (
     auth,
     collections,
     documents,
+    evaluation,
     providers,
     runs,
     search,
@@ -116,6 +117,7 @@ app.include_router(access.router, prefix="/api/admin", tags=["access"])
 app.include_router(providers.router, prefix="/api/admin", tags=["providers"])
 app.include_router(runs.router, prefix="/api/runs", tags=["runs"])
 app.include_router(ask.router, prefix="/api", tags=["ask"])
+app.include_router(evaluation.router, prefix="/api/eval", tags=["evaluation"])
 
 
 @app.get("/health", tags=["system"])
