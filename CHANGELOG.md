@@ -43,6 +43,12 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 - `POST /api/ask` documents its JSON and event stream responses in the OpenAPI specification
 - `npm start` proxies `/api` to a server on `localhost:8000`
 
+### Fixed
+
+- Opening an admin page directly (a reload or a pasted link to `/console` or `/evaluation`) no
+  longer sends an admin to the dashboard: the admin guard waits for the profile when a token is
+  present and the profile has not loaded yet
+
 ### Changed
 
 - Karma builds with the esbuild based `builderMode: application`, so the app can compile the SDK

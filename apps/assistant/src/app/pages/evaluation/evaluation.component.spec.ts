@@ -31,15 +31,20 @@ const RUNS: EvalRun[] = [
   },
 ];
 const DASHBOARD: EvalDashboard = {
-  days: 30,
-  latency: [
-    { strategy: 'traditional', p50_ms: 800, p95_ms: 2000, runs: 40 },
-    { strategy: 'graph', p50_ms: null, p95_ms: null, runs: 0 },
+  window_days: 30,
+  since: '2026-09-10T00:00:00+00:00',
+  runs: 8,
+  latency_ms: {
+    traditional: { p50: 800, p95: 2000, runs: 40 },
+    graph: { p50: null, p95: null, runs: 0 },
+  },
+  cost_per_day: [{ date: '2026-10-09', estimated_cost_usd: null, runs: 12, unpriced_runs: 12 }],
+  calls_per_strategy: { agentic: { llm_calls: 30, retrieval_calls: 12, runs: 6 } },
+  fallback_rate: { rate: 0.25, fallbacks: 2, runs: 8 },
+  quality_trend: [
+    { run_id: 1, batch: 'old', target: 'traditional', started_at: 'x', judge: 'llm', hit: null, reciprocal_rank: null, correctness: 0.1, citation_correct: null },
+    { run_id: 2, batch: 'b2', target: 'traditional', started_at: 'y', judge: 'llm', hit: null, reciprocal_rank: null, correctness: 0.71, citation_correct: null },
   ],
-  cost_per_day: [{ day: '2026-10-09', estimated_cost_usd: null, runs: 12, unpriced_runs: 12 }],
-  calls_per_strategy: [{ strategy: 'agentic', llm_calls: 30, retrieval_calls: 12, runs: 6 }],
-  fallback_rate: { rate: 0.25, fallbacks: 2, auto_runs: 8 },
-  quality_trend: [{ strategy: 'traditional', points: [{ batch: 'old', started_at: 'x', correctness: 0.1 }, { batch: 'b2', started_at: 'y', correctness: 0.71 }] }],
 };
 
 describe('EvaluationComponent', () => {
@@ -106,7 +111,7 @@ describe('EvaluationComponent', () => {
     load();
     expect(all('[data-test="latency-chart"] [data-test="bar-row"]').length).toBe(4);
     expect(text('[data-test="fallback"]')).toContain('25%');
-    expect(text('[data-test="fallback"]')).toContain('2 of 8 auto runs');
+    expect(text('[data-test="fallback"]')).toContain('2 of 8 runs in the last 30 days');
     expect(text('[data-test="fallback"]')).toContain('agentic');
     expect(fixture.nativeElement.querySelector('[data-test="quality-trend"] path').getAttribute('d')).toBe('M0.0,36.0 L200.0,11.6');
   });
@@ -126,11 +131,7 @@ describe('EvaluationComponent', () => {
 describe('trendPath', () => {
   it('test_a_null_point_breaks_the_line_instead_of_dropping_to_zero', () => {
     const path = trendPath(
-      [
-        { batch: 'a', started_at: '', correctness: 0.5 },
-        { batch: 'b', started_at: '', correctness: null },
-        { batch: 'c', started_at: '', correctness: 1 },
-      ],
+      [{ correctness: 0.5 }, { correctness: null }, { correctness: 1 }],
       100,
       10,
     );

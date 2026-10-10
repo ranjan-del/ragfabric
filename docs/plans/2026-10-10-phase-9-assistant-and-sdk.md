@@ -158,7 +158,7 @@ Every path, body and response type comes from the SDK. The app owns only how a r
 | D26 | The uv workspace excludes `packages/sdk-typescript` | uv treats every `packages/*` folder as a Python member and refused to run without a `pyproject.toml` there |
 | D27 | The v1 `auth.py` logout docstring loses its em dash | It is copied into `openapi.json`, which this branch now commits; a one character change in a docstring, no behaviour change |
 | D28 | The dev server proxies `/api` to `http://localhost:8000` (`proxy.conf.json`) | Every request path is relative (`/api/...`), and without a proxy `npm start` could not reach a local server |
-| D29 | The provisional evaluation types follow Phase 8's branch as it stood on 2026-10-10 (`store.run_dict`: `batch`, `target`, `commit`, `judge`; `runner.summarise`: `meta`, `status`, `skipped`, `metrics`, `by_category`, `latency_ms`, `cost_unknown`), not only its design | Its runner and store were written by then; matching them shrinks what has to change when Phase 8 merges. The dashboard JSON still follows the design alone, since Phase 8's Task 11 had not been built |
+| D29 | The provisional evaluation types follow what Phase 8 actually built, re-read at the end of this phase: `store.run_dict` (`batch`, `target`, `commit`, `judge`), `runner.summarise` (`meta`, `status`, `skipped`, `metrics`, `by_category`, `latency_ms`, `cost_unknown`) and the dashboard JSON its design now documents as built in its Task 11 (`window_days`, `latency_ms` and `calls_per_strategy` keyed by strategy, `cost_per_day[].date`, `fallback_rate.runs`, a flat oldest first `quality_trend`) | Matching what exists shrinks what has to change when Phase 8 merges. Its routes return plain dicts with no response model, so the specification will type them as unknown and the shapes stay hand typed in `src/evaluation.ts` until those routes declare models |
 
 ### Rejected
 
@@ -179,10 +179,10 @@ Every path, body and response type comes from the SDK. The app owns only how a r
 | Piece | Built against | Must be re-verified when Phase 8 merges |
 |---|---|---|
 | Evaluation page | `GET /api/eval/runs`, `GET /api/eval/runs/{id}`, typed after Phase 8's `store.run_dict`, `store.result_dict` and `runner.summarise` on its branch (D29) | That the routes return those dicts unchanged, and the `summary` keys |
-| Dashboards | `GET /api/eval/dashboard?days=` (latency percentiles per strategy, cost per day with unknown cost counted separately, calls per strategy, fallback rate, quality trend) | The response shape: Phase 8's design names the contents but not the JSON |
+| Dashboards | `GET /api/eval/dashboard?days=`, typed after the JSON Phase 8's design documents as built in its Task 11 (D29) | That the merged route still returns that JSON |
 | Compare cost | `RunOut.estimated_cost_usd`, null on main | That Phase 8 Task 10 fills it for `/api/ask` runs |
 | Compare benchmark score | `GET /api/eval/runs`, `summary.metrics.correctness` per `target` in the latest `batch` | The key names and that `limit=100` reaches the latest batch |
-| SDK | `src/evaluation.ts` hand typed | Replace with aliases of generated types once Phase 8's routes are in `openapi.json`; the snapshot test will fail on whichever branch merges second until `openapi.json` and `schema.ts` are regenerated |
+| SDK | `src/evaluation.ts` hand typed | Phase 8's routes return plain dicts, so they enter `openapi.json` with untyped responses; the snapshot test will fail on whichever branch merges second until `openapi.json` and `schema.ts` are regenerated. Replace the hand types with generated aliases if those routes gain response models |
 
 ---
 
