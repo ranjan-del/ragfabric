@@ -137,6 +137,9 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
   doctor` and the upgrade steps, the same as the explicit `agentic` one, on `/api/ask` (streamed
   or not) and `/api/search/query`. Offline, nothing extracts a graph and nothing reads the
   question, so the request returned little. `auto` is unaffected. (#55)
+- The release workflow builds the UI bundle on the runner's own platform, so the arm64 UI image
+  no longer hangs under emulation. v0.4.0 is the first release since v0.3.0 to publish a UI
+  image. (#62)
 
 ## [0.3.1] - 2026-09-26
 
