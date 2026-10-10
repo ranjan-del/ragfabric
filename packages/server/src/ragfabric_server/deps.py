@@ -13,7 +13,8 @@
 
 401 Unauthorized -> we don't know who you are (bad/missing/expired token).
 403 Forbidden    -> we know who you are, but you're not allowed.
-429 Too Many Requests -> an API key went over its rate limit.
+429 Too Many Requests -> an API key, a user or a client address went over its
+rate limit (ragfabric_server.ratelimit).
 """
 
 import threading
@@ -30,14 +31,15 @@ from ragfabric_core.auth.api_keys import (
 )
 from ragfabric_core.auth.policy import compute_access_filter
 from ragfabric_core.auth.principal import AccessFilter, Principal
-from ragfabric_core.auth.ratelimit import check_rate_limit
 from ragfabric_core.db.session import get_db
 from ragfabric_core.models.user import User
 from ragfabric_core.providers.base import LLMProvider
 from ragfabric_core.rerank.base import Reranker
+from ragfabric_core.runtime import get_config
 from ragfabric_core.security import ACCESS, JWTError, decode_token
 from ragfabric_core.stores.base import Cache, LexicalStore, VectorStore
 from ragfabric_core.strategies.base import StrategyRegistry
+from ragfabric_server.ratelimit import charge
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login", auto_error=False)
 
@@ -61,10 +63,15 @@ def _credentials_error() -> HTTPException:
 
 
 def get_current_user(
+    request: Request,
     token: str | None = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    """Return the active user for the request's access token."""
+    """Return the active user for the request's access token.
+
+    The request is charged against the user's rate limit here, once the user
+    is known (see ``ragfabric_server.ratelimit``).
+    """
     if not token:
         raise _credentials_error()
     try:
@@ -81,6 +88,7 @@ def get_current_user(
     user = db.get(User, int(user_id))
     if user is None or not user.is_active:
         raise _credentials_error()
+    charge(request, f"user:{user.id}", get_config().limits.user_rate_limit_per_minute)
     return user
 
 
@@ -133,12 +141,9 @@ def get_principal(
         key = verify_api_key(db, plaintext)
         if key is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
-        if not check_rate_limit(get_cache(request), f"key:{key.id}", key.rate_limit_per_minute):
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Rate limit exceeded"
-            )
+        charge(request, f"key:{key.id}", key.rate_limit_per_minute)
         return principal_for_api_key(db, key)
-    user = get_current_user(token=token, db=db)
+    user = get_current_user(request=request, token=token, db=db)
     return principal_for_user(db, user)
 
 

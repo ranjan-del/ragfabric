@@ -261,11 +261,22 @@ class RouterConfig(_Strict):
 
 
 class LimitsConfig(_Strict):
+    """Request guards. Rate limits are fixed one-minute windows on the cache.
+
+    ``rate_limit_per_minute`` is the default for a new API key (each key keeps
+    its own value). ``user_rate_limit_per_minute`` applies to a signed-in user,
+    and ``auth_attempts_per_minute`` to login and register calls from one
+    client address. With ``cache.kind: memory`` every process counts on its
+    own; Redis makes the counts shared.
+    """
+
     max_upload_mb: int = Field(default=50, ge=1)
     allowed_types: list[str] = Field(
         default_factory=lambda: ["pdf", "docx", "pptx", "txt", "csv", "md"]
     )
     rate_limit_per_minute: int = Field(default=60, ge=1)
+    user_rate_limit_per_minute: int = Field(default=120, ge=1)
+    auth_attempts_per_minute: int = Field(default=10, ge=1)
 
 
 class TelemetryConfig(_Strict):

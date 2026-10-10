@@ -23,7 +23,17 @@ class RedisCache:
         self._r.set(key, value, ex=ttl_seconds)
 
     def incr(self, key: str, ttl_seconds: int | None = None) -> int:
-        new = int(self._r.incr(key))
-        if new == 1 and ttl_seconds:
-            self._r.expire(key, ttl_seconds)
-        return new
+        """Increment and, with a TTL, set the expiry in the same MULTI/EXEC.
+
+        Two separate round trips (INCR, then EXPIRE when the count is 1) left a
+        key that never expires if the process died between them. EXPIRE NX
+        only sets an expiry the key does not already have, so a window is
+        never pushed further out by later requests.
+        """
+        if not ttl_seconds:
+            return int(self._r.incr(key))
+        pipe = self._r.pipeline(transaction=True)
+        pipe.incr(key)
+        pipe.expire(key, ttl_seconds, nx=True)
+        new, _ = pipe.execute()
+        return int(new)

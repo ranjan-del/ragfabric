@@ -55,6 +55,30 @@ _STANDARD_ATTRS = set(logging.LogRecord("x", logging.INFO, __file__, 1, "", (), 
 _installed: logging.Handler | None = None
 
 
+def _install_record_factory() -> None:
+    """Stamp ``request_id`` on every LogRecord at creation, for every handler.
+
+    A formatter alone would only label lines that pass through RagFabric's own
+    handler. Stamping the record means any handler (a test's capture, a
+    third-party shipper's) sees the id too. Because the record already has the
+    attribute, passing ``request_id`` in ``extra=`` raises; bind it instead.
+    """
+    previous = logging.getLogRecordFactory()
+    if getattr(previous, "_ragfabric", False):
+        return
+
+    def factory(*args, **kwargs) -> logging.LogRecord:
+        record = previous(*args, **kwargs)
+        record.request_id = _request_id.get()
+        return record
+
+    factory._ragfabric = True  # type: ignore[attr-defined]
+    logging.setLogRecordFactory(factory)
+
+
+_install_record_factory()
+
+
 def valid_request_id(value: object) -> bool:
     return isinstance(value, str) and bool(_SAFE_ID.match(value))
 
@@ -115,12 +139,12 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "msg": record.getMessage(),
         }
-        request_id = _request_id.get()
+        request_id = getattr(record, "request_id", None) or _request_id.get()
         if request_id is not None:
             data["request_id"] = request_id
         data.update(_otel_ids())
         for key, value in record.__dict__.items():
-            if key not in _STANDARD_ATTRS and key not in data:
+            if key not in _STANDARD_ATTRS and key not in data and key != "request_id":
                 data[key] = _jsonable(value)
         if record.exc_info:
             data["exc"] = self.formatException(record.exc_info)
@@ -136,7 +160,7 @@ class TextFormatter(logging.Formatter):
         super().__init__("%(asctime)s %(levelname)s %(name)s %(rid)s%(message)s")
 
     def format(self, record: logging.LogRecord) -> str:
-        request_id = _request_id.get()
+        request_id = getattr(record, "request_id", None) or _request_id.get()
         record.rid = f"[{request_id}] " if request_id else ""
         return super().format(record)
 

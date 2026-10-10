@@ -18,12 +18,18 @@ from ragfabric_core.db.session import get_db
 from ragfabric_core.models.user import Role, User
 from ragfabric_core.security import create_access_token, hash_password, verify_password
 from ragfabric_server.deps import get_current_user
+from ragfabric_server.ratelimit import limit_auth_attempts
 from ragfabric_server.schemas.user import Token, UserCreate, UserOut
 
 router = APIRouter()
 
 
-@router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    response_model=UserOut,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(limit_auth_attempts)],
+)
 def register(payload: UserCreate, db: Session = Depends(get_db)) -> User:
     """Create a new user account with a hashed password."""
     email = payload.email.lower()
@@ -43,7 +49,7 @@ def register(payload: UserCreate, db: Session = Depends(get_db)) -> User:
     return user
 
 
-@router.post("/login", response_model=Token)
+@router.post("/login", response_model=Token, dependencies=[Depends(limit_auth_attempts)])
 def login(
     form: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),

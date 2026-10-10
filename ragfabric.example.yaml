@@ -77,6 +77,8 @@ limits:                       # request guards
   max_upload_mb: 50           # largest accepted upload
   allowed_types: [pdf, docx, pptx, txt, csv, md]  # accepted file formats
   rate_limit_per_minute: 60   # default per API key limit, requests per minute
+  user_rate_limit_per_minute: 120  # per signed-in user, requests per minute
+  auth_attempts_per_minute: 10     # login and register calls per client address per minute
 
 telemetry:                    # tracing export
   otlp_endpoint: null         # off by default; e.g. http://otel-collector:4318
