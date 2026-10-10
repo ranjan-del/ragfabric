@@ -84,7 +84,7 @@
           <span class="marker">{{ c.marker }}</span>
           <span class="file">{{ c.filename }}</span>
           @if (c.page) {<span class="muted">· p{{ c.page }}</span>}
-          <span class="score muted">{{ (c.score * 100).toFixed(0) }}%</span>
+          <span class="score muted">{{ c.score == null ? 'n/a' : (c.score * 100).toFixed(0) + '%' }}</span>
         </div>
         <p class="snippet" [innerHTML]="highlight(c.snippet)"></p>
       </li>

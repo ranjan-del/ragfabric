@@ -369,7 +369,7 @@ export class ProvidersComponent implements OnInit {
     });
   }
 
-  private dimText(dim: number | null): string {
-    return dim === null ? '' : String(dim);
+  private dimText(dim: number | null | undefined): string {
+    return dim == null ? '' : String(dim);
   }
 }

@@ -1,16 +1,16 @@
-import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { Injectable, inject } from '@angular/core';
+import { requests } from '@ragfabric/sdk';
 import { Observable } from 'rxjs';
 
-import { ApiService } from './api.service';
+import { SdkHttp } from '../sdk/sdk-http.service';
 import { User } from '../models';
 
 @Injectable({ providedIn: 'root' })
 export class AdminService {
-  constructor(private http: HttpClient, private api: ApiService) {}
+  private readonly sdk = inject(SdkHttp);
 
   listUsers(): Observable<User[]> {
-    return this.http.get<User[]>(`${this.api.baseUrl}/admin/users`);
+    return this.sdk.send(requests.admin.users.list());
   }
 
   createUser(payload: {
@@ -19,20 +19,14 @@ export class AdminService {
     role: string;
     is_active: boolean;
   }): Observable<User> {
-    return this.http.post<User>(`${this.api.baseUrl}/admin/users`, payload);
+    return this.sdk.send(requests.admin.users.create(payload));
   }
 
   deleteUser(userId: number): Observable<unknown> {
-    return this.http.delete(`${this.api.baseUrl}/admin/users/${userId}`);
+    return this.sdk.send(requests.admin.users.delete(userId));
   }
 
-  setPermissions(
-    userId: number,
-    changes: { role?: string; is_active?: boolean }
-  ): Observable<User> {
-    return this.http.put<User>(
-      `${this.api.baseUrl}/admin/users/${userId}/permissions`,
-      changes
-    );
+  setPermissions(userId: number, changes: { role?: string; is_active?: boolean }): Observable<User> {
+    return this.sdk.send(requests.admin.users.setPermissions(userId, changes));
   }
 }

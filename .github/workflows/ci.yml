@@ -117,6 +117,8 @@ jobs:
         working-directory: packages/sdk-typescript
         run: npm test
       - run: npm ci
+      - name: The app reaches the server only through the SDK
+        run: npm run check:sdk-only
       - name: Unit tests (headless Chrome)
         env:
           CHROME_BIN: /usr/bin/google-chrome

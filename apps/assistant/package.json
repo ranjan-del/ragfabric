@@ -8,7 +8,8 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test --watch=false --browsers=ChromeHeadlessNoSandbox",
-    "test:watch": "ng test"
+    "test:watch": "ng test",
+    "check:sdk-only": "node scripts/check-sdk-only.mjs"
   },
   "private": true,
   "dependencies": {

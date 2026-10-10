@@ -1,8 +1,8 @@
-import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
+import { ProviderConfigUpdate, requests } from '@ragfabric/sdk';
 import { Observable } from 'rxjs';
 
-import { ApiService } from './api.service';
+import { SdkHttp } from '../sdk/sdk-http.service';
 import { ProviderConfig, ProviderConfigWritten, ProviderTestResult } from '../models';
 
 export interface ProviderUpdate {
@@ -24,20 +24,20 @@ export interface ProviderUpdate {
  */
 @Injectable({ providedIn: 'root' })
 export class ProvidersService {
-  private readonly http = inject(HttpClient);
-  private readonly api = inject(ApiService);
+  private readonly sdk = inject(SdkHttp);
 
   read(): Observable<ProviderConfig> {
-    return this.http.get<ProviderConfig>(`${this.api.baseUrl}/admin/providers`);
+    return this.sdk.send(requests.admin.providers.read());
   }
 
   write(update: ProviderUpdate): Observable<ProviderConfigWritten> {
-    return this.http.put<ProviderConfigWritten>(`${this.api.baseUrl}/admin/providers`, update);
+    // The pickers offer only the provider names the server accepts, and the
+    // server validates the body (a 422 names the field), so the looser string
+    // type the form works in is narrowed here rather than in every signal.
+    return this.sdk.send(requests.admin.providers.write(update as ProviderConfigUpdate));
   }
 
   test(target: 'llm' | 'embeddings'): Observable<ProviderTestResult> {
-    return this.http.post<ProviderTestResult>(`${this.api.baseUrl}/admin/providers/test`, {
-      target,
-    });
+    return this.sdk.send(requests.admin.providers.test(target));
   }
 }

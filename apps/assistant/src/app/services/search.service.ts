@@ -1,8 +1,8 @@
-import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { Injectable, inject } from '@angular/core';
+import { requests } from '@ragfabric/sdk';
 import { Observable } from 'rxjs';
 
-import { ApiService } from './api.service';
+import { SdkHttp } from '../sdk/sdk-http.service';
 import { AnswerResponse, SearchResults } from '../models';
 
 export interface QueryOptions {
@@ -13,27 +13,26 @@ export interface QueryOptions {
 
 @Injectable({ providedIn: 'root' })
 export class SearchService {
-  constructor(private http: HttpClient, private api: ApiService) {}
+  private readonly sdk = inject(SdkHttp);
 
   ask(query: string, opts: QueryOptions = {}): Observable<AnswerResponse> {
-    return this.http.post<AnswerResponse>(`${this.api.baseUrl}/search/query`, {
-      query,
-      top_k: opts.top_k ?? 5,
-      collection_id: opts.collection_id ?? null,
-      mode: opts.mode ?? 'semantic',
-    });
+    return this.sdk.send(
+      requests.search.query(query, {
+        top_k: opts.top_k ?? 5,
+        collection_id: opts.collection_id ?? null,
+        mode: opts.mode ?? 'semantic',
+      }),
+    );
   }
 
   search(
     query: string,
     mode: 'semantic' | 'hybrid',
-    opts: QueryOptions = {}
+    opts: QueryOptions = {},
   ): Observable<SearchResults> {
-    return this.http.post<SearchResults>(`${this.api.baseUrl}/search/${mode}`, {
-      query,
-      mode,
-      top_k: opts.top_k ?? 5,
-      collection_id: opts.collection_id ?? null,
-    });
+    const options = { top_k: opts.top_k ?? 5, collection_id: opts.collection_id ?? null };
+    return this.sdk.send(
+      mode === 'hybrid' ? requests.search.hybrid(query, options) : requests.search.semantic(query, options),
+    );
   }
 }
