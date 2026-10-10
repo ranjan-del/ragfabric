@@ -913,6 +913,33 @@ export interface paths {
       response: DocumentOut;
     };
   };
+  '/api/eval/dashboard': {
+    /** Dashboard Data */
+    get: {
+      path: Record<string, never>;
+      query: { days?: number };
+      body: never;
+      response: Record<string, unknown>;
+    };
+  };
+  '/api/eval/runs': {
+    /** Runs */
+    get: {
+      path: Record<string, never>;
+      query: { limit?: number };
+      body: never;
+      response: Record<string, unknown>[];
+    };
+  };
+  '/api/eval/runs/{run_id}': {
+    /** Run */
+    get: {
+      path: { run_id: number };
+      query: Record<string, never>;
+      body: never;
+      response: Record<string, unknown>;
+    };
+  };
   '/api/runs/ingestion/{run_id}': {
     /** Get Ingestion Run */
     get: {
