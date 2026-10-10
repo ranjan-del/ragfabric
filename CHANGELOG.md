@@ -38,6 +38,10 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
   percentiles, cost per day, calls per strategy, fallback rate, quality trend). The dashboard pages
   are built in Phase 9.
 - `evaluation` section in `ragfabric.yaml` (`collection`, `judge`, `judge_model`, `top_k`).
+- Refusals (the no-evidence answer) counted per run and shown next to the hit rate, so a refusal on a
+  retrieved source is not read as a retrieval miss.
+- `docs/benchmarks/latest.md` from the first recorded run (one run on one laptop with `llama3.1:8b`,
+  not a benchmark).
 - `docs/complexity.md` (engineering assessment), ADR 0015, `docs/learning/evaluation-first-run.md`.
 
 ### Changed

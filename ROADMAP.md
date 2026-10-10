@@ -208,7 +208,8 @@ built and released as v0.4.0 on 2026-10-07. See
 - [x] Generation metrics: correctness, faithfulness, context relevance, citation correctness
 - [x] System metrics: latency split, calls, tokens, cost. Complexity score documented as an engineering assessment
 - [x] Cross encoder reranking measured against llm and none (as `traditional+rerank=...` targets; the
-      cross encoder is skipped with a reason when the `rerank` extra is not installed)
+      cross encoder is skipped with a reason when the `rerank` extra is not installed, as it was in the
+      first recorded run, so that comparison is still to be run)
 - [x] `make eval` persists runs and regenerates `docs/benchmarks/latest.md`
 - [x] Console dashboards: latency percentiles, cost per day, calls per strategy, fallback rate, quality
       trend, **as data** (`GET /api/eval/dashboard`). The pages that draw them move to Phase 9 with the
