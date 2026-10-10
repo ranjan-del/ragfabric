@@ -23,7 +23,7 @@ interface NavItem {
 export class AppComponent implements OnInit {
   readonly navItems: NavItem[] = [
     { label: 'Dashboard', path: '/dashboard', icon: '▚' },
-    { label: 'Ask', path: '/search', icon: '✦' },
+    { label: 'Ask', path: '/ask', icon: '✦' },
     { label: 'Documents', path: '/documents', icon: '▤' },
     { label: 'Collections', path: '/collections', icon: '◫' },
     { label: 'Analytics', path: '/analytics', icon: '◔' },
