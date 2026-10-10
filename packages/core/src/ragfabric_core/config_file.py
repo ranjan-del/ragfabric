@@ -272,6 +272,20 @@ class TelemetryConfig(_Strict):
     otlp_endpoint: str | None = None
 
 
+class EvaluationConfig(_Strict):
+    """The evaluation harness (Phase 8). Every field is read; a test proves it.
+
+    ``judge_model`` null means the configured ``llm.model``. ``top_k`` is the
+    same for every target in a batch, because precision and recall only compare
+    at equal depth (design decision D14).
+    """
+
+    collection: str = Field(default="ragfabric-eval", min_length=1)
+    judge: Literal["auto", "llm", "lexical"] = "auto"
+    judge_model: str | None = None
+    top_k: int = Field(default=5, ge=1, le=100)
+
+
 class RagFabricConfig(_Strict):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     embeddings: EmbeddingsConfig = Field(default_factory=EmbeddingsConfig)
@@ -285,6 +299,7 @@ class RagFabricConfig(_Strict):
     router: RouterConfig = Field(default_factory=RouterConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
     telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
+    evaluation: EvaluationConfig = Field(default_factory=EvaluationConfig)
 
 
 def resolve_config_path(path: Path | None = None) -> Path | None:
