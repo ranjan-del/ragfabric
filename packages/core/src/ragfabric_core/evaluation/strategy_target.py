@@ -22,6 +22,7 @@ from ragfabric_core.generate.dispatch import generate_for_result
 from ragfabric_core.models.document import Document
 from ragfabric_core.pricing import PricingTable, estimate_cost
 from ragfabric_core.providers.base import LLMProvider, ProviderError, is_offline
+from ragfabric_core.providers.registry import answering_model
 from ragfabric_core.rerank.registry import build_reranker
 from ragfabric_core.strategies.base import (
     RetrievalContext,
@@ -194,7 +195,7 @@ def build_targets(
     """Targets that can run here, and ``(name, reason)`` for each that cannot."""
     targets: list[StrategyTarget] = []
     skipped: list[tuple[str, str]] = []
-    model = cfg.llm.model if "model" in cfg.llm.model_fields_set else llm.default_model
+    model = answering_model(cfg.llm, llm)
     for text in specs:
         spec = parse_target_spec(text)
         reason = _skip_reason(spec, cfg, llm)

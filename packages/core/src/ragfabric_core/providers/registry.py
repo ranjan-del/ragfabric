@@ -82,3 +82,13 @@ def build_embedding_provider(
         )
     dim = cfg.dim if _set(cfg, "dim") else None
     return HashingEmbeddingProvider(dim=dim)
+
+
+def answering_model(cfg: LLMConfig, llm: LLMProvider) -> str:
+    """The model that actually answers: the configured one when set, else the provider default.
+
+    ``LLMConfig.model`` carries a pydantic default even when the operator wrote
+    none, while ``build_llm_provider`` then uses the provider's own default, so
+    the field is trusted only when it was set.
+    """
+    return cfg.model if "model" in cfg.model_fields_set and cfg.model else llm.default_model

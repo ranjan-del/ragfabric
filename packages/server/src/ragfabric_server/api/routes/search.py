@@ -32,7 +32,9 @@ from ragfabric_core.generate.dispatch import cited_llm_calls as _cited_llm_calls
 from ragfabric_core.models.access import AuditLog
 from ragfabric_core.models.document import QueryLog
 from ragfabric_core.models.runs import RetrievalRun, Source
+from ragfabric_core.pricing import run_cost
 from ragfabric_core.providers.base import LLMProvider, is_offline
+from ragfabric_core.providers.registry import answering_model
 from ragfabric_core.router.mode import resolve_requested
 from ragfabric_core.runtime import get_config
 from ragfabric_core.stores.base import LexicalStore
@@ -441,7 +443,14 @@ def query(
         retrieval_calls=result.retrieval_calls,
         input_tokens=result.input_tokens + generated.input_tokens,
         output_tokens=result.output_tokens + generated.output_tokens,
-        estimated_cost_usd=None,
+        # Estimated at write time from pricing.yaml (D11); None when unpriced.
+        estimated_cost_usd=run_cost(
+            get_config().llm.provider,
+            answering_model(get_config().llm, llm),
+            result.input_tokens + generated.input_tokens,
+            result.output_tokens + generated.output_tokens,
+        ),
+        llm_model=answering_model(get_config().llm, llm),
         embedding_model=embedding_model,
         trace=[s.model_dump() for s in result.trace] + [s.model_dump() for s in tracing.spans],
     )

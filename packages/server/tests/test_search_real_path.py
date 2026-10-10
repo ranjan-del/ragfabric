@@ -118,15 +118,19 @@ def test_query_records_an_embedding_model_that_tracks_the_configured_dim(
     assert run.embedding_model != "hashing-128"
 
 
-def test_query_records_no_cost_estimate_on_the_run(client, admin_token, ingested_doc, db_session):
-    """``estimated_cost_usd`` must stay ``None`` until real pricing is wired up.
+def test_query_records_no_cost_for_an_unpriced_model(
+    client, admin_token, ingested_doc, db_session, monkeypatch
+):
+    """``estimated_cost_usd`` is ``None`` when pricing.yaml has no price for the model.
 
-    Phase 3 made the LLM and embedding calls real but has no price table
-    plumbed in yet. Writing ``0.0`` would claim a computed, known-free cost,
-    indistinguishable from a genuinely free Ollama run; ``None`` honestly
-    records that no cost was computed.
+    Writing ``0.0`` would claim a computed, known-free cost, indistinguishable
+    from a genuinely free Ollama run; ``None`` honestly records that no cost
+    could be computed. Since Phase 8 (D11) a priced model gets its estimate.
     """
+    from ragfabric_core import pricing
     from ragfabric_core.models.runs import RetrievalRun
+
+    monkeypatch.setattr(pricing, "default_table", lambda: pricing.PricingTable(models={}))
 
     client.post(
         "/api/search/query",

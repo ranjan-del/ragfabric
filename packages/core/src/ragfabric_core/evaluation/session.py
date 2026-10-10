@@ -17,7 +17,7 @@ from ragfabric_core.evaluation.judge import Judge, build_judge
 from ragfabric_core.evaluation.strategy_target import StrategyTarget, build_targets
 from ragfabric_core.pricing import PricingTable
 from ragfabric_core.providers.base import LLMProvider
-from ragfabric_core.providers.registry import build_llm_provider
+from ragfabric_core.providers.registry import answering_model, build_llm_provider
 from ragfabric_core.strategies.registry_defaults import default_registry
 
 
@@ -73,7 +73,7 @@ def prepare(
     chosen = build_judge(judge or cfg.evaluation.judge, llm, judge_model(cfg))
     if chosen.kind == "llm" and chosen.model is None:
         chosen.model = llm.default_model
-    llm_model = cfg.llm.model if "model" in cfg.llm.model_fields_set else llm.default_model
+    llm_model = answering_model(cfg.llm, llm)
     return Prepared(
         collection=name,
         collection_id=cid,
