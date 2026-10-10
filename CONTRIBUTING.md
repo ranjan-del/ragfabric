@@ -41,8 +41,19 @@ phase is tracked as a GitHub issue under a milestone. The fastest way to help is
 uv sync                                   # installs core, server, cli into .venv on Python 3.13
 uv run pytest                             # every package's tests
 uv run ruff check packages && uv run lint-imports
-cd apps/assistant && npm ci && npm test   # Angular specs (needs Chrome)
+cd packages/sdk-typescript && npm ci && npm test   # TypeScript SDK, offline
+cd apps/assistant && npm ci && npm run check:sdk-only && npm test   # Angular specs (needs Chrome)
 docker compose up --build                 # lite profile on Docker Desktop, OrbStack or Podman
+```
+
+### After changing an API route or schema
+
+The TypeScript SDK is generated from a checked in copy of the OpenAPI specification. Regenerate both
+files and commit them with the change; CI fails until you do:
+
+```bash
+uv run python -m ragfabric_server.openapi packages/sdk-typescript/openapi.json
+cd packages/sdk-typescript && npm run generate
 ```
 
 ## Keep every surface in sync

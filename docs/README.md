@@ -19,6 +19,7 @@
 | [agentic-rag.md](agentic-rag.md) | Plain state machine, sub-question ledger, six repair moves, three stop conditions, budgets | Phase 5: core merged for v0.2.0, not yet exposed on the API, CLI or SDK |
 | [graph-rag.md](graph-rag.md) | Extraction behind a confidence floor, reversible entity resolution, directed access-checked traversal on PostgreSQL, the graph citation contract | Phase 6: core merged for v0.3.0, landed on the phase branch |
 | [routing.md](routing.md) | RouterDecision, signals, fallbacks | Concept complete; implementation v0.4.0 |
+| [assistant.md](assistant.md) | The Ask, Compare, Trace and Evaluation pages, what each number means and where it comes from | Phase 9: on the phase branch for v1.0.0 |
 | [evaluation.md](evaluation.md) | Question set, metrics, `make eval`, complexity score | Concept complete; implementation v0.5.0 |
 | [configuration.md](configuration.md) | `ragfabric.yaml`, environment, pricing | Phase 3: every top level key, including `llm`, `reranker` and `limits`, is read by the runtime |
 | [providers.md](providers.md) | LLM, embedding, store and connector implementations | Phase 3: pgvector and Chroma queried, rerankers shipped, Ollama the default provider |
