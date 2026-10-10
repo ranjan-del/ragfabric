@@ -87,3 +87,18 @@ telemetry:                    # tracing export
 logging:                      # RAGFABRIC_LOG_FORMAT and RAGFABRIC_LOG_LEVEL override both keys
   format: text                # text for a terminal | json: one object per line, with the request id
   level: INFO                 # DEBUG | INFO | WARNING | ERROR | CRITICAL
+
+connectors: []                # document sources synced by `ragfabric connectors sync`; see docs/connectors.md
+# connectors:
+#   - name: inbox             # keys the sync state; keep it stable
+#     kind: folder
+#     path: /data/inbox
+#     collection: handbook     # created if missing
+#     interval_seconds: 30
+#     settle_seconds: 5        # a file modified more recently is still being written
+#     on_delete: delete        # delete | keep: what happens when a file leaves the folder
+#   - name: shared-policies
+#     kind: google_drive       # needs: pip install 'ragfabric[drive]'
+#     folder_id: 1AbCdEf
+#     credentials_file: /run/secrets/drive-service-account.json
+#     interval_seconds: 300

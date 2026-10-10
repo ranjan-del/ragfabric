@@ -24,6 +24,9 @@ class SourceDocument(BaseModel):
     modified_at: datetime | None = None
     # A source-side version, where the source has one (Drive's md5Checksum).
     version: str = ""
+    # False while the source is still being written (the folder connector's
+    # settle check). The sync engine neither fetches nor deletes it this pass.
+    ready: bool = True
     metadata: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
 
 

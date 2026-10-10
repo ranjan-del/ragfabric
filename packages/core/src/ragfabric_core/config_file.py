@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -297,6 +297,40 @@ class LoggingConfig(_Strict):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
 
 
+class _ConnectorBase(_Strict):
+    """Fields every connector shares. See docs/connectors.md."""
+
+    # Keys the connector's state in connector_items; renaming it makes every
+    # source look new, so pick a name and keep it.
+    name: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,62}$")
+    collection: str | None = None  # collection name, created if missing
+    owner: str | None = None  # email of an existing user who owns the documents
+    recursive: bool = True
+    on_delete: Literal["delete", "keep"] = "delete"
+
+
+class FolderConnectorConfig(_ConnectorBase):
+    kind: Literal["folder"]
+    path: str
+    interval_seconds: int = Field(default=30, ge=1)
+    # A file modified more recently than this is still being written.
+    settle_seconds: int = Field(default=5, ge=0)
+
+
+class GoogleDriveConnectorConfig(_ConnectorBase):
+    kind: Literal["google_drive"]
+    folder_id: str = Field(min_length=1)
+    # Path to a service account key (JSON). Never the key itself: a secret
+    # does not belong in ragfabric.yaml.
+    credentials_file: str = Field(min_length=1)
+    interval_seconds: int = Field(default=300, ge=30)
+
+
+ConnectorConfig = Annotated[
+    FolderConnectorConfig | GoogleDriveConnectorConfig, Field(discriminator="kind")
+]
+
+
 class RagFabricConfig(_Strict):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     embeddings: EmbeddingsConfig = Field(default_factory=EmbeddingsConfig)
@@ -311,6 +345,15 @@ class RagFabricConfig(_Strict):
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
     telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    connectors: list[ConnectorConfig] = Field(default_factory=list)
+
+    @field_validator("connectors")
+    @classmethod
+    def _connector_names_are_unique(cls, connectors: list) -> list:
+        names = [c.name for c in connectors]
+        if len(set(names)) != len(names):
+            raise ValueError("connector names must be unique")
+        return connectors
 
 
 def resolve_config_path(path: Path | None = None) -> Path | None:
