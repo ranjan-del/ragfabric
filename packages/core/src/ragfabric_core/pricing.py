@@ -13,6 +13,7 @@ Lookup order for ``provider/model``: exact key, then the longest matching
 from __future__ import annotations
 
 from datetime import date
+from functools import lru_cache
 from importlib.resources import files
 from pathlib import Path
 
@@ -97,3 +98,26 @@ def estimate_cost(
     return CostEstimate(
         usd=round(usd, 8), known=True, as_of=price.as_of, source=price.source, **base
     )
+
+
+@lru_cache(maxsize=1)
+def default_table() -> PricingTable:
+    """The packaged ``pricing.yaml``, loaded once per process."""
+    return PricingTable.load()
+
+
+def run_cost(
+    provider: str,
+    model: str | None,
+    input_tokens: int,
+    output_tokens: int,
+    table: PricingTable | None = None,
+) -> float | None:
+    """Estimated USD for one answer, or ``None`` when the model is not priced (ADR 0004).
+
+    Written onto ``retrieval_runs`` at the time of the run (design decision
+    D11), so a later price or model change never rewrites history.
+    """
+    if not model:
+        return None
+    return estimate_cost(table or default_table(), provider, model, input_tokens, output_tokens).usd

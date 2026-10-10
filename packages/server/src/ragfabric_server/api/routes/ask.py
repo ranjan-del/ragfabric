@@ -70,7 +70,10 @@ from ragfabric_core.generate.contract import CitationViolation, assert_citation_
 from ragfabric_core.models.access import AuditLog
 from ragfabric_core.models.document import QueryLog
 from ragfabric_core.models.runs import RetrievalRun, Source
+from ragfabric_core.pricing import run_cost
 from ragfabric_core.providers.base import LLMProvider, Message, is_offline
+from ragfabric_core.providers.registry import answering_model
+from ragfabric_core.runtime import get_config
 from ragfabric_core.strategies.base import (
     RetrievalContext,
     RetrievedChunk,
@@ -160,6 +163,7 @@ def _record(
     output_tokens: int,
     total_ms: int,
     retrieval_ms: int,
+    llm: LLMProvider,
 ) -> int:
     """Open one short lived session, write every row for this run, and return its id.
 
@@ -185,6 +189,7 @@ def _record(
         },
         access,
     )
+    model = answering_model(get_config().llm, llm)
     with SessionLocal() as db:
         run = RetrievalRun(
             user_id=principal.user_id,
@@ -204,7 +209,11 @@ def _record(
             retrieval_calls=result.retrieval_calls,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            estimated_cost_usd=None,
+            # Estimated at write time from pricing.yaml (D11); None when unpriced.
+            estimated_cost_usd=run_cost(
+                get_config().llm.provider, model, input_tokens, output_tokens
+            ),
+            llm_model=model,
             embedding_model=embedding_model,
             trace=spans,
         )
@@ -299,6 +308,7 @@ def ask(
             output_tokens=result.output_tokens + generated.output_tokens,
             total_ms=total_ms,
             retrieval_ms=retrieval_ms,
+            llm=llm,
         )
         return AnswerResponse(
             **answer, usage=_usage(result, generated), **_agent_fields(result, generated)
@@ -483,6 +493,7 @@ def ask(
             output_tokens=result.output_tokens + out_tokens,
             total_ms=total_ms,
             retrieval_ms=retrieval_ms,
+            llm=llm,
         )
         yield _event(
             "done",

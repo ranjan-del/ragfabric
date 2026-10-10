@@ -161,11 +161,12 @@ def test_the_done_event_carries_a_run_id_that_resolves(client, admin_token, inge
     assert res.json()["sources"]
 
 
-def test_ask_records_no_cost_estimate_on_the_run(client, admin_token, ingested_doc):
-    """``estimated_cost_usd`` must stay ``None``, not a fabricated ``0.0``.
+def test_ask_records_the_model_and_its_priced_cost_on_the_run(client, admin_token, ingested_doc):
+    """Since Phase 8 (D11) the run carries the answering model and its cost from pricing.yaml.
 
-    Mirrors the same fix in ``/api/search/query``: no price table is wired
-    in yet, so the honest value is "not computed", not "free".
+    The offline provider is priced at zero in pricing.yaml (``offline/*``),
+    so zero here is a looked-up price, not a default. An unpriced model gives
+    ``None``; ``packages/core/tests/test_run_cost.py`` covers that.
     """
     with client.stream(
         "POST",
@@ -178,7 +179,27 @@ def test_ask_records_no_cost_estimate_on_the_run(client, admin_token, ingested_d
 
     run_res = client.get(f"/api/runs/{run_id}", headers={"Authorization": f"Bearer {admin_token}"})
     assert run_res.status_code == 200
-    assert run_res.json()["estimated_cost_usd"] is None
+    assert run_res.json()["estimated_cost_usd"] == 0.0
+    from ragfabric_core.db.session import SessionLocal
+    from ragfabric_core.models.runs import RetrievalRun
+
+    with SessionLocal() as db:
+        assert db.get(RetrievalRun, run_id).llm_model
+
+
+def test_query_records_the_model_and_cost(client, admin_token, ingested_doc):
+    res = client.post(
+        "/api/search/query",
+        json={"query": "leave"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert res.status_code == 200
+    from ragfabric_core.db.session import SessionLocal
+    from ragfabric_core.models.runs import RetrievalRun
+
+    with SessionLocal() as db:
+        run = db.query(RetrievalRun).order_by(RetrievalRun.id.desc()).first()
+        assert run.llm_model and run.estimated_cost_usd == 0.0
 
 
 def test_ask_without_streaming_returns_the_same_shape_as_query(client, admin_token, ingested_doc):
