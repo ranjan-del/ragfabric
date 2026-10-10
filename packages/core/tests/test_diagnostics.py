@@ -396,6 +396,36 @@ def test_mask_urls_in_masks_two_urls_with_slashes_in_their_passwords():
     assert diagnostics.mask_urls_in(text) == "a postgresql://u:***@h1/x b redis://:***@h2:6379/0"
 
 
+# issue #55: an '@' in a path or query after a '/' that comes before any ':' ----
+
+
+def test_mask_url_leaves_a_colon_and_an_at_sign_in_a_query_alone():
+    for url in (
+        "http://127.0.0.1/search?at=10:30&from=me@example.com",
+        "postgresql://rf@db/rag?options=a:b@c",
+        "https://example.com/notes/a:b@c",
+    ):
+        assert diagnostics.mask_url(url) == url
+
+
+def test_mask_urls_in_leaves_a_query_with_an_at_sign_alone_and_masks_the_next_url():
+    text = "see http://h/q?t=1:2&m=a@b then postgresql://u:pw@db/x"
+    assert diagnostics.mask_urls_in(text) == (
+        "see http://h/q?t=1:2&m=a@b then postgresql://u:***@db/x"
+    )
+
+
+def test_mask_url_still_masks_a_password_after_a_username_with_an_at_sign():
+    masked = diagnostics.mask_url("postgresql://me@corp:pw/1@db.example.com/rag")
+    assert masked == "postgresql://me@corp:***@db.example.com/rag"
+
+
+def test_mask_url_masks_a_password_and_an_at_sign_in_the_query_together():
+    # Ruling R28: this has the same shape as a password holding '@', '/' and '?',
+    # so the host is lost from the display rather than risk a leak.
+    assert diagnostics.mask_url("postgresql://rf:pw@db/rag?x=a@b") == "postgresql://rf:***@b"
+
+
 # final fix wave: I2, a server that is not RagFabric ----------------------------
 
 
