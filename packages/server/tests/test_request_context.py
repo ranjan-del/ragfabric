@@ -101,3 +101,18 @@ def test_a_streamed_ask_still_streams_and_carries_the_request_id(client, admin_t
         raw = "".join(res.iter_text())
     assert res.status_code == 200
     assert "event: done" in raw
+
+
+def test_startup_warns_when_the_shipped_admin_password_is_in_use(caplog):
+    """The sign-in page no longer prints credentials; the server log says the
+    development defaults are in use instead, without printing the password."""
+    from fastapi.testclient import TestClient
+
+    from ragfabric_server.main import app
+
+    caplog.set_level(logging.WARNING)
+    with TestClient(app):
+        pass
+    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("shipped default password" in m for m in messages)
+    assert not any("adminpass123" in m for m in messages)

@@ -75,6 +75,8 @@ async def lifespan(app: FastAPI):
     """
     log_cfg = get_config().logging
     configure_logging(log_cfg.format, log_cfg.level)
+    for warning in settings.startup_warnings():
+        logger.warning("%s", warning)
     init_db()
     export_on = configure_otel(get_config().telemetry.otlp_endpoint)
     logger.info("OTLP export %s", "enabled" if export_on else "disabled")

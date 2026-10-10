@@ -95,3 +95,43 @@ class TestSchemaOwnership:
 def test_environment_matching_is_forgiving_about_case_and_spacing():
     with pytest.raises(RuntimeError):
         Settings(_env_file=None, environment="  Production ", jwt_secret="change-me")
+
+
+class TestStartupWarnings:
+    """Logged once at startup, so an operator sees what the sign-in page no
+    longer prints (the shipped development credentials) and what production
+    refused."""
+
+    def development(self, **overrides) -> Settings:
+        return Settings(_env_file=None, **overrides)
+
+    def test_development_with_the_shipped_admin_and_secret_warns_about_both(self):
+        warnings = self.development(
+            jwt_secret="change-me",
+            first_admin_email=DEFAULT_ADMIN_EMAIL,
+            first_admin_password=DEFAULT_ADMIN_PASSWORD,
+        ).startup_warnings()
+        assert any(DEFAULT_ADMIN_EMAIL in w and "default password" in w for w in warnings)
+        assert any("JWT_SECRET" in w for w in warnings)
+        assert not any(DEFAULT_ADMIN_PASSWORD in w for w in warnings)
+
+    def test_development_with_real_values_is_quiet(self):
+        settings = self.development(
+            jwt_secret=REAL_SECRET,
+            first_admin_email="ops@company.example",
+            first_admin_password="a-real-password-1",
+        )
+        assert settings.startup_warnings() == []
+
+    def test_production_says_the_default_admin_was_refused_and_not_seeded(self):
+        settings = production(
+            first_admin_email=DEFAULT_ADMIN_EMAIL, first_admin_password=DEFAULT_ADMIN_PASSWORD
+        )
+        [warning] = settings.startup_warnings()
+        assert "refused" in warning and "no bootstrap admin" in warning
+
+    def test_production_with_real_values_is_quiet(self):
+        settings = production(
+            first_admin_email="ops@company.example", first_admin_password="a-real-password-1"
+        )
+        assert settings.startup_warnings() == []
