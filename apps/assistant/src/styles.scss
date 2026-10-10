@@ -314,6 +314,11 @@ select:focus {
   background: var(--brand-soft);
   color: var(--brand-700);
 }
+.alert-warning {
+  background: var(--warning-soft);
+  color: var(--text);
+  border-left: 3px solid var(--warning);
+}
 
 mark {
   background: #fde68a;

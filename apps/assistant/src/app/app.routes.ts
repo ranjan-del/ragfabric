@@ -26,11 +26,12 @@ export const routes: Routes = [
       ),
   },
   {
-    path: 'search',
+    path: 'ask',
     canActivate: [authGuard],
-    loadComponent: () =>
-      import('./pages/search/search.component').then((m) => m.SearchComponent),
+    loadComponent: () => import('./pages/ask/ask.component').then((m) => m.AskComponent),
   },
+  // The v1 Search page became Ask (Phase 9, decision D18); old links still land.
+  { path: 'search', redirectTo: 'ask', pathMatch: 'full' },
   {
     path: 'collections',
     canActivate: [authGuard],
