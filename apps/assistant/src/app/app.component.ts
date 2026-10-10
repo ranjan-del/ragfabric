@@ -25,6 +25,7 @@ export class AppComponent implements OnInit {
     { label: 'Dashboard', path: '/dashboard', icon: '▚' },
     { label: 'Ask', path: '/ask', icon: '✦' },
     { label: 'Compare', path: '/compare', icon: '▥' },
+    { label: 'Evaluation', path: '/evaluation', icon: '◩', adminOnly: true },
     { label: 'Documents', path: '/documents', icon: '▤' },
     { label: 'Collections', path: '/collections', icon: '◫' },
     { label: 'Analytics', path: '/analytics', icon: '◔' },

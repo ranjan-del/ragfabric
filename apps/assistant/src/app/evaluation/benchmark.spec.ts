@@ -4,13 +4,13 @@ import { EvalRun } from '@ragfabric/sdk';
 
 import { latestBenchmark } from './benchmark';
 
-function run(id: number, name: string, strategy: string, started: string, correctness: number | null, skipped?: string): EvalRun {
+function run(id: number, batch: string, target: string, started: string, correctness: number | null, skipped?: string): EvalRun {
   return {
     id,
-    name,
-    strategy,
+    batch,
+    target,
     started_at: started,
-    summary: { means: { correctness }, skipped: skipped ?? null },
+    summary: skipped ? { status: 'skipped', skipped } : { status: 'finished', metrics: { correctness } },
   };
 }
 
