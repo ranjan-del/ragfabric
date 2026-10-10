@@ -63,7 +63,7 @@ import { percent } from './format';
     .strategy { text-transform: capitalize; }
     .router-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: var(--space-2); margin: 0; }
     .router-facts dt { font-size: 0.75rem; color: var(--text-muted); }
-    .router-facts dd { margin: 0; text-transform: capitalize; }
+    .router-facts dd { margin: 0; }
     .reasoning { margin: 0; }
     .fallback { margin: 0; }
     .small { font-size: 0.8rem; margin: 0; }

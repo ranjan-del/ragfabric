@@ -182,16 +182,20 @@ describe('AskComponent', () => {
     http.expectOne('/api/documents/4/download').flush(new Blob(['x']));
   });
 
-  it('test_uncited_sources_are_listed_after_cited_ones_and_marked', () => {
+  it('test_cited_sources_are_shown_and_uncited_ones_folded_away_but_still_openable', () => {
     const req = ask('q');
     finish(req, [
       ['token', { text: 'A [1].' }],
       ['citations', { citations: [CITATIONS[1], CITATIONS[0]] }],
       ['done', { run_id: 6, latency_ms: 5, usage: {} }],
     ]);
-    const chips = Array.from(fixture.nativeElement.querySelectorAll('.chip')) as HTMLElement[];
-    expect(chips[0].textContent).toContain('it-runbook.md');
-    expect(chips[1].textContent).toContain('retrieved, not cited');
+    const cited = Array.from(fixture.nativeElement.querySelectorAll('[aria-label="Sources cited"] .chip')) as HTMLElement[];
+    expect(cited.length).toBe(1);
+    expect(cited[0].textContent).toContain('it-runbook.md');
+    expect(text('.uncited summary')).toBe('1 more retrieved, not cited');
+    (fixture.nativeElement.querySelector('.uncited .chip') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(text('[data-test="filename"]')).toBe('org-chart.md');
   });
 
   it('test_the_run_details_are_kept_for_the_trace_page', () => {

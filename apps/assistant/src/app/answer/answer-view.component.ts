@@ -51,21 +51,27 @@ import { answerSegments } from './segments';
       <p class="alert alert-error" role="alert" data-test="error">{{ s.error() }}</p>
     }
     @if (s.citations().length > 0) {
-      <div class="chips" aria-label="Sources">
-        @for (c of sortedCitations(); track c.marker) {
-          <button
-            type="button"
-            class="chip"
-            [class.unused]="!c.used"
-            (click)="cite.emit(c)"
-            [attr.data-test]="'chip-' + c.marker"
-          >
+      <div class="chips" aria-label="Sources cited">
+        @for (c of cited(); track c.marker) {
+          <button type="button" class="chip" (click)="cite.emit(c)" [attr.data-test]="'chip-' + c.marker">
             <span class="chip-marker">{{ c.marker }}</span>
             {{ c.filename ?? 'unknown source' }}@if (c.page != null) { p{{ c.page }}}
-            @if (!c.used) {<span class="muted">(retrieved, not cited)</span>}
           </button>
         }
       </div>
+      @if (uncited().length > 0) {
+        <details class="uncited">
+          <summary>{{ uncited().length }} more retrieved, not cited</summary>
+          <div class="chips">
+            @for (c of uncited(); track c.marker) {
+              <button type="button" class="chip unused" (click)="cite.emit(c)" [attr.data-test]="'chip-' + c.marker">
+                <span class="chip-marker">{{ c.marker }}</span>
+                {{ c.filename ?? 'unknown source' }}@if (c.page != null) { p{{ c.page }}}
+              </button>
+            }
+          </div>
+        </details>
+      }
     }
   `,
   styles: `
@@ -82,6 +88,8 @@ import { answerSegments } from './segments';
     .chip.unused { opacity: 0.75; }
     .chip-marker { font-weight: 600; margin-right: 0.25rem; }
     .superseded { margin-bottom: var(--space-3); }
+    .uncited { margin-top: var(--space-2); font-size: 0.85rem; color: var(--text-muted); }
+    .uncited summary { cursor: pointer; }
   `,
 })
 export class AnswerViewComponent {
@@ -89,8 +97,7 @@ export class AnswerViewComponent {
   readonly cite = output<Citation>();
 
   readonly segments = computed(() => answerSegments(this.state().text(), this.state().citations()));
-  /** Cited sources first, then the ones retrieved but not cited, each in marker order. */
-  readonly sortedCitations = computed(() =>
-    [...this.state().citations()].sort((a, b) => Number(b.used) - Number(a.used)),
-  );
+  /** The sources the answer cites, then (folded away) the ones only retrieved. */
+  readonly cited = computed(() => this.state().citations().filter((c) => c.used));
+  readonly uncited = computed(() => this.state().citations().filter((c) => !c.used));
 }
