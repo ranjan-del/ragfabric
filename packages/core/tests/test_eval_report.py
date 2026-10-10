@@ -30,7 +30,7 @@ def test_the_header_names_the_run_and_says_it_is_one_run(eval_db):
     assert "one run on one setup, not a benchmark" in text
     assert "`abc123`" in text and "offline / scripted" in text and "hashing" in text
     assert "lexical word overlap" in text
-    assert "| traditional | 3 | 0 |" in text
+    assert "| traditional | 3 | 0 | 1 |" in text  # q3 is a refusal
     assert "Est. cost" in text and "estimate from configured pricing" in text
     assert "## Router" not in text
     assert "| ambiguous | n/a |" in text  # no expected sources: unmeasured hit rate

@@ -8,6 +8,7 @@ a general claim (ADR 0004). An unmeasured value prints as ``n/a``.
 from __future__ import annotations
 
 from ragfabric_core.evaluation.dataset import QuestionType
+from ragfabric_core.evaluation.runner import count_refusals
 from ragfabric_core.models.evaluation import EvaluationResult, EvaluationRun
 
 NA = "n/a"
@@ -80,17 +81,18 @@ def render_report(
     out.append("## Overall")
     out.append("")
     out.append(
-        "| Target | Questions | Errors | Hit rate | MRR | Precision | Recall | Correctness | "
+        "| Target | Questions | Errors | Refusals | Hit rate | MRR | Precision | Recall | Correctness | "
         "Faithfulness | Context relevance | Citation correctness | p50 ms | p95 ms | LLM calls | "
         "Tokens in / out | Est. cost |"
     )
-    out.append("|" + "---|" * 16)
-    for run, _ in ran:
+    out.append("|" + "---|" * 17)
+    for run, rows in ran:
         s = run.summary
         m = s.get("metrics", {})
         lat = s.get("latency_ms", {})
         out.append(
             f"| {run.strategy} | {s.get('questions', 0)} | {s.get('errors', 0)} | "
+            f"{count_refusals(rows)} | "
             f"{_num(m.get('hit'))} | {_num(m.get('reciprocal_rank'))} | "
             f"{_num(m.get('precision'))} | {_num(m.get('recall'))} | "
             f"{_num(m.get('correctness'))} | {_num(m.get('faithfulness'))} | "
@@ -141,6 +143,9 @@ def render_report(
     out.append("## How to read this")
     out.append("")
     out.append(
+        "Refusals are answers that said the documents do not contain the answer; read them "
+        "next to the hit rate, since a refusal with a hit is a generation failure, not a "
+        "retrieval one. "
         "Metric definitions are in [docs/evaluation.md](../evaluation.md). Retrieval metrics are "
         "computed from the expected sources; generation metrics come from the judge named above; "
         "citation correctness is deterministic. A small question set means one question moves a "

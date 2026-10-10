@@ -121,6 +121,11 @@ output tokens; estimated cost from `pricing.yaml` (labelled an estimate, `null` 
 priced). Per run: p50 and p95 latency (nearest rank), totals, judge calls, fallbacks, and which
 strategy answered.
 
+**Refusals** are answers that say the documents do not contain the answer. They are counted per run
+and shown in the report next to the hit rate: a refusal on a question whose sources were retrieved is a
+generation failure, not a retrieval one. A refusal scores 0 on correctness and fails citation
+correctness when passages were retrieved, and its faithfulness is not judged (it makes no claim).
+
 ### Router
 
 When a batch includes `auto` and at least one fixed strategy, the report lists, per question, which

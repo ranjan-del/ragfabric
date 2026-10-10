@@ -257,6 +257,7 @@ evaluation:
 | D19 | `make eval` writes `docs/benchmarks/latest.md` and the file is committed only from a real run, with commit, models, date, judge and the "one run, not a benchmark" label | ADR 0004 |
 | D20 | Version stays 0.4.0 on this branch; CHANGELOG gains `[0.5.0] - unreleased` | Tagging and publishing need the owner's approval |
 | D21 | Issue #55's remaining item is left to the separate v0.4.0 loose ends branch | Another agent owns it; two branches editing the same lines would conflict |
+| D22 | Refusals (the no-evidence answer) are counted per run and shown next to the hit rate; the metric definitions are unchanged | Added during the first run, which showed `llama3.1:8b` refusing on questions whose sources were retrieved. Without the count, a reader sees low correctness and citation scores and cannot tell a retrieval miss from a refusal. The definitions were not changed after seeing results (ADR 0004); the count is additive |
 
 ### Rejected
 
