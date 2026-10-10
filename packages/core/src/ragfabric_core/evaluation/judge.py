@@ -52,6 +52,8 @@ _SCHEMA = {
     "type": "object",
     "properties": {"score": {"type": "number"}, "reason": {"type": "string"}},
     "required": ["score", "reason"],
+    # Strict structured output (OpenAI) refuses a schema that allows extra keys.
+    "additionalProperties": False,
 }
 
 
