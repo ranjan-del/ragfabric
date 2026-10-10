@@ -229,3 +229,221 @@ evaluation:
 - Tuning any strategy, router threshold or prompt against the shipped questions. A result that looks
   wrong is written down in `docs/learning/evaluation-first-run.md`, never fixed by editing a question.
 - Tagging v0.5.0, the PyPI publish and the Discussions post (owner approval).
+
+---
+
+# Implementation Plan
+
+> Steps use checkbox (`- [ ]`) syntax for tracking. Executed inline, one task at a time, test first:
+> a failing test, the implementation, the passing test, `ruff` and `lint-imports` clean, one commit
+> per task, pushed.
+
+**Architecture:** see the Design above. Core owns the harness (`ragfabric_core/evaluation/`), the CLI
+and the API render it.
+
+**Tech Stack:** Python 3.13 (uv), pydantic, SQLAlchemy, Typer, FastAPI. **No new runtime
+dependencies. No migration.**
+
+## Global Constraints
+
+Every task's requirements implicitly include this section.
+
+- **Python 3.13**, line length 100, `ruff check packages` and `ruff format --check packages` clean.
+  Run `ruff format packages/`, never `ruff format .`.
+- **import-linter stays at 3 kept, 0 broken.** Core never imports the server or the CLI.
+- **Unit tests are offline and deterministic**: the offline provider, scripted providers and
+  SQLite. Anything needing Ollama or PostgreSQL is marked `integration` or guarded by
+  `RAGFABRIC_TEST_DATABASE_URL`, never silently passing.
+- **Every configured setting is read by something**, asserted by a test (the Phase 5 lesson).
+- **ADR 0004 holds**: a score that was not measured is `None`, never 0; the judge kind and model are
+  recorded with every run; cost is labelled an estimate.
+- **No em dashes. No AI attribution** in code, comments, docs or commits.
+- **Tests must be able to fail**: each metric test uses a hand computed case.
+
+## Review Focus
+
+1. **A question whose expected source is not retrieved at all.** Expected: hit 0, reciprocal rank 0,
+   recall 0, precision 0 (Task 3).
+2. **A question with no expected sources.** Expected: every retrieval metric `None` (Task 3).
+3. **A target that throws on one question.** Expected: that row has `details.error` and `None`
+   scores, the run continues (Task 7).
+4. **Offline provider with agentic or graph in the batch.** Expected: skipped with a reason, no rows
+   of zeros (Tasks 6, 7).
+5. **A judge reply that is not JSON, or a score outside 0 to 1.** Expected: `None` with the reason in
+   `details`, never a guessed score (Task 4).
+6. **A bring-your-own file with a bad field.** Expected: the field is named, exit code 1 (Tasks 2, 9).
+
+## File Structure
+
+| File | Responsibility |
+|---|---|
+| `packages/core/src/ragfabric_core/generate/dispatch.py` | `Generated`, `generate_for_result`, `uses_graph_path`, `cited_llm_calls` |
+| `packages/core/src/ragfabric_core/evaluation/__init__.py` | Package marker |
+| `.../evaluation/dataset.py` | Question schema, loader, shipped data paths |
+| `.../evaluation/data/corpus/*.md`, `data/questions.json` | Shipped corpus and questions |
+| `.../evaluation/target.py` | `EvalTarget`, `TargetAnswer`, `ContextItem`, `TargetSkipped` |
+| `.../evaluation/strategy_target.py` | `StrategyTarget`, `parse_target_spec`, `build_targets` |
+| `.../evaluation/metrics.py` | Retrieval metrics and citation correctness |
+| `.../evaluation/judge.py` | `Judge`, `LLMJudge`, `LexicalJudge`, `build_judge` |
+| `.../evaluation/runner.py` | `run_batch` and aggregation |
+| `.../evaluation/store.py` | Persist and read runs |
+| `.../evaluation/report.py` | Markdown report |
+| `.../evaluation/dashboard.py` | Dashboard aggregates |
+| `packages/cli/src/ragfabric_cli/commands/eval.py` | `ragfabric eval ...` |
+| `packages/server/src/ragfabric_server/api/routes/evaluation.py` | `/api/eval/...` |
+| `Makefile` | `make eval` |
+
+Tests live in `packages/core/tests/test_eval_*.py`, `packages/cli/tests/test_eval_cli.py` and
+`packages/server/tests/test_eval_api.py`.
+
+---
+
+## Task 1: Move generation dispatch to core
+
+**Files:** create `generate/dispatch.py`; modify `ragfabric_server/api/routes/search.py` (import and
+re-export `Generated`, `_generate`, `uses_graph_path`, `_cited_llm_calls` from core).
+
+- [ ] Failing test `packages/core/tests/test_generate_dispatch.py`: `generate_for_result` over a
+  traditional result with the offline provider returns a cited answer; over a result with
+  `sub_questions` it takes the agentic path; `uses_graph_path` true for a graph result;
+  `cited_llm_calls` covers retried, llm and extractive cases; the server names are the same objects
+  as core's (`search._generate is dispatch.generate_for_result`).
+- [ ] Move the code unchanged; the server imports it.
+- [ ] Existing `server/tests/test_agentic_graph_generation.py` passes untouched.
+
+## Task 2: Dataset, shipped corpus and questions
+
+**Files:** `evaluation/dataset.py`, `evaluation/data/corpus/*.md` (8 documents),
+`evaluation/data/questions.json` (24 questions); `packages/core/pyproject.toml` if package data needs
+declaring.
+
+**Interfaces:** `QuestionType` (StrEnum of the eight), `ExpectedSource(document, evidence=None)`,
+`EvalQuestion(id, question, expected_answer, expected_sources, question_type, difficulty)`,
+`QuestionSet(version=1, name, questions)` with unique ids, `load_questions(path) -> QuestionSet`
+(raises `ValueError` naming each bad field), `shipped_questions()`, `shipped_corpus_paths()`,
+`content_hash(paths_or_set) -> str`.
+
+- [ ] Failing tests `test_eval_dataset.py`: the shipped set loads; exactly three questions per
+  category; ids unique; **every expected source names a shipped document and every evidence phrase
+  appears in that document** (case and whitespace insensitive); a file with an unknown
+  `question_type` fails naming the field; duplicate ids fail; the files are present in the built
+  wheel's package data (path resolved through `importlib.resources`).
+- [ ] Write the corpus and questions; implement the loader.
+
+## Task 3: Retrieval metrics and citation correctness
+
+**Interfaces:** `ContextItem(document, text, rank)` (defined in `target.py`, created here),
+`is_relevant(item, source)`, `retrieval_scores(contexts, sources) -> RetrievalScores(precision,
+recall, hit, reciprocal_rank)` (all `None` when `sources` is empty),
+`citation_correct(answer, contexts) -> CitationCheck(correct: bool, reason: str | None)`.
+
+- [ ] Failing tests `test_eval_metrics.py` with hand computed cases: 5 retrieved, relevant at ranks
+  2 and 4, two expected sources both matched: precision 0.4, recall 1.0, hit True, RR 0.5; nothing
+  relevant: 0, 0, False, 0; no sources: all `None`; evidence phrase splits across whitespace and
+  case still matches; a chunk from the right document without the evidence is not relevant.
+  Citation: marker out of range is wrong; a cited sentence that shares no words with its chunk is
+  wrong; a correct cited answer is right; "could not find" with no contexts is right, with contexts
+  is wrong.
+- [ ] Implement.
+
+## Task 4: Judges
+
+**Interfaces:** `JudgeScores(correctness, faithfulness, context_relevance, reasons: dict)`,
+`Judge` protocol (`kind`, `model`, `prompt_version`, `score(question, expected, answer, contexts) ->
+JudgeScores`), `LLMJudge(llm, model)`, `LexicalJudge()`, `build_judge(kind, llm, model)`.
+
+- [ ] Failing tests `test_eval_judge.py`: `LLMJudge` with a scripted provider returning
+  `{"score": 0.8, "reason": "..."}` per rubric gives 0.8 and records the reason; invalid JSON gives
+  `None` with the reason; a score of 1.4 gives `None`; three calls, temperature 0; `LexicalJudge` hand
+  computed token F1 for correctness; faithfulness is the share of answer sentences whose content
+  words are at least half in the context; context relevance is the share of contexts sharing a
+  content word with the expected answer; `build_judge("auto", offline)` is lexical, with Ollama is
+  LLM.
+- [ ] Implement.
+
+## Task 5: The `evaluation` configuration section
+
+- [ ] Failing test `test_config_evaluation.py`: defaults; strict keys; **a test that iterates over
+  `EvaluationConfig.model_fields` and proves each one changes behaviour** (collection reaches the
+  target scope, judge reaches `build_judge`, judge_model reaches `LLMJudge.model`, top_k reaches the
+  `StrategyParams`). The wiring half of the test lands with Task 6, and is added there.
+- [ ] Add `EvaluationConfig` to `RagFabricConfig` and both example yaml files.
+
+## Task 6: Targets
+
+**Interfaces:** `TargetAnswer(answer, contexts, strategy_used, fallback_from, llm_calls,
+retrieval_calls, embedding_calls, input_tokens, output_tokens, latency_ms, retrieval_latency_ms,
+generation_latency_ms, llm_model, error)`; `EvalTarget` protocol (`name`, `answer(question) ->
+TargetAnswer`); `TargetSkipped(reason)` exception; `parse_target_spec("traditional+rerank=llm")`;
+`StrategyTarget(name, strategy, llm, collection_id, top_k, model)`; `build_targets(specs, cfg,
+registry, llm, collection_id)` that returns targets plus skipped `(name, reason)` pairs.
+
+- [ ] Failing tests `test_eval_target.py` on SQLite with the offline provider: ingest two small docs,
+  `StrategyTarget("traditional")` answers with contexts carrying document names in rank order and
+  counts that add up the way the API's do; collection scope respected; offline agentic and graph
+  are skipped with reasons; graph disabled is skipped; an unknown spec raises naming it;
+  `cross_encoder` without the extra is skipped. Plus the Task 5 wiring test.
+- [ ] Implement.
+
+## Task 7: Runner and persistence
+
+**Interfaces:** `run_batch(targets, questions, judge, session_factory, *, batch, skipped, meta,
+on_result=None) -> BatchResult`; `summarise(rows)`; `router_agreement(batch rows)`;
+`store.save_run`, `store.list_runs`, `store.get_run`, `store.batch_runs(name)`.
+
+- [ ] Failing tests `test_eval_runner.py` with fake targets: one run row per target, one result row per
+  question; a target raising on one question records the error and continues; skipped targets get a
+  run row with `summary.skipped` and no results; summary means ignore `None`; per category means;
+  p50 and p95 latency hand computed; router agreement over a hand built batch; meta (judge kind,
+  model, prompt version, question hash, top_k) in the summary.
+- [ ] Implement.
+
+## Task 8: Markdown report
+
+- [ ] Failing test `test_eval_report.py`: rendering a stored batch includes date, commit, models,
+  judge kind and the "one run, not a benchmark" line; one row per target; one table per category
+  metric; `None` shown as "n/a"; skipped targets listed with reasons; cost labelled
+  an estimate; router agreement section only when `auto` ran.
+- [ ] Implement.
+
+## Task 9: CLI and Makefile
+
+- [ ] Failing tests `test_eval_cli.py` (CliRunner, SQLite, offline): `eval corpus` ingests eight
+  documents and a rerun ingests none; `eval run --strategy traditional --strategy vectorless
+  --report out.md` writes two runs and the report; `--json` output parses; `--category` filters;
+  a bad questions file exits 1 naming the field; `eval list` and `eval show` print what was stored;
+  `eval report` re-renders.
+- [ ] Implement `commands/eval.py`, register `eval`, add `Makefile`.
+
+## Task 10: Model and estimated cost on `retrieval_runs`
+
+- [ ] Failing test in `packages/server/tests`: a `/api/query` and a `/api/ask` run with a priced model
+  record `llm_model` and a non-null `estimated_cost_usd`; an unpriced model records `None`.
+- [ ] Implement one helper in core (`pricing.run_cost(cfg, input_tokens, output_tokens)`) used by
+  both routes.
+
+## Task 11: Dashboard data and the evaluation API
+
+- [ ] Failing tests: `dashboard.py` over hand inserted `retrieval_runs` (p50, p95 per strategy,
+  cost per day with unknown cost counted separately, calls per strategy, fallback rate) and
+  `evaluation_runs` (quality trend per strategy); API routes are admin only, list, show and
+  dashboard shapes.
+- [ ] Implement and register the router.
+
+## Task 12: Documentation
+
+- [ ] `docs/evaluation.md` rewritten to what shipped; `docs/complexity.md` (1 to 5 engineering
+  assessment per strategy); ADR 0015 (evaluation targets and judges); README (benchmark section links
+  `docs/benchmarks/latest.md`, what works today); ROADMAP Phase 8 ticks and the D17 note;
+  CHANGELOG `[0.5.0] - unreleased`; `docs/benchmarks/README.md`; `docs/configuration.md`.
+
+## Task 13: First real run on Ollama
+
+- [ ] Ingest the shipped corpus with Ollama (`llama3.1:8b` or smaller, `nomic-embed-text`), graph on;
+  run every target with the LLM judge; write `docs/benchmarks/latest.md` from the run and
+  `docs/learning/evaluation-first-run.md` honestly: one run, one machine, findings, nothing tuned.
+
+## Task 14: Whole branch review and fix wave
+
+- [ ] Review the branch against this design and plan; fix; full suite with and without
+  `RAGFABRIC_TEST_DATABASE_URL`; push; draft the issue #9 update.
