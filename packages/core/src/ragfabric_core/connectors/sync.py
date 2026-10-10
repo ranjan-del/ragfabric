@@ -56,6 +56,8 @@ class SyncReport:
     deleted: int = 0
     skipped: int = 0
     failed: int = 0
+    # Listed but not ready yet (still being written); looked at again next pass.
+    pending: int = 0
     # One line per refused or failed source: "<source id>: <reason>".
     problems: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -64,7 +66,7 @@ class SyncReport:
         return (
             f"{self.connector}: {self.added} added, {self.updated} updated, "
             f"{self.unchanged} unchanged, {self.deleted} deleted, {self.skipped} skipped, "
-            f"{self.failed} failed"
+            f"{self.failed} failed, {self.pending} pending"
         )
 
 
@@ -101,6 +103,9 @@ def _sync_one(
     limits: LimitsConfig,
     report: SyncReport,
 ) -> None:
+    if not source.ready:
+        report.pending += 1
+        return
     if item is not None and _metadata_matches(item, source):
         report.unchanged += 1
         return

@@ -24,6 +24,7 @@ class FakeConnector:
         self.files: dict[str, tuple[bytes, datetime, str]] = {}
         self.fetches: list[str] = []
         self.broken: set[str] = set()
+        self.not_ready: set[str] = set()
 
     def put(self, source_id: str, data: bytes, modified: datetime = T0, version: str = "") -> None:
         self.files[source_id] = (data, modified, version)
@@ -37,6 +38,7 @@ class FakeConnector:
                 size_bytes=len(data),
                 modified_at=modified,
                 version=version,
+                ready=source_id not in self.not_ready,
             )
 
     def fetch(self, source_id: str) -> bytes:
@@ -254,3 +256,20 @@ def test_collection_and_owner_are_applied(db):
     _sync(db, fake, collection_id=collection.id)
     [doc] = _docs(db)
     assert doc.collection_id == collection.id
+
+
+def test_a_source_that_is_not_ready_is_neither_fetched_nor_deleted(db):
+    """The folder connector lists a file still being written as not ready. A
+    known file being re-saved must not disappear from the index meanwhile, and
+    a new one must not be ingested half-written."""
+    fake = FakeConnector()
+    fake.put("a.txt", b"annual leave is twenty days")
+    _sync(db, fake)
+    fake.fetches.clear()
+    fake.put("a.txt", b"annual leave is thirty", modified=T0 + timedelta(hours=1))
+    fake.put("b.txt", b"half written")
+    fake.not_ready = {"a.txt", "b.txt"}
+    report = _sync(db, fake)
+    assert fake.fetches == []
+    assert report.pending == 2 and report.deleted == 0 and report.added == 0
+    assert len(_docs(db)) == 1
