@@ -17,6 +17,36 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 
 ## [Unreleased]
 
+## [0.5.0] - unreleased
+
+### Added
+
+- **Evaluation framework (Phase 8).** A synthetic company corpus (eight documents) and 24 questions,
+  three in each of eight categories, shipped inside `ragfabric-core`; bring-your-own question files in
+  the same schema, validated with every bad field named. Ground truth is a document plus an optional
+  evidence phrase, so rechunking never invalidates a question (ADR 0015).
+- Retrieval metrics (precision, recall, hit rate, MRR), generation metrics (correctness, faithfulness,
+  context relevance) from a fixed-rubric LLM judge or a deterministic lexical judge, and deterministic
+  citation correctness. Unmeasured values are `null`, never zero (ADR 0004).
+- A runner over every strategy, the router and reranker variants (`traditional+rerank=llm`,
+  `traditional+rerank=cross_encoder`), answering through the same generation code as the API.
+  Results persist to `evaluation_runs` and `evaluation_results`; targets that cannot run here are
+  recorded as skipped with the reason.
+- `ragfabric eval corpus | run | list | show | report` and `make eval`, which writes
+  `docs/benchmarks/latest.md` with the commit, models, judge and date.
+- Read-only API: `GET /api/eval/runs`, `GET /api/eval/runs/{id}`, `GET /api/eval/dashboard` (latency
+  percentiles, cost per day, calls per strategy, fallback rate, quality trend). The dashboard pages
+  are built in Phase 9.
+- `evaluation` section in `ragfabric.yaml` (`collection`, `judge`, `judge_model`, `top_k`).
+- `docs/complexity.md` (engineering assessment), ADR 0015, `docs/learning/evaluation-first-run.md`.
+
+### Changed
+
+- Every `/api/search/query` and `/api/ask` run now records `llm_model` and an `estimated_cost_usd` from
+  `pricing.yaml` (`null` when the model is not priced). Previously both were always null.
+- The generation dispatch (`Generated`, `generate_for_result`) moved from the server to
+  `ragfabric_core.generate.dispatch`; the server re-exports the old names.
+
 ## [0.4.0] - 2026-10-07
 
 ### Added

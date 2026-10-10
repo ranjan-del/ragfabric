@@ -84,6 +84,12 @@ limits:                       # enforced, not just read: upload rejects an over-
 
 telemetry:
   otlp_endpoint: null         # off by default; e.g. http://otel-collector:4318
+
+evaluation:                   # ragfabric eval and make eval; every key is read (a test proves it)
+  collection: ragfabric-eval  # where `eval corpus` ingests and `eval run` retrieves
+  judge: auto                 # auto | llm | lexical. auto is llm unless llm.provider is offline
+  judge_model: null           # model the llm judge asks; null uses llm.model
+  top_k: 5                    # retrieval depth for every evaluated target, so they compare fairly
 ```
 
 ## Environment variables
