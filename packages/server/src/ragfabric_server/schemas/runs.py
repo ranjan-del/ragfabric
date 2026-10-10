@@ -37,6 +37,11 @@ class RunOut(BaseModel):
     requested_strategy: str | None
     selected_strategy: str
     fallback_from: str | None
+    # What the router reported when auto served the run; both None for a
+    # manual run. ``router_confidence`` is also None for a rule based decision,
+    # since a rule is not a measurement (ADR 0004).
+    router_confidence: float | None = None
+    router_reasoning: str | None = None
     answer: str | None
     latency_ms: int
     retrieval_latency_ms: int

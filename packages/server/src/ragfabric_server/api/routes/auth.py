@@ -70,5 +70,5 @@ def me(current_user: User = Depends(get_current_user)) -> User:
 
 @router.post("/logout")
 def logout(current_user: User = Depends(get_current_user)) -> dict:
-    """Stateless logout — the client simply discards its token."""
+    """Stateless logout: the client simply discards its token."""
     return {"detail": "Logged out. Discard the access token on the client."}

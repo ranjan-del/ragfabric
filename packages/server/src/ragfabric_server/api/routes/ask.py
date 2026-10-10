@@ -254,7 +254,24 @@ def _record(
         return run.id
 
 
-@router.post("/ask", response_model=None)
+@router.post(
+    "/ask",
+    response_model=None,
+    # Documentation only: the handler is unchanged. Without this the OpenAPI
+    # specification says nothing about either response, and the TypeScript SDK
+    # (generated from that specification) could not type the answer.
+    responses={
+        200: {
+            "model": AnswerResponse,
+            "description": (
+                "With `stream: false`, the cited answer as JSON. With `stream: true` (the "
+                "default), a text/event-stream of `retrieval`, `token`, optionally "
+                "`superseded`, `citations` and `done` events; see this module's docstring."
+            ),
+            "content": {"text/event-stream": {"schema": {"type": "string"}}},
+        }
+    },
+)
 def ask(
     payload: AskRequest,
     principal: Principal = Depends(get_principal),

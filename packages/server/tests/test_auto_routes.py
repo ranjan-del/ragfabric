@@ -403,3 +403,26 @@ def test_semantic_still_accepts_an_explicit_auto(client, admin_token, auto, rout
     assert r.status_code == 200, r.text
     assert r.json()["strategy"] == "vectorless"
     assert auto.calls == 1
+
+
+def test_a_stored_auto_run_reports_the_routers_confidence_and_reasoning(client, admin_token, auto):
+    """GET /api/runs/{id} returns what the router decided, for runs nobody streamed.
+
+    The Trace page reads a run cold, long after the stream that produced it,
+    so the two router columns already written on every auto run have to be
+    readable through the API, not only through the database.
+    """
+    r = _ask(client, admin_token, strategy="auto", query=OPEN)
+    assert r.status_code == 200, r.text
+    routed = client.get(f"/api/runs/{_last_run().id}", headers=auth(admin_token)).json()
+
+    assert routed["router_confidence"] == pytest.approx(CLASSIFIER_CONFIDENCE)
+    assert routed["router_reasoning"] == CLASSIFIER_REASONING
+
+    r = _ask(client, admin_token, strategy="traditional")
+    assert r.status_code == 200, r.text
+    manual = client.get(f"/api/runs/{_last_run().id}", headers=auth(admin_token)).json()
+
+    # Nothing routed a manual run, so nothing is reported, never a made up value.
+    assert manual["router_confidence"] is None
+    assert manual["router_reasoning"] is None
