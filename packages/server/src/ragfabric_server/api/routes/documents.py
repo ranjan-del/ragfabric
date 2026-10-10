@@ -24,9 +24,9 @@ from sqlalchemy.orm import Session
 from ragfabric_core.auth.principal import AccessFilter, Principal
 from ragfabric_core.db.session import get_db
 from ragfabric_core.graph.extract import detach_documents
-from ragfabric_core.ingest.parser import SUPPORTED_FORMATS
 from ragfabric_core.ingest.pipeline import ingest_document
 from ragfabric_core.ingest.storage import get_storage
+from ragfabric_core.ingest.validate import UploadRejected, check_size, check_type, validate_upload
 from ragfabric_core.models.document import Chunk, Collection, Document
 from ragfabric_core.models.index import ChunkEmbedding, ChunkSearch
 from ragfabric_core.models.user import Role, User
@@ -103,32 +103,17 @@ async def upload_document(
     an overlap that does not fit its chunk size gets a 422, never a silently
     adjusted document.
 
-    ``limits.allowed_types`` and ``limits.max_upload_mb`` (ragfabric.yaml) are
-    enforced here too: a format outside the deployment's own allow-list (a
-    narrower, operator-configured subset of ``SUPPORTED_FORMATS``, the
-    parser's fixed capability list) is rejected the same as an unparseable
-    one, and a file over the configured size is rejected before it is ever
-    handed to the ingestion pipeline.
+    Every rule in ``ragfabric_core.ingest.validate`` applies (type, allow-list,
+    size, content matching the extension, zip bounds), the same rules the CLI
+    and the connectors use: 400 for a type this deployment does not take, 413
+    for a file too large, 415 for content that is not what its name claims.
     """
     cfg = get_config()
     filename = file.filename or "upload"
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    if ext not in SUPPORTED_FORMATS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"Unsupported format '{ext or filename}'. "
-                f"Supported: {', '.join(SUPPORTED_FORMATS)}."
-            ),
-        )
-    if ext not in cfg.limits.allowed_types:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"File type '.{ext}' is not allowed by this deployment's configuration. "
-                f"Allowed: {', '.join(cfg.limits.allowed_types)}."
-            ),
-        )
+    try:
+        check_type(filename, cfg.limits)
+    except UploadRejected as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.reason) from exc
     if collection_id is not None:
         if db.get(Collection, collection_id) is None:
             raise HTTPException(
@@ -139,20 +124,15 @@ async def upload_document(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found."
             )
 
-    data = await file.read()
-    if not data:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty."
-        )
-    max_bytes = cfg.limits.max_upload_mb * 1024 * 1024
-    if len(data) > max_bytes:
-        raise HTTPException(
-            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-            detail=(
-                f"Uploaded file is {len(data) / (1024 * 1024):.1f} MB, over the configured "
-                f"limit of {cfg.limits.max_upload_mb} MB."
-            ),
-        )
+    # UploadSizeLimitMiddleware has already bounded the body on the wire; the
+    # spooled file's own size is checked before it is read into memory.
+    try:
+        if file.size is not None:
+            check_size(file.size, cfg.limits)
+        data = await file.read()
+        validate_upload(filename, data, cfg.limits)
+    except UploadRejected as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.reason) from exc
 
     if chunk_size is not None or chunk_overlap is not None:
         cfg_ingestion = cfg.ingestion

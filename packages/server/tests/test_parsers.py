@@ -163,10 +163,24 @@ def test_text_free_file_is_flagged_rather_than_silently_empty(client, auth_heade
     assert document["error"] == EMPTY_TEXT_NOTE
 
 
-def test_corrupt_file_of_a_supported_type_fails_cleanly(client, auth_headers):
-    # Right extension, garbage bytes. The row must exist and say why it failed
-    # rather than 500-ing the request.
+def test_garbage_with_a_supported_extension_is_refused_at_the_edge(client, auth_headers):
+    # Right extension, garbage bytes: since Phase 10 the upload validator
+    # refuses it (415) before a Document row exists or a parser runs.
     response = _upload(client, auth_headers, "broken.docx", b"not a zip archive")
+    assert response.status_code == 415
+
+
+def test_corrupt_file_of_a_supported_type_fails_cleanly(client, auth_headers):
+    # A real zip with the right part names, so it passes validation, whose
+    # main part is not a Word document. The row must exist and say why it
+    # failed rather than 500-ing the request.
+    import io
+    import zipfile
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("word/document.xml", b"<not-closed")
+    response = _upload(client, auth_headers, "broken.docx", buffer.getvalue())
     assert response.status_code == 201
     document = response.json()
     assert document["status"] == "failed"
