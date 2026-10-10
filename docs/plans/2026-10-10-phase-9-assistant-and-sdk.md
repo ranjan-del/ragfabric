@@ -185,3 +185,190 @@ Every path, body and response type comes from the SDK. The app owns only how a r
 - Changes to the Python SDK.
 - A browser end to end suite in CI and rate limiting (Phase 10).
 - Restyling the console v1 pages beyond what moving them onto the SDK requires.
+
+---
+
+# Implementation Plan
+
+> Steps use checkbox (`- [ ]`) syntax for tracking. Executed inline, one task at a time, test first:
+> a failing test or spec, the implementation, the passing run, then one commit per task, pushed.
+
+**Architecture:** see the Design above. The SDK describes every call (`requests.ts`), the fetch client
+and the Angular transport execute them, the pages consume feature services that only speak SDK.
+
+**Tech Stack:** Angular 22.2, TypeScript 6.0, Karma and Jasmine 5 (held at 5.x on purpose), Tailwind 4,
+Node 24 in CI. The SDK uses `tsc` and `node:test`. Python 3.13 (uv), FastAPI, pydantic for the two
+small server changes. **No new runtime dependencies in the app or the SDK. No migration.**
+
+## Global Constraints
+
+Every task's requirements implicitly include this section.
+
+- **Angular packages move in lockstep**; no Angular, TypeScript or Jasmine version changes in this
+  phase. `npm ci`, `npm test` and `npm run build` in `apps/assistant` pass as in CI.
+- **Specs and SDK tests are offline and deterministic**: `HttpTestingController` in Karma, a fake
+  `fetch` in SDK tests. Nothing touches the network.
+- **Python side** (Task 1 only): `ruff check packages`, `ruff format --check packages`,
+  `lint-imports` (3 kept, 0 broken) and `pytest -m "not integration"` pass.
+- **ADR 0004 holds in the UI**: a value the API returns as null is shown as `n/a`, never 0; cost is
+  labelled an estimate; a benchmark score is labelled as from the latest batch.
+- **The app spells no API path**: every request is built by the SDK (enforced from Task 5).
+- **No em dashes. No AI attribution** in code, comments, docs or commits. Nothing naming any
+  organisation that uses RagFabric.
+
+## Review Focus
+
+1. **A `superseded` event mid answer.** Expected: the drawn text is replaced, the reason shown, the
+   recorded run matches what is on screen (Tasks 3, 6).
+2. **An SSE chunk boundary in the middle of an event or a UTF-8 character.** Expected: the decoder
+   buffers and yields the event once, intact (Task 3).
+3. **One strategy failing in Compare.** Expected: its column shows the server's message, the other
+   three complete (Task 7).
+4. **A null cost, a null router confidence, a missing benchmark.** Expected: `n/a` or the reason,
+   never 0 (Tasks 6 to 9).
+5. **A 401 during a stream.** Expected: the interceptor signs out and redirects, the page shows no
+   half answer as final (Tasks 4, 6).
+6. **Specification drift.** Expected: changing a server schema without regenerating fails pytest;
+   editing `schema.ts` by hand fails the SDK tests (Tasks 1, 2).
+
+## File Structure
+
+| File | Responsibility |
+|---|---|
+| `packages/server/src/ragfabric_server/openapi.py` | Deterministic specification export |
+| `packages/server/tests/test_openapi_snapshot.py` | Live specification equals `packages/sdk-typescript/openapi.json` |
+| `packages/sdk-typescript/package.json`, `tsconfig*.json`, `README.md` | npm package |
+| `packages/sdk-typescript/scripts/generate.mjs` | Generator |
+| `packages/sdk-typescript/src/generated/schema.ts` | Generated types |
+| `packages/sdk-typescript/src/{types,requests,sse,errors,client,evaluation,index}.ts` | SDK |
+| `packages/sdk-typescript/test/*.test.ts` | SDK tests |
+| `apps/assistant/src/app/sdk/sdk-http.service.ts` | Angular transport |
+| `apps/assistant/scripts/check-sdk-only.mjs` | The "app uses only the SDK" check |
+| `apps/assistant/src/app/services/ask-stream.ts`, `run-details.service.ts`, `evaluation.service.ts` | Feature services |
+| `apps/assistant/src/app/compare/compare-state.ts` | Compare state |
+| `apps/assistant/src/app/pages/{ask,compare,trace,evaluation}/` | Pages |
+| `docs/adr/0016-typescript-sdk-generated-types-and-transports.md` | ADR |
+| `docs/assistant.md` | The four pages, how to read them |
+| `docs/learning/assistant-first-run.md` | First real run, findings |
+
+---
+
+## Task 1: Server: specification export, documented `/api/ask`, router fields on runs
+
+**Files:** create `ragfabric_server/openapi.py`, `tests/test_openapi_snapshot.py`; modify
+`api/routes/ask.py` (decorator `responses=` only), `schemas/runs.py` (`router_confidence`,
+`router_reasoning`).
+
+- [ ] Failing tests: `export_spec()` is byte stable across two calls and sorted; the `/api/ask`
+  operation documents `application/json` with `AnswerResponse` and `text/event-stream`;
+  `GET /api/runs/{id}` returns `router_confidence` and `router_reasoning` for an auto run and null
+  for a manual one; the live specification equals the checked in `openapi.json` (the failure
+  message names the regenerate command).
+- [ ] Implement; write `packages/sdk-typescript/openapi.json` with the exporter.
+
+## Task 2: SDK package and the generator
+
+**Files:** `packages/sdk-typescript/{package.json,tsconfig.json,tsconfig.build.json,scripts/generate.mjs,
+src/generated/schema.ts,test/generate.test.ts}`.
+
+- [ ] Failing tests: object with required and optional fields; `anyOf` with null becomes `T | null`;
+  `$ref`; arrays; `enum` and `const` become literal unions; `additionalProperties`; a schema with no
+  type becomes `unknown`; an unknown construct throws naming its JSON pointer; output is stable;
+  **the checked in `schema.ts` equals the generator's output for the checked in `openapi.json`**.
+- [ ] Implement the generator; generate `schema.ts`.
+
+## Task 3: SDK runtime
+
+**Files:** `src/{types,requests,sse,errors,client,evaluation,index}.ts`, `test/*.test.ts`, `README.md`.
+
+- [ ] Failing tests with a fake `fetch`: builders produce the documented method, path, query and
+  body; `ask` omits `strategy` when unset; the decoder handles CRLF, comments, multi line data, a
+  chunk boundary inside an event and inside a multi byte character, and a bare `data:` block as
+  `message`; `askStream` yields typed events in order; an error response raises `RagFabricError`
+  with the server's `detail`; the bearer token or API key header is sent; the event names match the
+  server's (pinned list); `npm pack --dry-run` lists only `dist`, `README.md`, `LICENSE`,
+  `package.json`.
+- [ ] Implement.
+
+## Task 4: The Angular transport, the path mapping, CI and the UI image
+
+**Files:** `apps/assistant/tsconfig.json` (`paths`), `src/app/sdk/sdk-http.service.ts` and spec,
+`.github/workflows/ci.yml` (SDK steps in the frontend job), `deploy/docker/ui.Dockerfile`.
+
+- [ ] Failing specs: `send()` issues the builder's method, URL and body through `HttpClient` and
+  maps an error to `RagFabricError` with the server's detail; `stream()` turns XHR download
+  progress into `AskEvent`s across chunk boundaries and completes on `done`; the interceptor still
+  adds the bearer token (the request passes through it).
+- [ ] Implement; the UI image build copies `packages/sdk-typescript/src`.
+
+## Task 5: The console v1 services on the SDK
+
+**Files:** every file in `src/app/services/`, `models.ts`, `http-error.ts`,
+`scripts/check-sdk-only.mjs`, `package.json` (`check:sdk-only`), CI.
+
+- [ ] The 95 existing specs are the regression net: they must pass unchanged in what they assert.
+- [ ] Failing check: `npm run check:sdk-only` fails while any service imports `HttpClient`.
+- [ ] Move each service onto `requests.*` and `SdkHttp`; `models.ts` re-exports SDK types;
+  `describeError` understands `RagFabricError`.
+
+## Task 6: Ask
+
+**Files:** `services/ask-stream.ts` and spec, `services/run-details.service.ts` and spec,
+`pages/ask/*` and spec, `ui/source-viewer.component.ts`, routes.
+
+- [ ] Failing specs: AUTO sends `strategy: "auto"`, MANUAL sends the picked one; tokens append;
+  `superseded` replaces with the reason; citations render as buttons and a marker click opens the
+  viewer on the right citation; the router card shows confidence or "rule based", reasoning and the
+  fallback notice; `n/a` for null; the run details cache holds the retrieval event under `run_id`.
+- [ ] Implement; `/search` redirects to `/ask`; v1 Search page removed.
+
+## Task 7: Compare
+
+**Files:** `compare/compare-state.ts` and spec, `pages/compare/*` and spec.
+
+- [ ] Failing specs on the state: four columns in fixed order; sequential runs start the next only
+  when the previous ends; parallel starts all four; one failure leaves the others running; the
+  summary marks fastest, cheapest (ignoring null), and highest benchmark score; cost and benchmark
+  are `n/a` when null; reset clears.
+- [ ] Failing specs on the page: one question produces four `/api/ask` requests with explicit
+  strategies; each column shows answer, sources, latency, calls, tokens, cost from the run, and the
+  benchmark score for admins.
+- [ ] Implement.
+
+## Task 8: Trace
+
+**Files:** `pages/trace/*` and spec.
+
+- [ ] Failing specs: spans drawn in start order with widths proportional to duration; latency
+  split, calls, tokens, cost (`n/a` when null); router confidence and reasoning; sources marked
+  cited; agent spans listed as steps; graph path from the run details cache when present, the "not
+  stored" note when not; 404 shows "run not found".
+- [ ] Implement.
+
+## Task 9: Evaluation and dashboards (against Phase 8's planned API)
+
+**Files:** `services/evaluation.service.ts`, `pages/evaluation/*` and specs, `ui/bar-chart.component.ts`.
+
+- [ ] Failing specs with fakes shaped as `src/evaluation.ts`: latest batch table, one row per
+  target, skipped targets with reasons, judge shown; per category breakdown; four dashboards
+  render; nulls are `n/a`; a 404 shows "no evaluation API on this server yet".
+- [ ] Implement; admin only route and nav item.
+
+## Task 10: Documentation
+
+- [ ] ADR 0016; `docs/assistant.md`; `packages/sdk-typescript/README.md`; `docs/architecture.md`
+  (SDK and app layers); `CONTRIBUTING.md` (regenerate the SDK after an API change); README (what
+  works today, documentation table); `docs/README.md` index.
+
+## Task 11: First real run
+
+- [ ] Ollama (`llama3.1:8b`, `nomic-embed-text`), PostgreSQL, the server, the sample data ingested;
+  Ask, Compare and Trace across the four strategies through the built UI (Playwright if available,
+  otherwise the SDK against the running server). Findings, honestly, in
+  `docs/learning/assistant-first-run.md`.
+
+## Task 12: Whole branch review and fix wave
+
+- [ ] Review the branch against this design and plan; re-read Phase 8's design for API changes;
+  fix; full checks (Python, SDK, app, build); CHANGELOG Unreleased; ROADMAP ticks; draft the issue
+  #10 update in the notes folder (not posted).
