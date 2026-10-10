@@ -38,6 +38,13 @@ def mask_url(url: str) -> str:
     authority ends at the first ``/``, ``?`` or ``#`` after that ``@``. So a
     password containing ``/``, ``@``, ``:``, ``?`` or ``#`` is masked whole:
     the mask runs from the first ``:`` of the userinfo to that last ``@``.
+
+    The username (before that first ``:``) never holds a ``/``: SQLAlchemy and
+    libpq both end it there. So when a ``/`` comes before the first ``:``, the
+    ``:`` and ``@`` sit in a path or query, there is no password, and the URL
+    comes back unchanged. A ``/``, ``@`` or ``?`` in the password is still
+    masked whole, which is why ``rf:pw@db/rag?x=a@b`` keeps losing its host
+    (ruling R28: it has the same shape as a password holding ``@db/rag?x=a``).
     """
     marker = url.find("://")
     if marker == -1:
@@ -48,7 +55,7 @@ def mask_url(url: str) -> str:
         return url
     userinfo = url[start:at]
     colon = userinfo.find(":")
-    if colon == -1:
+    if colon == -1 or "/" in userinfo[:colon]:
         return url
     return url[: start + colon + 1] + "***" + url[at:]
 

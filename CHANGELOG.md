@@ -17,6 +17,15 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 
 ## [Unreleased]
 
+### Fixed
+
+- A URL whose path or query holds a `:` and then an `@`, with a `/` before that `:` (for example
+  `http://127.0.0.1/search?at=10:30&from=me@example.com`), is shown unchanged in messages and
+  `ragfabric doctor` instead of having part of its query replaced with `***`. A username never
+  holds a `/`, so there is no password to hide. A password holding `/`, `@` or `?` is still masked
+  whole, so a URL such as `postgresql://rf:pw@db/rag?x=a@b`, which has the same shape as one, is
+  still shown as `postgresql://rf:***@b`. (#55)
+
 ## [0.4.0] - 2026-10-07
 
 ### Added
