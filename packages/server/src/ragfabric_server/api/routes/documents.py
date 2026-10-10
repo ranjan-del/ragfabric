@@ -23,16 +23,15 @@ from sqlalchemy.orm import Session
 
 from ragfabric_core.auth.principal import AccessFilter, Principal
 from ragfabric_core.db.session import get_db
-from ragfabric_core.graph.extract import detach_documents
+from ragfabric_core.ingest.delete import delete_document_everywhere
 from ragfabric_core.ingest.pipeline import ingest_document
 from ragfabric_core.ingest.storage import get_storage
 from ragfabric_core.ingest.validate import UploadRejected, check_size, check_type, validate_upload
 from ragfabric_core.models.document import Chunk, Collection, Document
 from ragfabric_core.models.index import ChunkEmbedding, ChunkSearch
 from ragfabric_core.models.user import Role, User
-from ragfabric_core.runtime import get_config, get_session_factory
+from ragfabric_core.runtime import get_config
 from ragfabric_core.stores.access_sql import access_clause
-from ragfabric_core.stores.registry import build_lexical_store, build_vector_store
 from ragfabric_server.deps import get_access_filter, get_current_user, get_principal
 from ragfabric_server.schemas.document import DocumentList, DocumentMove, DocumentOut
 
@@ -313,24 +312,7 @@ def delete_document(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You may only delete your own documents.",
         )
-    # The chunks' graph links would go with the cascade below, leaving the
-    # entities and edges they supported with a confidence no remaining source
-    # reported, or with no source at all. Recompute and collect first (R42).
-    detach_documents(db, [document.id])
-    db.delete(document)  # cascades to chunks
-    db.commit()
-    # The ORM cascade above deletes `chunks` rows. `chunk_embeddings` and
-    # `chunk_search` have an ON DELETE CASCADE foreign key to `chunks.id`, a
-    # database-level constraint. SQLite now enforces foreign keys too
-    # (PRAGMA foreign_keys=ON, set globally in db/session.py), so on both
-    # SQLite and PostgreSQL those rows are cascaded away by the database
-    # itself. On a real Chroma collection nothing will ever cascade it:
-    # Chroma is an external service with no foreign key at all. Delete from
-    # the configured vector and lexical stores explicitly so no orphaned rows
-    # accumulate and silently crowd out live results.
-    cfg = get_config()
-    sf = get_session_factory()
-    build_vector_store(cfg.vector_store, sf).delete_document(document_id)
-    build_lexical_store(cfg.lexical_store, sf).delete_document(document_id)
-    get_storage().delete(document_id)
+    # Graph detach, row and cascades, the vector and lexical stores, and the
+    # retained original, in that order: see ragfabric_core.ingest.delete.
+    delete_document_everywhere(db, document.id)
     return {"detail": "Document deleted.", "id": document_id}
