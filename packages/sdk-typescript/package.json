@@ -1,0 +1,57 @@
+{
+  "name": "@ragfabric/sdk",
+  "version": "0.4.0",
+  "description": "TypeScript client for a RagFabric server: ask, stream, compare strategies and read traces, with types generated from the server's OpenAPI specification.",
+  "license": "Apache-2.0",
+  "author": "Ranjan G",
+  "homepage": "https://github.com/ranjan-del/ragfabric/tree/main/packages/sdk-typescript#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ranjan-del/ragfabric.git",
+    "directory": "packages/sdk-typescript"
+  },
+  "bugs": {
+    "url": "https://github.com/ranjan-del/ragfabric/issues"
+  },
+  "keywords": [
+    "rag",
+    "retrieval-augmented-generation",
+    "ragfabric",
+    "sdk",
+    "openapi",
+    "server-sent-events"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "compile": "tsc -p tsconfig.json",
+    "generate": "npm run compile && node build/scripts/generate.js openapi.json src/generated/schema.ts",
+    "test": "npm run compile && node --test \"build/test/**/*.test.js\"",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "node -e \"require('node:fs').copyFileSync('../../LICENSE', 'LICENSE')\" && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "~24.19.2",
+    "typescript": "~6.0.3"
+  }
+}
