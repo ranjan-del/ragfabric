@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnChanges, computed, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { RagFabricError, Run } from '@ragfabric/sdk';
 
@@ -167,7 +167,7 @@ import { waterfall } from './waterfall';
     .edges, .subq { margin: 0; padding-left: 1.2rem; }
   `,
 })
-export class TraceComponent implements OnInit {
+export class TraceComponent implements OnChanges {
   private readonly runs = inject(RunService);
   private readonly runDetails = inject(RunDetailsService);
 
@@ -197,7 +197,10 @@ export class TraceComponent implements OnInit {
     return r.router_confidence == null ? 'rule based, none measured' : percent(r.router_confidence);
   });
 
-  ngOnInit(): void {
+  /** Runs on the first binding and again when the route moves to another run. */
+  ngOnChanges(): void {
+    this.run.set(null);
+    this.error.set(null);
     const id = Number(this.runId());
     if (!Number.isInteger(id) || id <= 0) {
       this.error.set('Run not found.');

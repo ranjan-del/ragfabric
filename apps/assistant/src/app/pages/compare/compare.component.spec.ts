@@ -76,6 +76,7 @@ describe('CompareComponent', () => {
     expect(text('[data-test="column-vectorless"] [data-test="latency"]')).toBe('120 ms');
     expect(text('[data-test="column-vectorless"] [data-test="cost"]')).toBe('n/a');
     expect(text('[data-test="column-graph"] [data-test="cost"]')).toBe('$0.00100');
+    expect(text('[data-test="column-graph"] [data-test="cited"]')).toBe('1');
     expect(text('[data-test="column-vectorless"]')).toContain('fastest');
     expect(text('[data-test="column-graph"]')).toContain('cheapest');
     expect(text('[data-test="column-traditional"]')).toContain('Atlas is owned by Priya');

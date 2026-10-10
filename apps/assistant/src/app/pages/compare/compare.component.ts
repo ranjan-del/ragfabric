@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, effect, inject, signal, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { Citation, RagFabricError, StrategyName } from '@ragfabric/sdk';
@@ -91,7 +91,7 @@ import { RunService } from '../../services/run.service';
             }
             <dl class="metrics">
               <div><dt>Latency</dt><dd data-test="latency">{{ ms(col.answer.done()?.latency_ms) }}</dd></div>
-              <div><dt>Sources cited</dt><dd>{{ cited(col.answer.citations()) }}</dd></div>
+              <div><dt>Sources cited</dt><dd data-test="cited">{{ cited(col.answer.status(), col.answer.citations()) }}</dd></div>
               <div><dt>LLM calls</dt><dd>{{ count(col.answer.done()?.usage?.llm_calls) }}</dd></div>
               <div><dt>Retrieval calls</dt><dd>{{ count(col.answer.done()?.usage?.retrieval_calls) }}</dd></div>
               <div><dt>Embedding calls</dt><dd>{{ count(col.answer.done()?.usage?.embedding_calls) }}</dd></div>
@@ -118,7 +118,7 @@ import { RunService } from '../../services/run.service';
     .control select, .control input { font: inherit; color: var(--text); background: var(--surface);
       border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.4rem 0.6rem; }
     .narrow input { width: 5rem; }
-    .check { display: flex; gap: var(--space-2); align-items: center; font-size: 0.9rem; }
+    .check { display: flex; gap: var(--space-2); align-items: center; font-size: 0.9rem; white-space: nowrap; }
     .small { font-size: 0.8rem; margin: 0; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: var(--space-4); margin-top: var(--space-4); }
     .column { padding: var(--space-4); display: grid; gap: var(--space-3); align-content: start; }
@@ -128,6 +128,8 @@ import { RunService } from '../../services/run.service';
     .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); margin: 0; }
     .metrics dt { font-size: 0.72rem; color: var(--text-muted); }
     .metrics dd { margin: 0; }
+    .column > a { justify-self: start; }
+    .check input { width: auto; margin: 0; }
   `,
 })
 export class CompareComponent implements OnInit, OnDestroy {
@@ -144,6 +146,17 @@ export class CompareComponent implements OnInit, OnDestroy {
   readonly ms = ms;
   readonly count = count;
 
+  private benchmarkRequested = false;
+
+  constructor() {
+    // The profile may still be loading when the page opens directly, so the
+    // admin check reacts to it rather than reading it once.
+    effect(() => {
+      const admin = this.auth.isAdmin();
+      untracked(() => this.loadBenchmark(admin));
+    });
+  }
+
   question = '';
   collectionId: number | null = null;
   topK = 8;
@@ -151,7 +164,6 @@ export class CompareComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.collectionService.list().subscribe({ next: (list) => this.collections.set(list) });
-    this.loadBenchmark();
   }
 
   ngOnDestroy(): void {
@@ -197,11 +209,15 @@ export class CompareComponent implements OnInit, OnDestroy {
     this.subscriptions = [];
   }
 
-  private loadBenchmark(): void {
-    if (!this.auth.isAdmin()) {
+  private loadBenchmark(admin: boolean): void {
+    if (!admin) {
       this.state.benchmarkNote.set('Benchmark scores come from the evaluation API, which only admins can read.');
       return;
     }
+    if (this.benchmarkRequested) {
+      return;
+    }
+    this.benchmarkRequested = true;
     this.evaluation.runs().subscribe({
       next: (runs) => {
         const benchmark = latestBenchmark(runs);
@@ -221,8 +237,9 @@ export class CompareComponent implements OnInit, OnDestroy {
     });
   }
 
-  cited(citations: readonly Citation[]): string {
-    return citations.length === 0 ? 'n/a' : String(citations.filter((c) => c.used).length);
+  /** Zero is a real count once the answer is done; before that nothing was measured. */
+  cited(status: string, citations: readonly Citation[]): string {
+    return status === 'done' ? String(citations.filter((c) => c.used).length) : 'n/a';
   }
 
   statusLabel(status: string): string {

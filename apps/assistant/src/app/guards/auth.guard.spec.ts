@@ -5,6 +5,7 @@
 // as not being signed in, and bouncing a valid user to the login page reads as
 // a broken session.
 import { signal } from '@angular/core';
+import { Observable, of, throwError } from 'rxjs';
 import { TestBed } from '@angular/core/testing';
 import {
   ActivatedRouteSnapshot,
@@ -61,5 +62,38 @@ describe('adminGuard', () => {
 
     expect(result instanceof UrlTree).toBeTrue();
     expect(urlOf(result)).toBe('/dashboard');
+  });
+
+  it('waits for the profile when an admin route is opened directly', () => {
+    configure({
+      token: 'token-1',
+      isAdmin: signal(false),
+      user: signal(null),
+      loadProfile: () => of({ id: 1, email: 'a@example.com', role: 'admin', is_active: true, created_at: '' }),
+    } as unknown as Partial<AuthService>);
+    let outcome: unknown;
+    (run(adminGuard) as Observable<unknown>).subscribe((r) => (outcome = r));
+    expect(outcome).toBeTrue();
+  });
+
+  it('sends a directly opened non-admin to /dashboard and a failed profile to /login', () => {
+    configure({
+      token: 'token-1',
+      isAdmin: signal(false),
+      user: signal(null),
+      loadProfile: () => of({ id: 2, email: 'u@example.com', role: 'user', is_active: true, created_at: '' }),
+    } as unknown as Partial<AuthService>);
+    let outcome: unknown;
+    (run(adminGuard) as Observable<unknown>).subscribe((r) => (outcome = r));
+    expect(urlOf(outcome)).toBe('/dashboard');
+
+    configure({
+      token: 'token-1',
+      isAdmin: signal(false),
+      user: signal(null),
+      loadProfile: () => throwError(() => new Error('401')),
+    } as unknown as Partial<AuthService>);
+    (run(adminGuard) as Observable<unknown>).subscribe((r) => (outcome = r));
+    expect(urlOf(outcome)).toBe('/login');
   });
 });

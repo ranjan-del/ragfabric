@@ -17,6 +17,38 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 
 ## [Unreleased]
 
+### Added
+
+- **Assistant UI and TypeScript SDK (Phase 9, issue #10, v1.0.0).** Four pages in `apps/assistant`:
+  **Ask** (AUTO or MANUAL, a router decision card with the strategy, rule or classifier, confidence as
+  reported and reasoning, a called out fallback, the answer streamed and replaced in place when the
+  server supersedes it, clickable citations opening a source viewer with the quoted sentence marked
+  and the original downloadable); **Compare** (one question across the four strategies side by side
+  with answer, sources, latency, calls, tokens, estimated cost from the stored run and the strategy's
+  latest benchmark score, labelled; one after another by default, all at once on request with the
+  latencies labelled as measured under contention; one failing strategy never stops the others);
+  **Trace** (span waterfall, latency split, counts, cost, routing, sources; the walked sub graph for
+  runs streamed in the same session); **Evaluation** (latest batch, per category breakdown, latency,
+  cost per day, fallback rate and quality trend dashboards, built against the v0.5.0 evaluation API).
+  The v1 Search page became Ask and `/search` redirects. `docs/assistant.md`
+- `@ragfabric/sdk` in `packages/sdk-typescript`: types generated from the server's OpenAPI
+  specification by a zero dependency generator, request builders for every endpoint, an incremental
+  SSE decoder and a `fetch` client, no runtime dependencies, ESM, Node 20 or later. Prepared for npm
+  (`npm pack --dry-run`), not published. ADR 0016
+- `python -m ragfabric_server.openapi` writes the specification deterministically; the snapshot is
+  checked in and a test fails when the server and the snapshot disagree, and another when the
+  generated types were not regenerated
+- The app reaches the server only through the SDK, checked in CI by `npm run check:sdk-only`
+- `GET /api/runs/{id}` returns `router_confidence` and `router_reasoning`
+- `POST /api/ask` documents its JSON and event stream responses in the OpenAPI specification
+- `npm start` proxies `/api` to a server on `localhost:8000`
+
+### Changed
+
+- Karma builds with the esbuild based `builderMode: application`, so the app can compile the SDK
+  from source
+- The UI image copies `packages/sdk-typescript/src` into its build stage
+
 ## [0.4.0] - 2026-10-07
 
 ### Added

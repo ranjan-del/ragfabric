@@ -99,6 +99,9 @@ import { CollectionService } from '../../services/collection.service';
       border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); }
     .controls { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: end; }
     .mode { display: flex; gap: var(--space-3); border: 0; padding: 0; margin: 0; }
+    .mode label { display: inline-flex; align-items: center; gap: var(--space-1); white-space: nowrap; }
+    .mode input { width: auto; margin: 0; }
+    .answer > a { justify-self: start; }
     .control { display: grid; gap: var(--space-1); font-size: 0.8rem; color: var(--text-muted); }
     .control select, .control input { font: inherit; color: var(--text); background: var(--surface);
       border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.4rem 0.6rem; }

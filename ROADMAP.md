@@ -215,8 +215,9 @@ built and released as v0.4.0 on 2026-10-07. See
 ## v1.0.0 Production release
 
 ### Phase 9: Assistant UI, TypeScript SDK
-- [ ] Ask with router card and clickable citations, Compare (four strategies side by side), Trace, Evaluation pages
-- [ ] `@ragfabric/sdk` generated from the OpenAPI spec
+- [x] Ask with router card and clickable citations, Compare (four strategies side by side), Trace, Evaluation pages
+      (on the phase branch; the Evaluation page and Compare's cost and benchmark columns are re-verified when Phase 8's API merges)
+- [x] `@ragfabric/sdk` generated from the OpenAPI spec, apps use only the SDK (prepared for npm, publishing is an owner action)
 
 ### Phase 10: Hardening, docs, deployment
 - [ ] End-to-end tests, rate limiting, file validation, structured logging
