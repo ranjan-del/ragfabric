@@ -2,6 +2,7 @@
 
 from ragfabric_core.models import (  # noqa: F401
     access,
+    connector,
     document,
     evaluation,
     graph,
@@ -11,4 +12,14 @@ from ragfabric_core.models import (  # noqa: F401
 )
 from ragfabric_core.models.base import Base
 
-__all__ = ["Base", "access", "document", "evaluation", "graph", "index", "runs", "user"]
+__all__ = [
+    "Base",
+    "access",
+    "connector",
+    "document",
+    "evaluation",
+    "graph",
+    "index",
+    "runs",
+    "user",
+]

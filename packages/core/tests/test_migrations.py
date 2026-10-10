@@ -40,6 +40,7 @@ EXPECTED_TABLES = {
     "document_overrides",
     "api_keys",
     "audit_log",
+    "connector_items",
     "conversations",
     "messages",
     "retrieval_runs",
