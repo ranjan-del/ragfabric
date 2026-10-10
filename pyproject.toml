@@ -9,6 +9,8 @@ package = false
 
 [tool.uv.workspace]
 members = ["packages/*"]
+# The TypeScript SDK sits beside the Python packages but is an npm package.
+exclude = ["packages/sdk-typescript"]
 
 [tool.uv.sources]
 ragfabric-core = { workspace = true }
