@@ -99,6 +99,7 @@ def test_one_run_per_target_and_one_row_per_question(eval_db):
         assert run.summary["by_category"]["ambiguous"]["hit"] is None
         assert run.summary["llm_calls"] == 3 and run.summary["input_tokens"] == 30
         assert run.summary["estimated_cost_usd"] is None and run.summary["cost_unknown"] == 3
+        assert run.summary["refusals"] == 1
 
 
 def test_a_target_that_raises_records_the_error_and_continues(eval_db):

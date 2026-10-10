@@ -21,6 +21,7 @@ from ragfabric_core.evaluation.dataset import EvalQuestion, QuestionSet
 from ragfabric_core.evaluation.judge import Judge, JudgeScores
 from ragfabric_core.evaluation.metrics import citation_correct, retrieval_scores
 from ragfabric_core.evaluation.target import EvalTarget, TargetAnswer
+from ragfabric_core.generate.contract import NO_EVIDENCE
 from ragfabric_core.models.base import utcnow
 from ragfabric_core.models.evaluation import EvaluationResult, EvaluationRun
 
@@ -43,6 +44,16 @@ def percentile(values: list[float], p: float) -> float | None:
     ordered = sorted(values)
     index = max(math.ceil(p / 100 * len(ordered)) - 1, 0)
     return ordered[index]
+
+
+def is_refusal(answer: str | None) -> bool:
+    """The generator's explicit no-evidence answer (the contract's own sentinel)."""
+    return bool(answer) and NO_EVIDENCE in answer.lower()
+
+
+def count_refusals(results: list[EvaluationResult]) -> int:
+    """Answers that declined, counted apart so a refusal is not read as a retrieval miss."""
+    return sum(1 for r in results if is_refusal(r.answer))
 
 
 def _mean(values) -> float | None:
@@ -85,6 +96,7 @@ def summarise(results: list[EvaluationResult]) -> dict:
         else None,
         "cost_unknown": sum(1 for c in costs if c is None),
         "fallbacks": sum(1 for r in results if r.details.get("fallback_from")),
+        "refusals": count_refusals(results),
         "strategies_used": dict(
             Counter(r.details["strategy_used"] for r in results if r.details.get("strategy_used"))
         ),
