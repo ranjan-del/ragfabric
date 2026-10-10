@@ -90,6 +90,9 @@ evaluation:                   # ragfabric eval and make eval; every key is read 
   judge: auto                 # auto | llm | lexical. auto is llm unless llm.provider is offline
   judge_model: null           # model the llm judge asks; null uses llm.model
   top_k: 5                    # retrieval depth for every evaluated target, so they compare fairly
+logging:                      # RAGFABRIC_LOG_FORMAT and RAGFABRIC_LOG_LEVEL override both keys
+  format: text                # text | json (one object per line, with request_id)
+  level: INFO
 ```
 
 ## Environment variables
@@ -106,6 +109,7 @@ evaluation:                   # ragfabric eval and make eval; every key is read 
 | `JWT_SECRET` | At least 32 characters; production refuses placeholders |
 | `FIRST_ADMIN_EMAIL`, `FIRST_ADMIN_PASSWORD` | Bootstrap admin; production refuses the shipped defaults |
 | `ENVIRONMENT` | `development` or `production` |
+| `RAGFABRIC_LOG_FORMAT`, `RAGFABRIC_LOG_LEVEL` | Override `logging.format` (`text` or `json`) and `logging.level` without editing the file |
 
 ## Optional dependencies (extras)
 

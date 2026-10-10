@@ -14,6 +14,7 @@ from ragfabric_core.models.document import Document
 from ragfabric_core.providers.base import EmbeddingProvider, LLMProvider
 from ragfabric_core.queue.base import Job, JobQueue
 from ragfabric_core.stores.base import LexicalStore, VectorStore
+from ragfabric_core.telemetry.logs import bind_request_id
 from ragfabric_core.workers import handlers
 
 log = logging.getLogger(__name__)
@@ -106,7 +107,9 @@ class Worker:
         if job is None:
             return False
         handler = self.handlers.get(job.kind)
-        with self._sf() as db:
+        # Every log line written while this job runs, by any logger, carries
+        # job:<id> in the request_id field, so one job's lines group together.
+        with bind_request_id(f"job:{job.id}"), self._sf() as db:
             try:
                 if handler is None:
                     raise KeyError(f"no handler for job kind {job.kind!r}")

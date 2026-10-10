@@ -124,3 +124,23 @@ def test_serve_defaults_to_localhost_only(monkeypatch):
     result = runner.invoke(app, ["serve", "--host", "0.0.0.0"])
     assert result.exit_code == 0, result.stdout
     assert calls[-1]["host"] == "0.0.0.0"
+
+
+def test_serve_hands_logging_to_ragfabric(monkeypatch):
+    """uvicorn must not install its own log handlers or its own access log:
+    RagFabric's formatter and the request-id middleware own both."""
+    import logging
+
+    calls = []
+    monkeypatch.setattr("uvicorn.run", lambda app, **kwargs: calls.append(kwargs), raising=False)
+    monkeypatch.setattr("ragfabric_core.diagnostics.port_in_use", lambda host, port: False)
+    root = logging.getLogger()
+    saved = list(root.handlers), root.level
+    try:
+        result = runner.invoke(app, ["serve"])
+    finally:
+        root.handlers[:] = saved[0]
+        root.setLevel(saved[1])
+    assert result.exit_code == 0, result.stdout
+    assert calls[-1]["log_config"] is None
+    assert calls[-1]["access_log"] is False
