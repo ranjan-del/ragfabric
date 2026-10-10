@@ -80,3 +80,7 @@ limits:                       # request guards
 
 telemetry:                    # tracing export
   otlp_endpoint: null         # off by default; e.g. http://otel-collector:4318
+
+logging:                      # RAGFABRIC_LOG_FORMAT and RAGFABRIC_LOG_LEVEL override both keys
+  format: text                # text for a terminal | json: one object per line, with the request id
+  level: INFO                 # DEBUG | INFO | WARNING | ERROR | CRITICAL

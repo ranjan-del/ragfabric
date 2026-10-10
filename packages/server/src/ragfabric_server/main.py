@@ -24,6 +24,7 @@ from ragfabric_core.runtime import get_config, get_session_factory
 from ragfabric_core.security import hash_password
 from ragfabric_core.stores.registry import build_cache, build_lexical_store, build_vector_store
 from ragfabric_core.strategies.registry_defaults import default_registry
+from ragfabric_core.telemetry.logs import configure_logging
 from ragfabric_core.telemetry.tracing import configure_otel
 from ragfabric_server.api.routes import (
     access,
@@ -37,6 +38,7 @@ from ragfabric_server.api.routes import (
     runs,
     search,
 )
+from ragfabric_server.middleware import RequestContextMiddleware
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -71,6 +73,8 @@ async def lifespan(app: FastAPI):
     them; see its own docstring in ``deps.py`` for why moving it would
     ripple past this task.
     """
+    log_cfg = get_config().logging
+    configure_logging(log_cfg.format, log_cfg.level)
     init_db()
     export_on = configure_otel(get_config().telemetry.otlp_endpoint)
     logger.info("OTLP export %s", "enabled" if export_on else "disabled")
@@ -103,7 +107,11 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID", "Retry-After"],
 )
+# Added last so it is the outermost layer: CORS preflights, 401s and 429s all
+# carry a request id and get an access line too.
+app.add_middleware(RequestContextMiddleware)
 
 # Register API routers. See MEMORY.md "Dashboard" / "Admin" sections.
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])

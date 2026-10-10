@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import threading
 
 import typer
@@ -9,6 +8,7 @@ from ragfabric_core.providers.registry import build_embedding_provider, build_ll
 from ragfabric_core.queue.registry import build_queue
 from ragfabric_core.runtime import get_config, get_session_factory
 from ragfabric_core.stores.registry import build_lexical_store, build_vector_store
+from ragfabric_core.telemetry.logs import configure_logging
 from ragfabric_core.workers.runner import Worker, default_handlers, install_sigterm_handler
 
 
@@ -32,8 +32,8 @@ def worker(
       ragfabric worker
       ragfabric worker --once
     """
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
     cfg = get_config()
+    configure_logging(cfg.logging.format, cfg.logging.level)
     queue = build_queue(cfg)
     if queue is None:
         typer.echo(

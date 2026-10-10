@@ -272,6 +272,17 @@ class TelemetryConfig(_Strict):
     otlp_endpoint: str | None = None
 
 
+class LoggingConfig(_Strict):
+    """How log lines look. ``RAGFABRIC_LOG_FORMAT`` and ``RAGFABRIC_LOG_LEVEL`` override both.
+
+    ``text`` is for a person at a terminal; ``json`` is one object per line for a
+    log shipper, and is what the production compose file selects.
+    """
+
+    format: Literal["text", "json"] = "text"
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+
+
 class RagFabricConfig(_Strict):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     embeddings: EmbeddingsConfig = Field(default_factory=EmbeddingsConfig)
@@ -285,6 +296,7 @@ class RagFabricConfig(_Strict):
     router: RouterConfig = Field(default_factory=RouterConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
     telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
 
 def resolve_config_path(path: Path | None = None) -> Path | None:

@@ -84,6 +84,10 @@ limits:                       # enforced, not just read: upload rejects an over-
 
 telemetry:
   otlp_endpoint: null         # off by default; e.g. http://otel-collector:4318
+
+logging:                      # RAGFABRIC_LOG_FORMAT and RAGFABRIC_LOG_LEVEL override both keys
+  format: text                # text | json (one object per line, with request_id)
+  level: INFO
 ```
 
 ## Environment variables
@@ -100,6 +104,7 @@ telemetry:
 | `JWT_SECRET` | At least 32 characters; production refuses placeholders |
 | `FIRST_ADMIN_EMAIL`, `FIRST_ADMIN_PASSWORD` | Bootstrap admin; production refuses the shipped defaults |
 | `ENVIRONMENT` | `development` or `production` |
+| `RAGFABRIC_LOG_FORMAT`, `RAGFABRIC_LOG_LEVEL` | Override `logging.format` (`text` or `json`) and `logging.level` without editing the file |
 
 ## Optional dependencies (extras)
 

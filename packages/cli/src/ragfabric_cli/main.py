@@ -290,7 +290,22 @@ def serve(
 
     import uvicorn
 
-    uvicorn.run("ragfabric_server.main:app", host=host, port=port, reload=reload)
+    from ragfabric_core.runtime import get_config
+    from ragfabric_core.telemetry.logs import configure_logging
+
+    # RagFabric owns logging (format, level, request ids): log_config=None
+    # stops uvicorn installing its own handlers, and its access log is off
+    # because the server's middleware writes one access line per request.
+    log_cfg = get_config().logging
+    configure_logging(log_cfg.format, log_cfg.level)
+    uvicorn.run(
+        "ragfabric_server.main:app",
+        host=host,
+        port=port,
+        reload=reload,
+        log_config=None,
+        access_log=False,
+    )
 
 
 def main() -> None:
