@@ -167,6 +167,57 @@ zeros.
 | `GET /api/eval/runs/{id}` | One run with its per question results | Admin |
 | `GET /api/eval/dashboard?days=30` | Latency percentiles per strategy, cost per day, calls per strategy, fallback rate (all from `retrieval_runs`), quality trend (from `evaluation_runs`) | Admin |
 
+#### Response shapes (as built in Task 11; Phase 9 reads these)
+
+All three routes are admin only (403 otherwise). Values that were not measured are `null`.
+
+`GET /api/eval/runs?limit=20` returns a list of run objects, newest first:
+
+```json
+{"id": 7, "batch": "eval-20261010T190000Z", "target": "traditional", "commit": "abc1234",
+ "llm_model": "llama3.1:8b", "embedding_model": "nomic-embed-text", "judge": "llm:llama3.1:8b",
+ "question_set": "ragfabric-shipped", "started_at": "2026-10-10T19:00:00+00:00",
+ "finished_at": "2026-10-10T19:20:00+00:00",
+ "summary": {"status": "finished | skipped | running", "skipped": "reason, only when skipped",
+   "meta": {"commit": "...", "ragfabric_version": "...", "judge_kind": "llm | lexical",
+            "judge_model": "...", "judge_prompt_version": "judge-v1", "question_set": "...",
+            "questions_hash": "...", "corpus_hash": "...", "collection": "...", "top_k": 5,
+            "llm_provider": "ollama", "categories": null},
+   "questions": 24, "errors": 0,
+   "metrics": {"precision": 0.4, "recall": 0.8, "hit": 0.9, "reciprocal_rank": 0.7,
+               "correctness": 0.6, "faithfulness": 0.8, "context_relevance": 0.5,
+               "citation_correct": 0.7},
+   "by_category": {"simple_factual": {"questions": 3, "precision": 0.4, "...": "same keys as metrics"}},
+   "latency_ms": {"p50": 1200, "p95": 4100}, "llm_calls": 30, "retrieval_calls": 24,
+   "input_tokens": 50000, "output_tokens": 4000, "judge_calls": 72,
+   "estimated_cost_usd": 0.0, "cost_unknown": 0, "fallbacks": 0,
+   "strategies_used": {"traditional": 24}}}
+```
+
+`GET /api/eval/runs/{id}` returns the same object plus `results`, one per question:
+`question_id, question_type, difficulty, question, expected_answer, answer, precision, recall, hit,
+reciprocal_rank, correctness, faithfulness, context_relevance, citation_correct, latency_ms,
+estimated_cost_usd, details` where `details` holds `error, strategy_used, fallback_from,
+router_reasoning, contexts[{rank, document, score}], llm_calls, retrieval_calls, embedding_calls,
+input_tokens, output_tokens, retrieval_latency_ms, generation_latency_ms, judge_reasons, judge_calls,
+citation_reason, judge_error`. A batch is the set of runs sharing `batch`.
+
+`GET /api/eval/dashboard?days=30` returns:
+
+```json
+{"window_days": 30, "since": "2026-09-10T12:00:00+00:00", "runs": 120,
+ "latency_ms": {"traditional": {"p50": 900, "p95": 2100, "runs": 80}},
+ "calls_per_strategy": {"traditional": {"runs": 80, "llm_calls": 80, "retrieval_calls": 80}},
+ "cost_per_day": [{"date": "2026-10-10", "runs": 12, "estimated_cost_usd": 0.0, "unpriced_runs": 0}],
+ "fallback_rate": {"runs": 120, "fallbacks": 6, "rate": 0.05},
+ "quality_trend": [{"run_id": 7, "batch": "...", "target": "traditional", "started_at": "...",
+                    "judge": "llm:llama3.1:8b", "hit": 0.9, "reciprocal_rank": 0.7,
+                    "correctness": 0.6, "citation_correct": 0.7}]}
+```
+
+Latency percentiles are nearest rank. `cost_per_day.estimated_cost_usd` is `null` for a day whose
+runs were all unpriced. The quality trend lists finished runs only, oldest first.
+
 ### Configuration
 
 A new `evaluation` section in `ragfabric.yaml`, every key read by something (a test asserts it):
