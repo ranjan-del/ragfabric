@@ -41,6 +41,12 @@ export const routes: Routes = [
     canActivate: [authGuard],
     loadComponent: () => import('./pages/trace/trace.component').then((m) => m.TraceComponent),
   },
+  {
+    path: 'evaluation',
+    canActivate: [authGuard, adminGuard],
+    loadComponent: () =>
+      import('./pages/evaluation/evaluation.component').then((m) => m.EvaluationComponent),
+  },
   // The v1 Search page became Ask (Phase 9, decision D18); old links still land.
   { path: 'search', redirectTo: 'ask', pathMatch: 'full' },
   {

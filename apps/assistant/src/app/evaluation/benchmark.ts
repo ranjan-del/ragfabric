@@ -12,13 +12,13 @@ export function latestBenchmark(runs: readonly EvalRun[]): Benchmark | null {
   if (runs.length === 0) {
     return null;
   }
-  const latest = [...runs].sort((a, b) => b.started_at.localeCompare(a.started_at))[0] as EvalRun;
+  const latest = [...runs].sort((a, b) => (b.started_at ?? '').localeCompare(a.started_at ?? ''))[0] as EvalRun;
   const scores: Partial<Record<string, number | null>> = {};
   for (const run of runs) {
-    if (run.name !== latest.name || !(STRATEGIES as readonly string[]).includes(run.strategy)) {
+    if (run.batch !== latest.batch || !(STRATEGIES as readonly string[]).includes(run.target)) {
       continue;
     }
-    scores[run.strategy] = run.summary.skipped ? null : (run.summary.means?.correctness ?? null);
+    scores[run.target] = run.summary.skipped ? null : (run.summary.metrics?.correctness ?? null);
   }
-  return { batch: latest.name, scores };
+  return { batch: latest.batch, scores };
 }

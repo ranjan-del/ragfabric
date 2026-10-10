@@ -1,3 +1,5 @@
+export { BarChartComponent } from './bar-chart.component';
+export type { BarRow } from './bar-chart.component';
 export { BadgeComponent } from './badge.component';
 export type { BadgeTone } from './badge.component';
 export { ButtonComponent } from './button.component';

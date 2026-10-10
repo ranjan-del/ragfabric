@@ -101,8 +101,8 @@ describe('CompareComponent', () => {
   it('test_admins_see_the_latest_batch_benchmark_score', () => {
     setup(true);
     http.expectOne('/api/eval/runs?limit=100').flush([
-      { id: 1, name: 'b1', strategy: 'traditional', started_at: '2026-10-09T00:00:00Z', summary: { means: { correctness: 0.61 } } },
-      { id: 2, name: 'b1', strategy: 'graph', started_at: '2026-10-09T00:01:00Z', summary: { means: { correctness: 0.74 } } },
+      { id: 1, batch: 'b1', target: 'traditional', started_at: '2026-10-09T00:00:00Z', summary: { metrics: { correctness: 0.61 } } },
+      { id: 2, batch: 'b1', target: 'graph', started_at: '2026-10-09T00:01:00Z', summary: { metrics: { correctness: 0.74 } } },
     ]);
     compare();
     fixture.detectChanges();
