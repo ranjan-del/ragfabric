@@ -105,7 +105,17 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: apps/assistant/package-lock.json
+          cache-dependency-path: |
+            apps/assistant/package-lock.json
+            packages/sdk-typescript/package-lock.json
+      # The TypeScript SDK first: the app compiles it from source (Phase 9, D22),
+      # and its tests include the check that schema.ts matches openapi.json.
+      - name: SDK install
+        working-directory: packages/sdk-typescript
+        run: npm ci
+      - name: SDK tests (generated types match the spec, decoder, client, package contents)
+        working-directory: packages/sdk-typescript
+        run: npm test
       - run: npm ci
       - name: Unit tests (headless Chrome)
         env:
