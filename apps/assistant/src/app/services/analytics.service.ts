@@ -1,19 +1,19 @@
-import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { Injectable, inject } from '@angular/core';
+import { requests } from '@ragfabric/sdk';
 import { Observable } from 'rxjs';
 
-import { ApiService } from './api.service';
+import { SdkHttp } from '../sdk/sdk-http.service';
 import { AnalyticsOverview, UsageStats } from '../models';
 
 @Injectable({ providedIn: 'root' })
 export class AnalyticsService {
-  constructor(private http: HttpClient, private api: ApiService) {}
+  private readonly sdk = inject(SdkHttp);
 
   overview(): Observable<AnalyticsOverview> {
-    return this.http.get<AnalyticsOverview>(`${this.api.baseUrl}/analytics/overview`);
+    return this.sdk.send(requests.analytics.overview());
   }
 
   usage(): Observable<UsageStats> {
-    return this.http.get<UsageStats>(`${this.api.baseUrl}/analytics/usage`);
+    return this.sdk.send(requests.analytics.usage());
   }
 }

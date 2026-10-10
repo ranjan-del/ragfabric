@@ -1,8 +1,8 @@
-import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
+import { requests } from '@ragfabric/sdk';
 import { Observable } from 'rxjs';
 
-import { ApiService } from './api.service';
+import { SdkHttp } from '../sdk/sdk-http.service';
 import { ApiKeyCreated, ApiKeyItem, Grant, Group, User } from '../models';
 
 /**
@@ -16,41 +16,38 @@ import { ApiKeyCreated, ApiKeyItem, Grant, Group, User } from '../models';
  */
 @Injectable({ providedIn: 'root' })
 export class AccessService {
-  private readonly http = inject(HttpClient);
-  private readonly api = inject(ApiService);
+  private readonly sdk = inject(SdkHttp);
 
   listGroups(): Observable<Group[]> {
-    return this.http.get<Group[]>(`${this.api.baseUrl}/admin/groups`);
+    return this.sdk.send(requests.admin.groups.list());
   }
 
   createGroup(name: string, description: string): Observable<Group> {
-    return this.http.post<Group>(`${this.api.baseUrl}/admin/groups`, { name, description });
+    return this.sdk.send(requests.admin.groups.create(name, description));
   }
 
   updateGroup(id: number, changes: { name?: string; description?: string }): Observable<Group> {
-    return this.http.put<Group>(`${this.api.baseUrl}/admin/groups/${id}`, changes);
+    return this.sdk.send(requests.admin.groups.update(id, changes));
   }
 
   deleteGroup(id: number): Observable<unknown> {
-    return this.http.delete(`${this.api.baseUrl}/admin/groups/${id}`);
+    return this.sdk.send(requests.admin.groups.delete(id));
   }
 
   listMembers(groupId: number): Observable<User[]> {
-    return this.http.get<User[]>(`${this.api.baseUrl}/admin/groups/${groupId}/members`);
+    return this.sdk.send(requests.admin.groups.members(groupId));
   }
 
   addMember(groupId: number, userId: number): Observable<unknown> {
-    return this.http.post(`${this.api.baseUrl}/admin/groups/${groupId}/members`, {
-      user_id: userId,
-    });
+    return this.sdk.send(requests.admin.groups.addMember(groupId, userId));
   }
 
   removeMember(groupId: number, userId: number): Observable<unknown> {
-    return this.http.delete(`${this.api.baseUrl}/admin/groups/${groupId}/members/${userId}`);
+    return this.sdk.send(requests.admin.groups.removeMember(groupId, userId));
   }
 
   listGrants(): Observable<Grant[]> {
-    return this.http.get<Grant[]>(`${this.api.baseUrl}/admin/grants`);
+    return this.sdk.send(requests.admin.grants.list());
   }
 
   createGrant(
@@ -58,19 +55,15 @@ export class AccessService {
     collectionId: number,
     permission: 'read' | 'write',
   ): Observable<Grant> {
-    return this.http.post<Grant>(`${this.api.baseUrl}/admin/grants`, {
-      group_id: groupId,
-      collection_id: collectionId,
-      permission,
-    });
+    return this.sdk.send(requests.admin.grants.create(groupId, collectionId, permission));
   }
 
   deleteGrant(id: number): Observable<unknown> {
-    return this.http.delete(`${this.api.baseUrl}/admin/grants/${id}`);
+    return this.sdk.send(requests.admin.grants.delete(id));
   }
 
   listKeys(): Observable<ApiKeyItem[]> {
-    return this.http.get<ApiKeyItem[]>(`${this.api.baseUrl}/admin/keys`);
+    return this.sdk.send(requests.admin.keys.list());
   }
 
   /**
@@ -85,10 +78,10 @@ export class AccessService {
     strategies: string[];
     expires_at: string | null;
   }): Observable<ApiKeyCreated> {
-    return this.http.post<ApiKeyCreated>(`${this.api.baseUrl}/admin/keys`, payload);
+    return this.sdk.send(requests.admin.keys.create(payload));
   }
 
   revokeKey(id: number): Observable<unknown> {
-    return this.http.delete(`${this.api.baseUrl}/admin/keys/${id}`);
+    return this.sdk.send(requests.admin.keys.revoke(id));
   }
 }

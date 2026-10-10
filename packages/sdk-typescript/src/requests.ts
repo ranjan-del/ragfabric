@@ -121,7 +121,7 @@ export const requests = {
   },
 
   search: {
-    query: (query: string, options: SearchOptions = {}): ApiRequest<Response<'/api/search/query', 'post'>> =>
+    query: (query: string, options: Omit<SearchRequest, 'query'> = {}): ApiRequest<Response<'/api/search/query', 'post'>> =>
       send('POST', '/api/search/query', defined({ ...options, query })),
     semantic: (query: string, options: SearchOptions = {}): ApiRequest<Response<'/api/search/semantic', 'post'>> =>
       send('POST', '/api/search/semantic', defined({ ...options, query, mode: 'semantic' })),
