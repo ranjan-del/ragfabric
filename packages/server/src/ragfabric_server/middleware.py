@@ -1,4 +1,4 @@
-"""ASGI middleware: request ids and the access log line.
+"""ASGI middleware: request ids, the access log line and the upload size bound.
 
 Written as plain ASGI rather than Starlette's ``BaseHTTPMiddleware``, which
 re-wraps streaming responses and does not reliably carry context variables
@@ -12,9 +12,11 @@ import json
 import logging
 import time
 
+from fastapi import HTTPException
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from ragfabric_core.runtime import get_config
 from ragfabric_core.telemetry.logs import (
     new_request_id,
     reset_request_id,
@@ -106,3 +108,73 @@ class RequestContextMiddleware:
                 },
             )
             reset_request_id(token)
+
+
+# Paths whose body is an uploaded file, and the multipart framing allowance on
+# top of limits.max_upload_mb (boundaries, part headers, the other form fields).
+UPLOAD_PATHS = frozenset({"/api/documents/upload"})
+MULTIPART_SLACK_BYTES = 1024 * 1024
+
+
+class _BodyTooLarge(HTTPException):
+    """Raised from ``receive`` mid-parse. An HTTPException, so FastAPI's form
+    parsing re-raises it as it is rather than turning it into a 400."""
+
+    def __init__(self, limit_mb: int) -> None:
+        super().__init__(
+            status_code=413,
+            detail=f"Upload is over the configured limit of {limit_mb} MB.",
+        )
+
+
+class UploadSizeLimitMiddleware:
+    """Bound an upload's size on the wire, before the multipart parser spools it.
+
+    Without this, the whole body is parsed and written to a temporary file
+    before the route can look at its size, so a 10 GB upload is written to disk
+    and only then refused. A declared ``Content-Length`` over the limit is
+    refused at once without calling the app; a body without one (chunked) is
+    counted as it arrives and stopped once it passes the limit.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope.get("path") not in UPLOAD_PATHS:
+            await self.app(scope, receive, send)
+            return
+
+        limit_mb = get_config().limits.max_upload_mb
+        allowed = limit_mb * 1024 * 1024 + MULTIPART_SLACK_BYTES
+        declared = Headers(scope=scope).get("content-length")
+        if declared is not None and declared.isdigit() and int(declared) > allowed:
+            body = json.dumps(
+                {"detail": f"Upload is over the configured limit of {limit_mb} MB."}
+            ).encode()
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 413,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(body)).encode()),
+                        (b"connection", b"close"),
+                    ],
+                }
+            )
+            await send({"type": "http.response.body", "body": body})
+            return
+
+        received = 0
+
+        async def counting_receive() -> Message:
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > allowed:
+                    raise _BodyTooLarge(limit_mb)
+            return message
+
+        await self.app(scope, counting_receive, send)

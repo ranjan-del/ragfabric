@@ -75,6 +75,7 @@ router:                       # strategy selection per question; every key is re
 
 limits:                       # request guards
   max_upload_mb: 50           # largest accepted upload
+  max_uncompressed_mb: 200    # largest a DOCX or PPTX may expand to, checked before decompressing
   allowed_types: [pdf, docx, pptx, txt, csv, md]  # accepted file formats
   rate_limit_per_minute: 60   # default per API key limit, requests per minute
   user_rate_limit_per_minute: 120  # per signed-in user, requests per minute

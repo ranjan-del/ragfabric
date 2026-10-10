@@ -271,6 +271,9 @@ class LimitsConfig(_Strict):
     """
 
     max_upload_mb: int = Field(default=50, ge=1)
+    # What a DOCX or PPTX may expand to, read from the zip's own directory
+    # before anything is decompressed (ingest/validate.py).
+    max_uncompressed_mb: int = Field(default=200, ge=1)
     allowed_types: list[str] = Field(
         default_factory=lambda: ["pdf", "docx", "pptx", "txt", "csv", "md"]
     )

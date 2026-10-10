@@ -114,3 +114,26 @@ def test_quiet_prints_nothing_but_still_calls_on_file(env, monkeypatch, capsys, 
     assert captured.out == "" and captured.err == ""
     assert result == (2, 0)
     assert seen == ["a.txt", "b.md"]
+
+
+def test_a_file_whose_content_does_not_match_its_extension_is_skipped_with_the_reason(
+    env, monkeypatch
+):
+    """The CLI applies the same validation as the API, so a fake PDF never
+    reaches the parser and the run says why."""
+    monkeypatch.setattr(console, "is_rich", lambda stream=None: False)
+    (env / "fake.pdf").write_bytes(b"this is not a pdf")
+    seen: list[str] = []
+    result = runner.invoke(app, ["ingest", str(env)])
+    assert result.exit_code == 1
+    assert "fake.pdf: rejected (File is named .pdf but is not a PDF" in result.stdout
+    assert "2 ingested, 1 failed" in result.stdout
+    ingested, failed = ingest_module.ingest_files(
+        [env / "fake.pdf"],
+        collection=None,
+        owner=None,
+        on_file=lambda path, doc: seen.append(path.name),
+        quiet=True,
+    )
+    assert (ingested, failed) == (0, 1)
+    assert seen == []  # no Document was created, so on_file has nothing to report

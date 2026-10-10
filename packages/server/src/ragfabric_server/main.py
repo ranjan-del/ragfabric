@@ -38,7 +38,7 @@ from ragfabric_server.api.routes import (
     runs,
     search,
 )
-from ragfabric_server.middleware import RequestContextMiddleware
+from ragfabric_server.middleware import RequestContextMiddleware, UploadSizeLimitMiddleware
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -109,8 +109,9 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Request-ID", "Retry-After"],
 )
-# Added last so it is the outermost layer: CORS preflights, 401s and 429s all
-# carry a request id and get an access line too.
+app.add_middleware(UploadSizeLimitMiddleware)
+# Added last so it is the outermost layer: CORS preflights, 401s, 413s and 429s
+# all carry a request id and get an access line too.
 app.add_middleware(RequestContextMiddleware)
 
 # Register API routers. See MEMORY.md "Dashboard" / "Admin" sections.

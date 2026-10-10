@@ -11,7 +11,9 @@ from ragfabric_cli.commands.common import collection_by_name, session, user_by_e
 from ragfabric_cli.ui import console
 from ragfabric_core.ingest.parser import SUPPORTED_FORMATS
 from ragfabric_core.ingest.pipeline import ingest_document
+from ragfabric_core.ingest.validate import UploadRejected, validate_upload
 from ragfabric_core.models.document import Document
+from ragfabric_core.runtime import get_config
 
 
 def _files(path: Path, recursive: bool) -> list[Path]:
@@ -45,8 +47,11 @@ def ingest_files(
     resolved inside the session this function opens. On a terminal a progress bar is shown and
     only failed files are listed, under it; piped, every file gets its plain line.
     With ``quiet=True`` nothing is printed and no bar is made; ``on_file`` still fires.
+    A file that fails ``validate_upload`` (the API's own rules) is counted as failed with its
+    reason and creates no Document, so ``on_file`` does not fire for it.
     """
     failed = 0
+    limits = get_config().limits
     with session() as db:
         collection_id = collection_by_name(db, collection, create=True).id if collection else None
         owner_id = user_by_email(db, owner).id if owner else None
@@ -70,10 +75,22 @@ def ingest_files(
             for file in files:
                 if progress and task is not None:
                     progress.update(task, description=escape(file.name))
+                data = file.read_bytes()
+                try:
+                    validate_upload(file.name, data, limits)
+                except UploadRejected as exc:
+                    failed += 1
+                    line = f"{file.name}: rejected ({exc.reason})"
+                    if progress and task is not None:
+                        progress.console.print(escape(line), soft_wrap=True)
+                        progress.advance(task)
+                    elif not quiet:
+                        typer.echo(line)
+                    continue
                 doc = ingest_document(
                     db,
                     filename=file.name,
-                    data=file.read_bytes(),
+                    data=data,
                     collection_id=collection_id,
                     owner_id=owner_id,
                 )
