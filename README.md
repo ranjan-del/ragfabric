@@ -290,8 +290,9 @@ own questions over your own corpus.
 
 ## Benchmark results
 
-**No results yet.** Numbers appear here only when produced by `make eval` on a tagged commit. This section
-is generated, never typed. Until v0.5.0 ships it stays empty on purpose.
+Results are generated, never typed: see [docs/benchmarks/latest.md](docs/benchmarks/latest.md), written
+by `make eval` with the commit, models, judge and date that produced it. It is one run on one setup, not
+a general claim (ADR 0004).
 
 ## Documentation
 
@@ -301,7 +302,8 @@ is generated, never typed. Until v0.5.0 ships it stays empty on purpose.
 | [docs/architecture.md](docs/architecture.md) | Layers, request flow, data model |
 | [docs/traditional-rag.md](docs/traditional-rag.md), [vectorless-rag.md](docs/vectorless-rag.md), [agentic-rag.md](docs/agentic-rag.md), [graph-rag.md](docs/graph-rag.md) | One document per strategy: what, why, internals, trade offs, failure modes |
 | [docs/routing.md](docs/routing.md) | Router decision, signals, fallbacks, budget |
-| [docs/evaluation.md](docs/evaluation.md) | Dataset, metrics, `make eval`, complexity score |
+| [docs/evaluation.md](docs/evaluation.md) | Dataset, metrics, judges, `ragfabric eval`, `make eval` |
+| [docs/complexity.md](docs/complexity.md) | Engineering complexity assessment per strategy (an assessment, not a measurement) |
 | [docs/configuration.md](docs/configuration.md), [providers.md](docs/providers.md) | `ragfabric.yaml`, environment, provider and store matrix |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Symptoms, causes, fixes |
 | [docs/adr](docs/adr), [docs/design](docs/design) | Decisions and the full design |
@@ -441,14 +443,14 @@ apps/console             admin console (Angular)
 apps/assistant           reference end user UI (Angular), restyle or replace
 docker-compose.yml       lite default, full profile adds Chroma
 deploy/docker            api and ui Dockerfiles, nginx config
-evaluation               corpus, questions.json, runner, latest results
 docs                     concepts, guides, ADRs, design, benchmarks
 examples                 minimal integrations
 ```
 
 `packages/core`, `packages/server`, `packages/cli`, `apps/assistant`, `docker-compose.yml`, `deploy/docker`
-and `docs` exist today. `packages/sdk-python`, `packages/sdk-typescript`, `apps/console`, `evaluation` and
-`examples` are created by the phases that ship them.
+and `docs` exist today. `packages/sdk-python`, `packages/sdk-typescript`, `apps/console` and
+`examples` are created by the phases that ship them. The evaluation corpus and questions live in
+`packages/core/src/ragfabric_core/evaluation/data/` so a pip install has them.
 
 Design details: [docs/design/2026-09-13-ragfabric-design.md](docs/design/2026-09-13-ragfabric-design.md)
 and the ADRs in [docs/adr](docs/adr).
@@ -510,6 +512,15 @@ this phase does not do is score whether answers are correct, complete or faithfu
 single, deliberately simple test document; that measurement, with a real question set and a scoring
 harness, is Phase 8's job. Nothing here should be read as a quality claim.
 
+Phase 8 (v0.5.0, unreleased) adds that harness: a shipped synthetic corpus and 24 questions in eight
+categories, retrieval metrics (precision, recall, hit rate, MRR), generation metrics from a fixed-rubric
+LLM judge or a deterministic lexical one, a deterministic citation check, latency, calls, tokens and
+estimated cost per answer, and a router-versus-best-strategy comparison. `ragfabric eval corpus`,
+`ragfabric eval run`, `list`, `show` and `report` drive it; `make eval` writes
+[docs/benchmarks/latest.md](docs/benchmarks/latest.md); `/api/eval/runs` and `/api/eval/dashboard` serve
+the stored runs and the dashboard data. Every ask now records its model and estimated cost. See
+[docs/evaluation.md](docs/evaluation.md).
+
 ```bash
 uv sync                       # Python 3.13 workspace: core, server, cli
 uv run ragfabric db upgrade
@@ -556,7 +567,7 @@ Every flagship repository documents the same ten things. Status shows what exist
 | README | [README.md](README.md) | Written |
 | Architecture | [docs/architecture.md](docs/architecture.md) | Written |
 | Design decisions | [docs/adr/](docs/adr/) | Written |
-| Benchmarks | [docs/benchmarks/README.md](docs/benchmarks/README.md) | Partial |
+| Benchmarks | [docs/benchmarks/README.md](docs/benchmarks/README.md) | Partial (one recorded run) |
 | Failure cases | [docs/failure-cases.md](docs/failure-cases.md) | Partial |
 | Evaluation | [docs/evaluation.md](docs/evaluation.md) | Written |
 | Trade-offs | [docs/trade-offs.md](docs/trade-offs.md) | Partial |
