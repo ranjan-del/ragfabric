@@ -1,7 +1,7 @@
 # Phase 8: the evaluation framework. Design
 
-> Status: design for Phase 8 (issue #9, release target v0.5.0). The task plan follows in the second
-> half of this file once it is written. Written 2026-10-10 while the owner was away, under a
+> Status: design and task plan for Phase 8 (issue #9, release target v0.5.0), implemented on branch
+> `feat/phase-8-evaluation`. The task plan is the second half of this file. Written 2026-10-10 while the owner was away, under a
 > pre-approval to design, record every decision with its reason, plan and build on a feature branch.
 > Every decision below is open to the owner's review before the branch is merged.
 
@@ -151,7 +151,7 @@ zeros.
 
 | Command | What it does |
 |---|---|
-| `ragfabric eval corpus [--collection NAME]` | Ingests the shipped corpus into the evaluation collection (default `ragfabric-eval`); idempotent, skips a document already ingested with the same content |
+| `ragfabric eval corpus [--collection NAME]` | Ingests the shipped corpus into the evaluation collection (default `ragfabric-eval`); idempotent, skips a file whose name is already `ready` in the collection (there is no content checksum column to compare; delete the documents to re-ingest changed content) |
 | `ragfabric eval run [--strategy S]... [--questions PATH] [--collection NAME] [--category C]... [--judge auto\|llm\|lexical] [--report PATH] [--json]` | Runs a batch. No `--strategy` means all four plus `auto`. `--strategy traditional+rerank=llm` and `traditional+rerank=cross_encoder` are rerank variants |
 | `ragfabric eval list [--json]` | Recent runs, one line each |
 | `ragfabric eval show RUN_ID [--json]` | One run's summary and per question rows |
