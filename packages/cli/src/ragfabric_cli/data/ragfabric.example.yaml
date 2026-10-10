@@ -73,6 +73,12 @@ router:                       # strategy selection per question; every key is re
   min_confidence: 0.6         # 0 to 1: a classifier confidence below this fuses Traditional and Vectorless instead. Untuned until Phase 8
   classifier_model: null      # read by the router classifier; null uses llm.model
 
+evaluation:                   # ragfabric eval and make eval; every key is read
+  collection: ragfabric-eval  # where `eval corpus` ingests and `eval run` retrieves
+  judge: auto                 # auto | llm | lexical. auto is llm unless llm.provider is offline
+  judge_model: null           # model the llm judge asks; null uses llm.model
+  top_k: 5                    # retrieval depth for every evaluated target, so they compare fairly
+
 limits:                       # request guards
   max_upload_mb: 50           # largest accepted upload
   allowed_types: [pdf, docx, pptx, txt, csv, md]  # accepted file formats
