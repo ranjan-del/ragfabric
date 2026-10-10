@@ -200,7 +200,7 @@ opt-in `graph_search` tool. Whether the router chooses well is not yet measured.
 flowchart TD
     subgraph Clients
         UI[Reference UI<br/>apps/assistant]
-        CON[Admin console<br/>apps/console]
+        CON[Admin console<br/>apps/assistant /console]
         CLI[CLI<br/>ragfabric]
         SDK[SDKs<br/>Python, TypeScript]
     end
@@ -304,6 +304,8 @@ a general claim (ADR 0004).
 | [docs/routing.md](docs/routing.md) | Router decision, signals, fallbacks, budget |
 | [docs/evaluation.md](docs/evaluation.md) | Dataset, metrics, judges, `ragfabric eval`, `make eval` |
 | [docs/complexity.md](docs/complexity.md) | Engineering complexity assessment per strategy (an assessment, not a measurement) |
+| [docs/assistant.md](docs/assistant.md) | The Ask, Compare, Trace and Evaluation pages and how to read them |
+| [packages/sdk-typescript](packages/sdk-typescript/README.md) | `@ragfabric/sdk`: the TypeScript client |
 | [docs/configuration.md](docs/configuration.md), [providers.md](docs/providers.md) | `ragfabric.yaml`, environment, provider and store matrix |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Symptoms, causes, fixes |
 | [docs/adr](docs/adr), [docs/design](docs/design) | Decisions and the full design |
@@ -439,18 +441,18 @@ packages/server          FastAPI application
 packages/cli             ragfabric command
 packages/sdk-python      typed client
 packages/sdk-typescript  typed client (@ragfabric/sdk)
-apps/console             admin console (Angular)
-apps/assistant           reference end user UI (Angular), restyle or replace
+apps/assistant           reference UI (Angular): Ask, Compare, Trace, Evaluation, and the admin console under /console
 docker-compose.yml       lite default, full profile adds Chroma
 deploy/docker            api and ui Dockerfiles, nginx config
 docs                     concepts, guides, ADRs, design, benchmarks
 examples                 minimal integrations
 ```
 
-`packages/core`, `packages/server`, `packages/cli`, `apps/assistant`, `docker-compose.yml`, `deploy/docker`
-and `docs` exist today. `packages/sdk-python`, `packages/sdk-typescript`, `apps/console` and
-`examples` are created by the phases that ship them. The evaluation corpus and questions live in
-`packages/core/src/ragfabric_core/evaluation/data/` so a pip install has them.
+`packages/core`, `packages/server`, `packages/cli`, `packages/sdk-python`, `packages/sdk-typescript`,
+`apps/assistant`, `docker-compose.yml`, `deploy/docker` and `docs` exist today. The admin console lives
+inside `apps/assistant` rather than as a separate `apps/console`. `examples` is created by the phase that
+ships it. The evaluation corpus and questions live in `packages/core/src/ragfabric_core/evaluation/data/`
+so a pip install has them.
 
 Design details: [docs/design/2026-09-13-ragfabric-design.md](docs/design/2026-09-13-ragfabric-design.md)
 and the ADRs in [docs/adr](docs/adr).
@@ -521,11 +523,28 @@ estimated cost per answer, and a router-versus-best-strategy comparison. `ragfab
 the stored runs and the dashboard data. Every ask now records its model and estimated cost. See
 [docs/evaluation.md](docs/evaluation.md).
 
+Phase 9 (issue #10, on the phase branch for v1.0.0) adds the assistant pages and the TypeScript SDK:
+
+- **Ask**: AUTO or MANUAL, a router decision card (strategy, rule or classifier, confidence as
+  reported, reasoning, fallback), the answer streamed token by token, corrected in place when the
+  server supersedes it, and clickable citations that open a source viewer
+- **Compare**: one question across the four strategies side by side, with each column's answer,
+  sources, latency, calls, tokens, estimated cost from the stored run and the strategy's latest
+  benchmark score (labelled as such, never a score for that question)
+- **Trace**: one run's spans as a waterfall, latency split, counts, cost, routing and sources
+- **Evaluation**: the latest batch, a per category breakdown and the live dashboards, reading the
+  evaluation API that v0.5.0 adds
+- **`@ragfabric/sdk`**: types generated from the server's OpenAPI specification, request builders, an
+  SSE decoder and a `fetch` client with no runtime dependencies. The app reaches the server only
+  through it, checked in CI. Prepared for npm, not yet published
+
+See [docs/assistant.md](docs/assistant.md) and ADR 0016.
+
 ```bash
 uv sync                       # Python 3.13 workspace: core, server, cli
 uv run ragfabric db upgrade
 uv run ragfabric serve --reload            # API on :8000
-cd apps/assistant && npm ci && npm start   # UI on :4200
+cd apps/assistant && npm ci && npm start   # UI on :4200, /api proxied to :8000
 ```
 
 The hashing embedder and extractive generator are kept in RagFabric as the no key test double, which is

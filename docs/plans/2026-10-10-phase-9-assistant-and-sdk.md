@@ -150,6 +150,16 @@ Every path, body and response type comes from the SDK. The app owns only how a r
 | D23 | The SDK version follows the server it was generated from (0.4.0 on this branch) | The SDK is only correct for the specification it was generated from; a matching version says which server it speaks to |
 | D24 | npm packaging is prepared (metadata, `exports`, `files`, build, `npm pack --dry-run`) and not published | Publishing needs the owner's npm login and approval |
 
+### Decisions added during the build
+
+| # | Decision | Reason |
+|---|---|---|
+| D25 | Karma builds with `builderMode: "application"` (esbuild) instead of the webpack browser builder | The SDK's sources use `.js` import specifiers so its own `tsc` output runs on Node; esbuild resolves them to the `.ts` files and webpack does not. The production build already used esbuild. All existing specs pass unchanged |
+| D26 | The uv workspace excludes `packages/sdk-typescript` | uv treats every `packages/*` folder as a Python member and refused to run without a `pyproject.toml` there |
+| D27 | The v1 `auth.py` logout docstring loses its em dash | It is copied into `openapi.json`, which this branch now commits; a one character change in a docstring, no behaviour change |
+| D28 | The dev server proxies `/api` to `http://localhost:8000` (`proxy.conf.json`) | Every request path is relative (`/api/...`), and without a proxy `npm start` could not reach a local server |
+| D29 | The provisional evaluation types follow Phase 8's branch as it stood on 2026-10-10 (`store.run_dict`: `batch`, `target`, `commit`, `judge`; `runner.summarise`: `meta`, `status`, `skipped`, `metrics`, `by_category`, `latency_ms`, `cost_unknown`), not only its design | Its runner and store were written by then; matching them shrinks what has to change when Phase 8 merges. The dashboard JSON still follows the design alone, since Phase 8's Task 11 had not been built |
+
 ### Rejected
 
 | Option | Why not |
@@ -168,10 +178,10 @@ Every path, body and response type comes from the SDK. The app owns only how a r
 
 | Piece | Built against | Must be re-verified when Phase 8 merges |
 |---|---|---|
-| Evaluation page | `GET /api/eval/runs`, `GET /api/eval/runs/{id}` as described in Phase 8's design (run rows from `evaluation_runs` with `summary`, result rows from `evaluation_results`) | Field names and nesting of `summary` (means, per category, percentiles, skipped, judge, prompt version) |
+| Evaluation page | `GET /api/eval/runs`, `GET /api/eval/runs/{id}`, typed after Phase 8's `store.run_dict`, `store.result_dict` and `runner.summarise` on its branch (D29) | That the routes return those dicts unchanged, and the `summary` keys |
 | Dashboards | `GET /api/eval/dashboard?days=` (latency percentiles per strategy, cost per day with unknown cost counted separately, calls per strategy, fallback rate, quality trend) | The response shape: Phase 8's design names the contents but not the JSON |
 | Compare cost | `RunOut.estimated_cost_usd`, null on main | That Phase 8 Task 10 fills it for `/api/ask` runs |
-| Compare benchmark score | `GET /api/eval/runs` summary `correctness` mean per strategy | The summary key name |
+| Compare benchmark score | `GET /api/eval/runs`, `summary.metrics.correctness` per `target` in the latest `batch` | The key names and that `limit=100` reaches the latest batch |
 | SDK | `src/evaluation.ts` hand typed | Replace with aliases of generated types once Phase 8's routes are in `openapi.json`; the snapshot test will fail on whichever branch merges second until `openapi.json` and `schema.ts` are regenerated |
 
 ---

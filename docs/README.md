@@ -22,6 +22,7 @@
 | [evaluation.md](evaluation.md) | Question set, metrics, judges, `ragfabric eval`, `make eval`, the evaluation API | Phase 8: shipped for v0.5.0 on the phase branch |
 | [complexity.md](complexity.md) | The 1 to 5 engineering complexity assessment per strategy. An assessment, not a measurement | Phase 8 |
 | [learning/evaluation-first-run.md](learning/evaluation-first-run.md) | A record of the first full evaluation run against a local model. Not a benchmark | Phase 8 |
+| [assistant.md](assistant.md) | The Ask, Compare, Trace and Evaluation pages, what each number means and where it comes from | Phase 9: on the phase branch for v1.0.0 |
 | [configuration.md](configuration.md) | `ragfabric.yaml`, environment, pricing | Phase 3: every top level key, including `llm`, `reranker` and `limits`, is read by the runtime |
 | [providers.md](providers.md) | LLM, embedding, store and connector implementations | Phase 3: pgvector and Chroma queried, rerankers shipped, Ollama the default provider |
 | [licensing.md](licensing.md) | Apache 2.0 in plain words, why not MIT or copyleft, the CLA | Current |
