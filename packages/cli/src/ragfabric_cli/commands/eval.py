@@ -8,6 +8,7 @@ database and providers, with no server (design decisions D1 and D16).
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -49,7 +50,14 @@ def _fail(message: str) -> None:
 
 
 def _commit() -> str:
-    """The checkout's short commit, or empty when not run from a git checkout."""
+    """The checkout's short commit, or empty when not run from a git checkout.
+
+    ``RAGFABRIC_EVAL_COMMIT`` overrides it, for runs from an exported source
+    tree, so long benchmarks can run on frozen code while the checkout moves on.
+    """
+    pinned = os.environ.get("RAGFABRIC_EVAL_COMMIT", "").strip()
+    if pinned:
+        return pinned
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
