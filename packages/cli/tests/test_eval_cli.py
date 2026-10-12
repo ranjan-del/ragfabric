@@ -259,3 +259,11 @@ def test_retrieval_only_and_judge_metric_are_recorded(env):
     assert meta["judge_metrics"] == ["correctness"]
     bad = _run("--batch", "jm2", "--judge-metric", "speed")
     assert bad.exit_code == 1 and "faithfulness" in bad.output
+
+
+def test_the_recorded_commit_can_be_given_for_a_source_export(monkeypatch):
+    """A run from an exported source tree (no .git) still names the commit it measured."""
+    from ragfabric_cli.commands import eval as eval_cmd
+
+    monkeypatch.setenv("RAGFABRIC_EVAL_COMMIT", "abc1234")
+    assert eval_cmd._commit() == "abc1234"

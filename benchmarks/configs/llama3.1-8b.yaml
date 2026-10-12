@@ -1,0 +1,23 @@
+# Phase 11 benchmark configuration: answering model llama3.1:8b, graph extraction false.
+# Reproduce with benchmarks/run_tier.sh. Every model call goes to Ollama with num_ctx 8192 (D8).
+llm:
+  provider: ollama
+  model: llama3.1:8b
+  base_url: http://localhost:11434/v1
+  num_ctx: 8192
+embeddings:
+  provider: ollama
+  model: nomic-embed-text
+  dim: 768
+  base_url: http://localhost:11434/v1
+cache:
+  kind: memory
+graph_store:
+  enabled: false
+  extraction_model: llama3.1:8b
+ingestion:
+  retain_originals: false
+evaluation:
+  judge: llm
+  judge_model: llama3.1:8b    # one judge for every run (D9)
+  top_k: 5
