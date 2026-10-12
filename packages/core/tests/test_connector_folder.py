@@ -91,3 +91,18 @@ def test_fetch_reads_the_bytes_and_refuses_paths_outside_the_folder(tmp_path):
 def test_a_missing_folder_raises_so_nothing_is_deleted(tmp_path):
     with pytest.raises(FileNotFoundError, match="does not exist"):
         list(_connector(tmp_path / "nope").list_documents())
+
+
+def test_a_file_still_growing_with_an_old_mtime_waits_for_a_stable_size(tmp_path):
+    """Copy tools that preserve the source's mtime (cp -p, rsync -t) make a
+    half-copied file look old. A size that changed since the last listing means
+    it is still being written."""
+    path = _write(tmp_path / "copying.txt", b"part", age=600.0)
+    connector = _connector(tmp_path, settle_seconds=5)
+    [first] = connector.list_documents()
+    assert first.ready is True  # first sighting: nothing to compare against
+    _write(path, b"part and more", age=600.0)
+    [second] = connector.list_documents()
+    assert second.ready is False
+    [third] = connector.list_documents()
+    assert third.ready is True

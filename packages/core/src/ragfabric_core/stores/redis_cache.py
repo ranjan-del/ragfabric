@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+CONNECT_TIMEOUT = 1.0
+COMMAND_TIMEOUT = 1.0
+
 
 class RedisCache:
     name = "redis"
@@ -12,7 +15,12 @@ class RedisCache:
         if client is None:
             import redis
 
-            client = redis.Redis.from_url(url)
+            # Short timeouts: a Redis that hangs must fail fast, so the rate
+            # limiter can allow the request (design D11) instead of every
+            # request waiting out the operating system's TCP timeout.
+            client = redis.Redis.from_url(
+                url, socket_connect_timeout=CONNECT_TIMEOUT, socket_timeout=COMMAND_TIMEOUT
+            )
         self._r = client
 
     def get(self, key: str) -> bytes | None:

@@ -69,8 +69,12 @@ Trade-offs to know:
   the start of the next). It protects capacity; it is not a precise quota.
 - **The sign-in limit is only as good as the client address.** The address comes from the
   connection, or from `X-Forwarded-For` only when the peer is trusted through uvicorn's
-  `FORWARDED_ALLOW_IPS`. Trust only your own proxy, and never publish the API's port while
-  trusting `*`.
+  `FORWARDED_ALLOW_IPS`. With a list of addresses or ranges, uvicorn walks the header from the
+  right and takes the first address it does not trust, which is what the nearest untrusted hop
+  saw. With `*` it takes the left-most entry, which the client can write itself, so `*` is safe
+  only behind a proxy that replaces the header (Caddy in the single VM stack does) and only while
+  nothing else can reach the API. Platform proxies (Render, Railway, most CDNs) append instead:
+  trust their range, not `*`.
 
 ## Upload validation
 

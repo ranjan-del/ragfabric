@@ -11,7 +11,7 @@ from ragfabric_cli.commands.common import collection_by_name, session, user_by_e
 from ragfabric_cli.ui import console
 from ragfabric_core.ingest.parser import SUPPORTED_FORMATS
 from ragfabric_core.ingest.pipeline import ingest_document
-from ragfabric_core.ingest.validate import UploadRejected, validate_upload
+from ragfabric_core.ingest.validate import UploadRejected, check_size, validate_upload
 from ragfabric_core.models.document import Document
 from ragfabric_core.runtime import get_config
 
@@ -75,8 +75,10 @@ def ingest_files(
             for file in files:
                 if progress and task is not None:
                     progress.update(task, description=escape(file.name))
-                data = file.read_bytes()
                 try:
+                    # The size on disk first, so a huge file is refused unread.
+                    check_size(file.stat().st_size, limits)
+                    data = file.read_bytes()
                     validate_upload(file.name, data, limits)
                 except UploadRejected as exc:
                     failed += 1

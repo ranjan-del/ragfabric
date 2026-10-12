@@ -16,7 +16,10 @@ What is listed, and what is not:
   used to ingest files the operator never put there.
 - A file modified within ``settle_seconds`` is listed as not ready, so a file
   still being copied is neither ingested half-written nor, if already known,
-  dropped from the index while it is re-saved.
+  dropped from the index while it is re-saved. So is a file whose size or
+  modified time changed since this connector's previous listing (under
+  ``--watch`` the CLI keeps one connector per name), which catches copy tools
+  that set the source's old modified time before the copy finishes.
 """
 
 from __future__ import annotations
@@ -55,6 +58,8 @@ class FolderConnector:
         self.recursive = recursive
         self.settle_seconds = settle_seconds
         self._clock = clock
+        # (size, mtime) per source at the previous listing, for the stability check.
+        self._seen: dict[str, tuple[int, float]] = {}
 
     def _real_root(self) -> Path:
         if not self.root.is_dir():
@@ -84,13 +89,21 @@ class FolderConnector:
             if not self._inside(path, real_root) or not path.is_file():
                 continue
             stat = path.stat()
+            source_id = relative.as_posix()
+            shape = (stat.st_size, stat.st_mtime)
+            previous = self._seen.get(source_id)
+            self._seen[source_id] = shape
+            # Old enough, and (when this connector listed it before) the same
+            # size and mtime as then: a copy that preserves the source's mtime
+            # still shows a growing size.
+            settled = now - stat.st_mtime >= self.settle_seconds and previous in (None, shape)
             yield SourceDocument(
-                source_id=relative.as_posix(),
+                source_id=source_id,
                 name=path.name,
                 content_type=mimetypes.guess_type(path.name)[0] or "",
                 size_bytes=stat.st_size,
                 modified_at=datetime.fromtimestamp(stat.st_mtime, UTC),
-                ready=now - stat.st_mtime >= self.settle_seconds,
+                ready=settled,
             )
 
     def fetch(self, source_id: str) -> bytes:

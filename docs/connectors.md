@@ -43,7 +43,7 @@ inbox: 1 added, 0 updated, 3 unchanged, 0 deleted, 1 skipped, 0 failed, 0 pendin
 | unchanged | size, modified time and source version all match; nothing was read |
 | deleted | the file left the source and its document was deleted (`on_delete: delete`) |
 | skipped | refused by the upload rules (wrong content for its extension, too large, a zip bomb). Not read again until the file changes |
-| failed | could not be fetched this time; tried again next pass |
+| failed | could not be fetched, or ingestion failed (for example the embedding server was down); tried again next pass, re-ingesting the same document |
 | pending | still being written (folder) and left for the next pass |
 | ignored | passed over as not a document (a Drive image, form or shortcut); shown only when non-zero |
 
@@ -116,8 +116,10 @@ lives. A scan is cheap.
 - A symlink is followed only if it resolves inside the folder. One pointing elsewhere (`/etc`, a
   home directory) is ignored, so the inbox cannot be used to ingest files the operator never put
   there.
-- A file is ingested only once it has not been modified for `settle_seconds`, so a file that is
-  still being copied is not ingested half-written.
+- A file is ingested only once it has not been modified for `settle_seconds`, and, under
+  `--watch`, its size and modified time are the same as at the previous pass, so a file that is
+  still being copied is not ingested half-written, even by a copy tool that sets the source's old
+  modified time before it finishes.
 - The source id is the path relative to the folder. Moving a file within the folder therefore
   deletes the old document and adds a new one.
 
@@ -184,5 +186,6 @@ Limits to know:
 | `credentials file ... does not exist` | wrong `credentials_file` path, or the secret is not mounted |
 | `is not a readable service account key` | the file is not JSON, is an OAuth client or user credential rather than a service account key, or is missing fields. The key's content is never printed |
 | `listed nothing while N source(s) are recorded` | the folder is empty or no longer shared with the service account; nothing was deleted |
-| `HttpError 404 ... File not found` | wrong `folder_id`, or the folder is not shared with the service account |
+| `folder ... was not found or not shared with the service account (HTTP 404)` | wrong `folder_id`, or the folder is not shared with the service account. Checked before every listing, so a first sync does not quietly report an empty folder |
+| `id ... is not a folder` | `folder_id` names a file |
 | `HttpError 403 ... has not been used in project` | the Drive API is not enabled for the key's project |

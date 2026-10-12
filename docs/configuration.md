@@ -77,8 +77,8 @@ router:
   min_confidence: 0.6         # a classifier confidence below this fuses Traditional and Vectorless. Untuned until Phase 8
   classifier_model: null      # read by the router classifier; null uses llm.model if set, else the provider default
 
-limits:                       # enforced, not just read: upload rejects an over-size, wrong-type or mislabelled file,
-  max_upload_mb: 50            # the rate limiter uses rate_limit_per_minute as its window
+limits:                       # enforced, not just read: upload rejects an over-size, wrong-type or mislabelled file
+  max_upload_mb: 50            # the largest accepted upload, also checked on the wire
   max_uncompressed_mb: 200     # a DOCX or PPTX expanding past this is refused before decompression
   allowed_types: [pdf, docx, pptx, txt, csv, md]
   rate_limit_per_minute: 60   # default for a new API key; each key keeps its own value

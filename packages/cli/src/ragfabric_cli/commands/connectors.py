@@ -12,10 +12,12 @@ import time
 
 import typer
 
-from ragfabric_cli.commands.common import collection_by_name, session, user_by_email
+from ragfabric_cli.commands.common import collection_by_name, session
 from ragfabric_core.config_file import ConnectorConfig, FolderConnectorConfig
+from ragfabric_core.connectors.base import Connector
 from ragfabric_core.connectors.registry import build_connector
 from ragfabric_core.connectors.sync import SyncReport, sync_connector
+from ragfabric_core.models.user import User
 from ragfabric_core.runtime import get_config
 from ragfabric_core.telemetry.logs import bind_request_id, configure_logging
 
@@ -52,13 +54,34 @@ def list_connectors() -> None:
         )
 
 
+# One connector per configuration for the life of the process, so a folder
+# connector can compare each listing with the one before (its stability check).
+_built: dict[str, Connector] = {}
+
+
+def _connector(cfg: ConnectorConfig) -> Connector:
+    key = cfg.model_dump_json()
+    if key not in _built:
+        _built[key] = build_connector(cfg)
+    return _built[key]
+
+
+def _owner_id(db, email: str) -> int:
+    user = db.query(User).filter(User.email == email.lower()).first()
+    if user is None:
+        # A plain error, not typer.Exit: the pass reports this connector as
+        # failed and carries on with the others, and --watch keeps running.
+        raise LookupError(f"owner {email} is not a user; create it or fix owner:")
+    return user.id
+
+
 def _run_one(cfg: ConnectorConfig) -> SyncReport:
-    connector = build_connector(cfg)
+    connector = _connector(cfg)
     with session() as db, bind_request_id(f"connector:{cfg.name}"):
+        owner_id = _owner_id(db, cfg.owner) if cfg.owner else None
         collection_id = (
             collection_by_name(db, cfg.collection, create=True).id if cfg.collection else None
         )
-        owner_id = user_by_email(db, cfg.owner).id if cfg.owner else None
         db.commit()
         return sync_connector(
             db,

@@ -184,8 +184,40 @@ class GoogleDriveConnector:
             version=item.get("md5Checksum") or "",
         )
 
+    def _check_root(self) -> None:
+        """Look the folder up before listing it.
+
+        Listing the children of an id that does not exist, or that is not
+        shared with the service account, returns 200 and no files, which is
+        indistinguishable from an empty folder. A first sync would report
+        nothing and succeed; this makes it say what is wrong.
+        """
+        from googleapiclient.errors import HttpError
+
+        try:
+            meta = (
+                self.service.files()
+                .get(fileId=self.folder_id, fields="id, name, mimeType", supportsAllDrives=True)
+                .execute(num_retries=NUM_RETRIES)
+            )
+        except HttpError as exc:
+            status = getattr(exc.resp, "status", None)
+            if str(status) in ("403", "404"):
+                raise DriveSetupError(
+                    f"Google Drive folder {self.folder_id} was not found or not shared with the "
+                    f"service account (HTTP {status}); check folder_id and share the folder with "
+                    "the service account's address (docs/connectors.md)"
+                ) from None
+            raise
+        if meta.get("mimeType") != FOLDER_MIME:
+            raise DriveSetupError(
+                f"Google Drive id {self.folder_id} is not a folder ({meta.get('mimeType')}); "
+                "folder_id must name a folder"
+            )
+
     def list_documents(self) -> Iterator[SourceDocument]:
         self.ignored = []
+        self._check_root()
         pending = [self.folder_id]
         seen = {self.folder_id}
         while pending:

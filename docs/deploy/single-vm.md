@@ -115,8 +115,9 @@ Start one with `--profile NAME`, or list them in `COMPOSE_PROFILES` in `.env` so
 includes them.
 
 A Google Drive connector needs its key inside the container: mount it read-only on the
-`connectors` service (for example `./drive-key.json:/run/secrets/drive-key.json:ro`) and point
-`credentials_file` at that path. The image includes the `drive` extra.
+`connectors` service (for example `./secrets/drive-key.json:/run/secrets/drive-key.json:ro`) and
+point `credentials_file` at that path. Keep the key under `deploy/compose/secrets/`, which git
+ignores, so it cannot be committed by accident. The image includes the `drive` extra.
 
 ## Using a model server on the host
 
