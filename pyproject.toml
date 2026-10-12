@@ -28,7 +28,7 @@ ragfabric-sdk = { workspace = true }
 # it is small, and without it test_bm25_memory.py would importorskip itself in
 # CI, which reads as green while testing nothing.
 dev = [
-  "ragfabric-core[openai,anthropic,chroma,bm25]",
+  "ragfabric-core[openai,anthropic,chroma,bm25,drive]",
   "ragfabric-server",
   "ragfabric",
   "ragfabric-sdk",

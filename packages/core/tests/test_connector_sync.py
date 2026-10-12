@@ -273,3 +273,26 @@ def test_a_source_that_is_not_ready_is_neither_fetched_nor_deleted(db):
     assert fake.fetches == []
     assert report.pending == 2 and report.deleted == 0 and report.added == 0
     assert len(_docs(db)) == 1
+
+
+def test_a_source_declared_over_the_size_limit_is_refused_without_fetching(db):
+    from ragfabric_core.config_file import LimitsConfig
+
+    fake = FakeConnector()
+    fake.put("big.txt", b"x" * (1024 * 1024 + 1))
+    report = _sync(db, fake, limits=LimitsConfig(max_upload_mb=1))
+    assert fake.fetches == []
+    assert report.skipped == 1 and report.added == 0
+    assert "over the configured limit" in report.problems[0]
+    assert db.query(ConnectorItem).one().rejected_reason
+
+
+def test_files_the_connector_passed_over_are_counted(db):
+    fake = FakeConnector()
+    fake.put("a.txt", b"annual leave is twenty days")
+    fake.ignored = ["x (photo.png): image/png"]
+    report = _sync(db, fake)
+    assert report.ignored == 1
+    assert "1 ignored" in report.summary()
+    # Not a problem: a Drive folder legitimately holds other files.
+    assert report.problems == [] and report.skipped == 0

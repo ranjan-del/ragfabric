@@ -131,3 +131,22 @@ def test_watch_runs_passes_until_stopped(env, monkeypatch):
     assert result.stdout.count("1 added") == 2  # the second file on the second pass
     assert "stopped" in result.stdout
     assert passes[0] == 1  # interval_seconds of the inbox connector
+
+
+def test_a_drive_connector_without_its_key_fails_cleanly(env, monkeypatch, tmp_path):
+    from ragfabric_core import runtime
+
+    cfg = tmp_path / "drive.yaml"
+    cfg.write_text(
+        "embeddings:\n  provider: offline\n  dim: 16\ncache:\n  kind: memory\n"
+        "connectors:\n"
+        "  - name: policies\n    kind: google_drive\n    folder_id: abc\n"
+        f"    credentials_file: {tmp_path / 'missing-key.json'}\n"
+    )
+    monkeypatch.setenv("RAGFABRIC_CONFIG", str(cfg))
+    runtime.reset_config()
+    result = runner.invoke(app, ["connectors", "sync", "policies"])
+    assert result.exit_code == 1
+    assert "policies: failed: Google Drive credentials file" in result.stdout
+    assert "missing-key.json does not exist" in result.stdout
+    assert "Traceback" not in result.stdout
