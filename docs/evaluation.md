@@ -99,6 +99,17 @@ arguments always give the same files. Downloads are cached in `~/.cache/ragfabri
 (`--cache-dir`) and checked against a pinned checksum; nothing is written into the repository, and
 RagFabric redistributes none of the data. Check each licence before you use a dataset.
 
+### Long runs
+
+| Option | What it does |
+|---|---|
+| `--batch NAME --resume` | Continue a named batch: each target keeps the questions already stored, retries the ones stored with an error, answers the rest, and its summary is recomputed from every stored row. Without `--resume`, an existing batch name is refused |
+| `--retrieval-only` | Retrieve and score retrieval only; nothing is generated or judged, and answer metrics are `None` (for sets with relevance judgements but no answers, such as BEIR) |
+| `--judge-metric correctness` | Repeatable; ask the judge only for these rubrics. The others are `None`, not 0 |
+
+A target that never emits `[n]` markers (another tool's default prompt) sets `cites = False` on its
+answers, and its citation correctness is `None` rather than 0.
+
 ## Metrics
 
 ### Retrieval (deterministic)

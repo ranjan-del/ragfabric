@@ -103,15 +103,49 @@ class StrategyTarget:
                 self._names[document_id] = doc.filename if doc else f"document-{document_id}"
         return self._names[document_id]
 
-    def answer(self, question: str) -> TargetAnswer:
-        ctx = RetrievalContext(
+    def _context(self) -> RetrievalContext:
+        return RetrievalContext(
             principal=EVAL_PRINCIPAL,
             access_filter=AccessFilter.unrestricted(),
             collection_ids=[self.collection_id] if self.collection_id is not None else None,
             params=StrategyParams(top_k=self.top_k),
         )
+
+    def _contexts(self, result) -> list[ContextItem]:
+        return [
+            ContextItem(
+                rank=i,
+                document=self._document_name(c.document_id, c.metadata),
+                text=c.text,
+                score=c.score,
+            )
+            for i, c in enumerate(result.chunks, start=1)
+        ]
+
+    def retrieve(self, question: str) -> TargetAnswer:
+        """Retrieval only (design D6): no answer is generated, so nothing is judged."""
         started = time.perf_counter()
-        result = self.strategy.retrieve(question, ctx)
+        result = self.strategy.retrieve(question, self._context())
+        retrieval_ms = int((time.perf_counter() - started) * 1000)
+        return TargetAnswer(
+            answer="",
+            contexts=self._contexts(result),
+            strategy_used=str(result.strategy),
+            fallback_from=str(result.fallback_from) if result.fallback_from else None,
+            llm_calls=result.llm_calls,
+            retrieval_calls=result.retrieval_calls,
+            embedding_calls=result.embedding_calls,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            latency_ms=retrieval_ms,
+            retrieval_latency_ms=retrieval_ms,
+            llm_model=self.llm_model,
+            router_reasoning=result.router.reasoning if result.router else None,
+        )
+
+    def answer(self, question: str) -> TargetAnswer:
+        started = time.perf_counter()
+        result = self.strategy.retrieve(question, self._context())
         retrieval_ms = int((time.perf_counter() - started) * 1000)
         generated = generate_for_result(question, result, self.llm)
         total_ms = int((time.perf_counter() - started) * 1000)
@@ -124,15 +158,7 @@ class StrategyTarget:
             ).usd
         return TargetAnswer(
             answer=generated.text,
-            contexts=[
-                ContextItem(
-                    rank=i,
-                    document=self._document_name(c.document_id, c.metadata),
-                    text=c.text,
-                    score=c.score,
-                )
-                for i, c in enumerate(result.chunks, start=1)
-            ],
+            contexts=self._contexts(result),
             strategy_used=str(result.strategy),
             fallback_from=str(result.fallback_from) if result.fallback_from else None,
             llm_calls=result.llm_calls + generated.llm_calls,

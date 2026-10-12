@@ -182,6 +182,17 @@ def run(
     judge: str | None = typer.Option(None, "--judge", help="auto, llm or lexical."),
     report: Path | None = typer.Option(None, "--report", help="Write the Markdown report here."),
     batch: str | None = typer.Option(None, "--batch", help="Batch label; default eval-<time>."),
+    resume: bool = typer.Option(
+        False, "--resume", help="Continue the named batch, skipping questions already stored."
+    ),
+    retrieval_only: bool = typer.Option(
+        False, "--retrieval-only", help="Retrieve and score retrieval only: no answer, no judge."
+    ),
+    judge_metric: list[str] = typer.Option(
+        None,
+        "--judge-metric",
+        help="Repeatable: correctness, faithfulness, context_relevance. Default all three.",
+    ),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """Run a question set through the strategies, score and store every answer.
@@ -191,6 +202,8 @@ def run(
       ragfabric eval run --report docs/benchmarks/latest.md
       ragfabric eval run --strategy graph --category multi_hop
       ragfabric eval run --questions ./my-questions.json --collection handbook
+      ragfabric eval run --questions ./bench/scifact-100/questions.json \\
+        --collection scifact-100 --batch scifact-100 --retrieval-only --resume
     """
     if judge is not None and judge not in ("auto", "llm", "lexical"):
         _fail(f"unknown judge {judge!r}: expected auto, llm or lexical")
@@ -213,10 +226,17 @@ def run(
             specs=list(strategy or DEFAULT_TARGETS),
             collection=collection,
             judge=judge,
+            judge_metrics=tuple(judge_metric) if judge_metric else None,
         )
     except ValueError as exc:
         _fail(str(exc))
     label = batch or f"eval-{datetime.now(UTC):%Y%m%dT%H%M%SZ}"
+    if resume and batch is None:
+        _fail("--resume needs --batch: the batch name is what is resumed")
+    if not resume:
+        with factory() as db:
+            if batch_runs(db, label):
+                _fail(f"batch {label!r} already exists: pass --resume to continue it")
     shipped_corpus = questions is None and prepared.collection == cfg.evaluation.collection
     meta = {
         "commit": _commit(),
@@ -227,11 +247,13 @@ def run(
         "categories": sorted(category) if category else None,
         **prepared.meta,
     }
+    judge_text = "none (retrieval only)" if retrieval_only else prepared.judge.kind
     if not as_json:
         typer.echo(
             f"batch {label}: {len(qs.questions)} questions x {len(prepared.targets)} targets, "
-            f"judge {prepared.judge.kind}"
-            + (f" ({prepared.judge.model})" if prepared.judge.model else "")
+            f"judge {judge_text}"
+            + (f" ({prepared.judge.model})" if prepared.judge.model and not retrieval_only else "")
+            + (" (resuming)" if resume else "")
         )
         for name, reason in prepared.skipped:
             typer.echo(f"skipped {name}: {reason}")
@@ -261,6 +283,8 @@ def run(
         llm_model=prepared.llm_model,
         embedding_model=prepared.embedding_model,
         on_result=progress,
+        resume=resume,
+        retrieval_only=retrieval_only,
     )
     with factory() as db:
         runs = batch_runs(db, label)

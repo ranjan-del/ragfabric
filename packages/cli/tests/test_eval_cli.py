@@ -227,3 +227,35 @@ def test_corpus_path_ingests_an_imported_corpus_once(env):
 def test_corpus_path_that_is_not_a_directory_fails(env):
     result = runner.invoke(app, ["eval", "corpus", "--path", str(env / "missing")])
     assert result.exit_code == 1 and "not a directory" in result.output
+
+
+def _run(*extra):
+    return runner.invoke(
+        app, ["eval", "run", "--strategy", "traditional", "--category", "exact_match", *extra]
+    )
+
+
+def test_an_existing_batch_needs_resume(env):
+    assert runner.invoke(app, ["eval", "corpus"]).exit_code == 0
+    assert _run("--batch", "same").exit_code == 0
+    again = _run("--batch", "same")
+    assert again.exit_code == 1 and "--resume" in again.output
+    resumed = _run("--batch", "same", "--resume", "--json")
+    assert resumed.exit_code == 0, resumed.output
+    runs = json.loads(resumed.output)["runs"]
+    assert len(runs) == 1 and runs[0]["summary"]["questions"] == 3
+
+
+def test_retrieval_only_and_judge_metric_are_recorded(env):
+    assert runner.invoke(app, ["eval", "corpus"]).exit_code == 0
+    out = _run("--batch", "ro", "--retrieval-only", "--json")
+    assert out.exit_code == 0, out.output
+    summary = json.loads(out.output)["runs"][0]["summary"]
+    assert summary["meta"]["retrieval_only"] is True
+    assert summary["metrics"]["correctness"] is None and summary["metrics"]["hit"] is not None
+    jm = _run("--batch", "jm", "--judge-metric", "correctness", "--json")
+    assert jm.exit_code == 0, jm.output
+    meta = json.loads(jm.output)["runs"][0]["summary"]["meta"]
+    assert meta["judge_metrics"] == ["correctness"]
+    bad = _run("--batch", "jm2", "--judge-metric", "speed")
+    assert bad.exit_code == 1 and "faithfulness" in bad.output

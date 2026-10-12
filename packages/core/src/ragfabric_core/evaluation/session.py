@@ -51,6 +51,7 @@ def prepare(
     collection: str | None = None,
     judge: str | None = None,
     llm: LLMProvider | None = None,
+    judge_metrics: tuple[str, ...] | None = None,
 ) -> Prepared:
     name = collection or cfg.evaluation.collection
     with session_factory() as db:
@@ -70,7 +71,7 @@ def prepare(
         session_factory=session_factory,
         pricing=PricingTable.load(),
     )
-    chosen = build_judge(judge or cfg.evaluation.judge, llm, judge_model(cfg))
+    chosen = build_judge(judge or cfg.evaluation.judge, llm, judge_model(cfg), judge_metrics)
     if chosen.kind == "llm" and chosen.model is None:
         chosen.model = llm.default_model
     llm_model = answering_model(cfg.llm, llm)

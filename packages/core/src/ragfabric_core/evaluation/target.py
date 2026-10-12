@@ -39,6 +39,9 @@ class TargetAnswer(BaseModel):
     llm_model: str | None = None
     estimated_cost_usd: float | None = None
     router_reasoning: str | None = None
+    # False for a target whose answers never carry [n] markers: its citation
+    # score is then None, not 0, since it never claimed that contract (D16).
+    cites: bool = True
 
 
 class TargetSkipped(Exception):
@@ -54,3 +57,10 @@ class EvalTarget(Protocol):
     name: str
 
     def answer(self, question: str) -> TargetAnswer: ...
+
+
+@runtime_checkable
+class RetrievingTarget(EvalTarget, Protocol):
+    """A target that can also retrieve without generating, for retrieval only runs (D6)."""
+
+    def retrieve(self, question: str) -> TargetAnswer: ...
