@@ -18,8 +18,8 @@ from statistics import fmean
 from sqlalchemy.orm import Session
 
 from ragfabric_core.evaluation.dataset import EvalQuestion, QuestionSet
-from ragfabric_core.evaluation.judge import Judge, JudgeScores
-from ragfabric_core.evaluation.metrics import citation_correct, retrieval_scores
+from ragfabric_core.evaluation.judge import Judge, JudgeScores, NoJudge
+from ragfabric_core.evaluation.metrics import CitationCheck, citation_correct, retrieval_scores
 from ragfabric_core.evaluation.target import EvalTarget, TargetAnswer
 from ragfabric_core.generate.contract import NO_EVIDENCE
 from ragfabric_core.models.base import utcnow
@@ -107,7 +107,10 @@ def _score(
     question: EvalQuestion, answer: TargetAnswer, judge: Judge
 ) -> tuple[dict, JudgeScores, dict]:
     retrieval = retrieval_scores(answer.contexts, question.expected_sources)
-    citation = citation_correct(answer.answer, answer.contexts)
+    if answer.cites:
+        citation = citation_correct(answer.answer, answer.contexts)
+    else:
+        citation = CitationCheck(correct=None, reason="target does not emit [n] citation markers")
     try:
         judged = judge.score(
             question.question, question.expected_answer, answer.answer, answer.contexts
@@ -170,6 +173,24 @@ def _result_row(
     return row
 
 
+def _answer(target: EvalTarget, question: str, retrieval_only: bool) -> TargetAnswer:
+    if not retrieval_only:
+        return target.answer(question)
+    retrieve = getattr(target, "retrieve", None)
+    if retrieve is None:
+        raise TypeError(f"{target.name} cannot run retrieval only: it has no retrieve()")
+    return retrieve(question)
+
+
+def _existing_run(db: Session, batch: str, target: str) -> EvaluationRun | None:
+    return (
+        db.query(EvaluationRun)
+        .filter(EvaluationRun.name == batch, EvaluationRun.strategy == target)
+        .order_by(EvaluationRun.id.desc())
+        .first()
+    )
+
+
 def run_batch(
     targets: list[EvalTarget],
     questions: QuestionSet,
@@ -182,56 +203,95 @@ def run_batch(
     llm_model: str | None = None,
     embedding_model: str | None = None,
     on_result: Callable[[str, EvaluationResult], None] | None = None,
+    resume: bool = False,
+    retrieval_only: bool = False,
 ) -> list[int]:
-    """Run, score and persist; return the run ids in target order (skipped ones last)."""
+    """Run, score and persist; return the run ids in target order (skipped ones last).
+
+    ``resume`` continues a named batch (D10): each target reuses its run row in
+    that batch, keeps the questions already stored without an error, retries
+    the ones stored with an error, and answers the rest. The summary is always
+    recomputed from every stored row. ``retrieval_only`` calls each target's
+    ``retrieve`` instead of ``answer``: nothing is generated or judged (D6).
+    """
+    if retrieval_only:
+        judge = NoJudge()
     run_meta = {
         **meta,
         "judge_kind": judge.kind,
         "judge_model": judge.model,
         "judge_prompt_version": judge.prompt_version,
+        "judge_metrics": list(getattr(judge, "metrics", ())),
         "question_set": questions.name,
+        "retrieval_only": retrieval_only,
     }
+    judge_label = f"{judge.kind}:{judge.model}" if judge.model else judge.kind
     run_ids: list[int] = []
     for target in targets:
         with session_factory() as db:
-            run = EvaluationRun(
-                name=batch,
-                commit_sha=str(meta.get("commit", "")),
-                strategy=target.name,
-                llm_model=llm_model or "",
-                embedding_model=embedding_model or "",
-                judge_model=f"{judge.kind}:{judge.model}" if judge.model else judge.kind,
-                question_set=questions.name,
-                summary={"meta": run_meta, "status": "running"},
-            )
-            db.add(run)
-            db.commit()
+            run = _existing_run(db, batch, target.name) if resume else None
+            kept: dict[str, EvaluationResult] = {}
+            if run is not None:
+                stored = (
+                    db.query(EvaluationResult)
+                    .filter(EvaluationResult.evaluation_run_id == run.id)
+                    .order_by(EvaluationResult.id)
+                    .all()
+                )
+                for row in stored:
+                    if row.details.get("error") or row.question_id in kept:
+                        db.delete(row)
+                    else:
+                        kept[row.question_id] = row
+                run.summary = {**run.summary, "meta": run_meta, "status": "running"}
+                run.finished_at = None
+                db.commit()
+            else:
+                run = EvaluationRun(
+                    name=batch,
+                    commit_sha=str(meta.get("commit", "")),
+                    strategy=target.name,
+                    llm_model=llm_model or "",
+                    embedding_model=embedding_model or "",
+                    judge_model=judge_label,
+                    question_set=questions.name,
+                    summary={"meta": run_meta, "status": "running"},
+                )
+                db.add(run)
+                db.commit()
             run_id = run.id
-            rows: list[EvaluationResult] = []
             for question in questions.questions:
+                if question.id in kept:
+                    continue
                 try:
-                    answer, error = target.answer(question.question), None
+                    answer, error = _answer(target, question.question, retrieval_only), None
                 except Exception as exc:  # recorded on the row; the run continues
                     answer, error = None, f"{type(exc).__name__}: {exc}"
                 row = _result_row(run_id, question, answer, error, judge)
                 db.add(row)
                 db.commit()
-                rows.append(row)
+                kept[question.id] = row
                 if on_result is not None:
                     on_result(target.name, row)
+            wanted = {q.id for q in questions.questions}
+            rows = [r for qid, r in kept.items() if qid in wanted]
             run.summary = {"meta": run_meta, "status": "finished", **summarise(rows)}
             run.finished_at = utcnow()
             db.commit()
             run_ids.append(run_id)
     for name, reason in skipped:
         with session_factory() as db:
+            existing = _existing_run(db, batch, name) if resume else None
+            if existing is not None:
+                run_ids.append(existing.id)
+                continue
             run = EvaluationRun(
                 name=batch,
                 commit_sha=str(meta.get("commit", "")),
                 strategy=name,
                 llm_model=llm_model or "",
                 embedding_model=embedding_model or "",
-                judge_model=f"{judge.kind}:{judge.model}" if judge.model else judge.kind,
+                judge_model=judge_label,
                 question_set=questions.name,
                 summary={"meta": run_meta, "status": "skipped", "skipped": reason},
                 finished_at=utcnow(),
