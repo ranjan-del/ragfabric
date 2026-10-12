@@ -32,8 +32,9 @@ Whichever host: the API must be on HTTPS, and the proxy must pass `Authorization
 streamed question after setting it up.
 
 The sign-in limit counts per client address. Behind a host's proxy the API sees the proxy's
-address unless it trusts the proxy's `X-Forwarded-For` (`FORWARDED_ALLOW_IPS`); see
-[Operations](../operations.md) before setting it.
+address unless it trusts the proxy's `X-Forwarded-For` (`FORWARDED_ALLOW_IPS`). Most hosts append
+to a header the client sent, so trust only the proxy's own address range, never `*`; see
+[Operations](../operations.md).
 
 A runtime setting for the API address, so any static host works without a proxy, is planned once
 the new web app lands.

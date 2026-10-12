@@ -137,3 +137,24 @@ def test_a_file_whose_content_does_not_match_its_extension_is_skipped_with_the_r
     )
     assert (ingested, failed) == (0, 1)
     assert seen == []  # no Document was created, so on_file has nothing to report
+
+
+def test_a_file_over_the_size_limit_is_refused_before_it_is_read(env, monkeypatch):
+    from pathlib import Path
+
+    from ragfabric_core import runtime
+
+    monkeypatch.setattr(console, "is_rich", lambda stream=None: False)
+    big = env / "huge.txt"
+    with big.open("wb") as handle:  # sparse: 60 MB on paper, nothing on disk
+        handle.truncate(60 * 1024 * 1024)
+    real_read = Path.read_bytes
+
+    def guarded(self):
+        assert self.name != "huge.txt", "an oversize file must not be read"
+        return real_read(self)
+
+    monkeypatch.setattr(Path, "read_bytes", guarded)
+    runtime.get_config().limits.max_upload_mb = 50
+    ingested, failed = ingest_module.ingest_files([big], collection=None, owner=None)
+    assert (ingested, failed) == (0, 1)

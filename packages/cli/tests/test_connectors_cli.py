@@ -107,7 +107,7 @@ def test_an_owner_that_does_not_exist_is_an_error(env, monkeypatch):
     cfg.connectors[0].owner = "ghost@example.com"
     result = runner.invoke(app, ["connectors", "sync", "inbox"])
     assert result.exit_code == 1
-    assert "user not found: ghost@example.com" in result.stdout
+    assert "inbox: failed: owner ghost@example.com is not a user" in result.stdout
 
 
 def test_watch_runs_passes_until_stopped(env, monkeypatch):
@@ -150,3 +150,23 @@ def test_a_drive_connector_without_its_key_fails_cleanly(env, monkeypatch, tmp_p
     assert "policies: failed: Google Drive credentials file" in result.stdout
     assert "missing-key.json does not exist" in result.stdout
     assert "Traceback" not in result.stdout
+
+
+def test_one_connector_with_an_unknown_owner_does_not_stop_the_others(env, monkeypatch, tmp_path):
+    from ragfabric_core import runtime
+
+    _drop(env, "leave.txt")
+    cfg = tmp_path / "owners.yaml"
+    cfg.write_text(
+        "embeddings:\n  provider: offline\n  dim: 16\ncache:\n  kind: memory\n"
+        f"ingestion:\n  uploads_dir: {tmp_path / 'blobs'}\n"
+        "connectors:\n"
+        f"  - name: orphan\n    kind: folder\n    path: {env}\n    owner: nobody@example.com\n"
+        f"  - name: inbox\n    kind: folder\n    path: {env}\n    settle_seconds: 0\n"
+    )
+    monkeypatch.setenv("RAGFABRIC_CONFIG", str(cfg))
+    runtime.reset_config()
+    result = runner.invoke(app, ["connectors", "sync"])
+    assert result.exit_code == 1
+    assert "orphan: failed: owner nobody@example.com is not a user" in result.stdout
+    assert "inbox: 1 added" in result.stdout

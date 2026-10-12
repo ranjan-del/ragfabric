@@ -35,9 +35,14 @@ services:
         value: /etc/secrets/ragfabric.yaml
       - key: PORT
         value: "8000"
-      # Render's proxy is the only way in, so its X-Forwarded-For is trusted.
+      # Trust X-Forwarded-For only from Render's private network, so uvicorn
+      # takes the right-most address outside it: the one Render's edge added.
+      # Never "*" here: Render appends to a client's own header, and the
+      # left-most entry is whatever the client sent. Unverified range; check
+      # the access log's client field against your own address after deploying
+      # (docs/deploy/render.md).
       - key: FORWARDED_ALLOW_IPS
-        value: "*"
+        value: "10.0.0.0/8"
       - key: JWT_SECRET
         generateValue: true
       - key: DATABASE_URL     # postgresql://..., mapped to the psycopg driver at startup

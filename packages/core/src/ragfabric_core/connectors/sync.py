@@ -95,9 +95,23 @@ def _remember(item: ConnectorItem, source: SourceDocument) -> None:
     item.source_version = source.version
 
 
+def _row(db: Session, item: ConnectorItem | None, name: str, source_id: str) -> ConnectorItem:
+    """The source's row, created and added only when something is about to be recorded.
+
+    A new row is never added before its document exists: ``ingest_document``
+    commits part way through, and a row committed then with no document would
+    make a pass that dies mid-ingest ingest the file again, as a second
+    document no row points at and the connector could never delete.
+    """
+    if item is None:
+        item = ConnectorItem(connector=name, source_id=source_id)
+        db.add(item)
+    return item
+
+
 def _refuse(
     db: Session,
-    item: ConnectorItem,
+    item: ConnectorItem | None,
     source: SourceDocument,
     exc: UploadRejected,
     *,
@@ -105,6 +119,7 @@ def _refuse(
     report: SyncReport,
 ) -> None:
     """Record a refused source with its reason, so it is not fetched again until it changes."""
+    item = _row(db, item, name, source.source_id)
     _remember(item, source)
     item.rejected_reason = exc.reason
     db.commit()
@@ -132,10 +147,6 @@ def _sync_one(
         report.unchanged += 1
         return
 
-    if item is None:
-        item = ConnectorItem(connector=name, source_id=source.source_id)
-        db.add(item)
-
     # A size the source declares is checked before the download, so a 5 GB
     # file in a Drive folder is refused without being read into memory.
     if source.size_bytes is not None:
@@ -151,8 +162,6 @@ def _sync_one(
         report.failed += 1
         report.problems.append(f"{source.source_id}: could not fetch ({exc})")
         log.warning("connector %s could not fetch %s: %s", name, source.source_id, exc)
-        if item in db.new:
-            db.expunge(item)  # a failed fetch writes no row
         return
 
     try:
@@ -162,7 +171,11 @@ def _sync_one(
         return
 
     content_hash = hashlib.sha256(data).hexdigest()
-    document = db.get(Document, item.document_id) if item.document_id is not None else None
+    document = (
+        db.get(Document, item.document_id)
+        if item is not None and item.document_id is not None
+        else None
+    )
     if document is not None and item.content_hash == content_hash:
         _remember(item, source)
         item.rejected_reason = None
@@ -170,11 +183,11 @@ def _sync_one(
         report.unchanged += 1
         return
 
+    existed = document is not None
     if document is not None:
         document = reingest_document(
             db, document, filename=source.name, data=data, content_type=source.content_type
         )
-        report.updated += 1
     else:
         document = ingest_document(
             db,
@@ -184,15 +197,31 @@ def _sync_one(
             collection_id=collection_id,
             owner_id=owner_id,
         )
-        report.added += 1
-    if document.status == "failed":
-        report.problems.append(f"{source.source_id}: ingestion failed ({document.error})")
 
+    item = _row(db, item, name, source.source_id)
     item.document_id = document.id
-    item.content_hash = content_hash
     item.rejected_reason = None
+    if document.status == "failed":
+        # Linked, so the retry re-ingests this same document, but not
+        # remembered: the next pass fetches the source again rather than
+        # calling it unchanged.
+        item.content_hash = None
+        item.size_bytes = None
+        item.modified_at = None
+        item.source_version = ""
+        db.commit()
+        report.failed += 1
+        report.problems.append(f"{source.source_id}: ingestion failed ({document.error})")
+        log.warning("connector %s could not ingest %s: %s", name, source.source_id, document.error)
+        return
+
+    item.content_hash = content_hash
     _remember(item, source)
     db.commit()
+    if existed:
+        report.updated += 1
+    else:
+        report.added += 1
 
 
 def sync_connector(

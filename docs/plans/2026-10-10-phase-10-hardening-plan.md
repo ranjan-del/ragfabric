@@ -86,7 +86,7 @@ the task that owns it.
 | `packages/core/src/ragfabric_core/connectors/folder.py` | `FolderConnector` |
 | `packages/core/src/ragfabric_core/connectors/google_drive.py` | `GoogleDriveConnector`, `build_drive_service` |
 | `packages/core/src/ragfabric_core/connectors/registry.py` | `build_connector(cfg)` |
-| `packages/cli/src/ragfabric_cli/commands/connectors.py` | `connectors list`, `connectors sync [NAME] [--watch] [--once]` |
+| `packages/cli/src/ragfabric_cli/commands/connectors.py` | `connectors list`, `connectors sync [NAME] [--watch]` (amended: no `--once`; without `--watch` a sync is one pass) |
 | `packages/server/tests/test_e2e_flow.py` | SQLite end-to-end through the SDK |
 | `packages/server/tests/test_e2e_postgres.py` | the same scenario on PostgreSQL (integration) |
 | `deploy/compose/docker-compose.prod.yml`, `deploy/compose/Caddyfile`, `deploy/compose/.env.prod.example`, `deploy/compose/ragfabric.prod.yaml` | single-VM stack |
@@ -156,7 +156,7 @@ Tests: `core/tests/test_validate.py`, extend `server/tests/test_api.py` or a new
   - Valid PDF, DOCX, PPTX, TXT, MD, CSV pass and return the extension.
   - Unknown extension: 400. Not in `allowed_types`: 400. Empty: 400. Over `max_upload_mb`: 413.
   - `.pdf` without `%PDF-`: 415. `.docx` that is not a zip, or a zip without `word/document.xml`:
-    415. `.pptx` without `ppt/presentation.xml`: 415. `.txt` with a NUL byte or invalid UTF-8: 415.
+    415. `.pptx` without `ppt/presentation.xml`: 415. `.txt` with a NUL byte: 415 (amended: invalid UTF-8 is accepted, per D14 as amended).
   - Zip over `max_uncompressed_mb`, over 10,000 entries, or with a ratio over 100: 413, and no entry
     is decompressed (assert via a zip whose declared sizes are large).
   - Middleware: `Content-Length` over the limit on the upload path gives 413 before the route runs;
@@ -202,7 +202,7 @@ Tests: `core/tests/test_connector_folder.py`, `core/tests/test_config_connectors
   - A file modified less than `settle_seconds` ago is not listed yet (clock injected).
   - Config: duplicate names rejected; unknown `kind` rejected; folder needs `path`; Drive needs
     `folder_id` and `credentials_file`.
-  - CLI: `connectors list` prints each connector; `connectors sync inbox --once` ingests a file
+  - CLI: `connectors list` prints each connector; `connectors sync inbox` (one pass) ingests a file
     dropped into a temporary folder and prints the report; a second run reports it unchanged;
     `--watch` loops until interrupted (test with an injected stop after one cycle).
 - [ ] Implement, test, lint. Commit `feat: watched folder connector and ragfabric connectors`.

@@ -68,9 +68,18 @@ def _query(uri):
     return {k: v[0] for k, v in parse_qs(urlparse(uri).query).items()}
 
 
+ROOT_FOLDER = (OK, json.dumps({"id": ROOT, "name": "Policies", "mimeType": FOLDER_MIME}))
+
+
 def _connector(responses, **kwargs):
-    service, http = _service(responses)
+    """A connector whose first request (the root folder check) succeeds."""
+    service, http = _service([ROOT_FOLDER, *responses])
     return GoogleDriveConnector(service, ROOT, **kwargs), http
+
+
+def _listings(http):
+    """The files.list requests, without the root folder check."""
+    return [r for r in http.request_sequence if urlparse(r[0]).path.endswith("/drive/v3/files")]
 
 
 # --- listing --------------------------------------------------------------------------
@@ -80,7 +89,7 @@ def test_list_sends_the_folder_query_fields_and_shared_drive_flags():
     connector, http = _connector([_page([_pdf()])])
     [source] = connector.list_documents()
     assert source.source_id == "f-pdf"
-    [(uri, method, _body, _headers)] = http.request_sequence
+    [(uri, method, _body, _headers)] = _listings(http)
     assert method == "GET"
     assert urlparse(uri).path.endswith("/drive/v3/files")
     query = _query(uri)
@@ -101,7 +110,7 @@ def test_list_follows_next_page_token():
         ]
     )
     assert [s.source_id for s in connector.list_documents()] == ["a", "b"]
-    first, second = (_query(r[0]) for r in http.request_sequence)
+    first, second = (_query(r[0]) for r in _listings(http))
     assert "pageToken" not in first
     assert second["pageToken"] == "tok-2"
     assert second["q"] == first["q"]
@@ -118,7 +127,7 @@ def test_list_recurses_into_each_subfolder_once():
         ]
     )
     assert sorted(s.source_id for s in connector.list_documents()) == ["a", "b"]
-    queries = [_query(r[0])["q"] for r in http.request_sequence]
+    queries = [_query(r[0])["q"] for r in _listings(http)]
     assert queries == [
         f"'{ROOT}' in parents and trashed = false",
         "'sub' in parents and trashed = false",
@@ -129,13 +138,14 @@ def test_non_recursive_does_not_descend():
     sub = _file("sub", "Policies", FOLDER_MIME)
     connector, http = _connector([_page([sub, _pdf()])], recursive=False)
     assert [s.source_id for s in connector.list_documents()] == ["f-pdf"]
-    assert len(http.request_sequence) == 1
+    assert len(_listings(http)) == 1
 
 
 def test_a_folder_id_with_a_quote_is_escaped_in_the_query():
-    service, http = _service([_page([])])
+    folder = (OK, json.dumps({"id": "it's", "name": "x", "mimeType": FOLDER_MIME}))
+    service, http = _service([folder, _page([])])
     list(GoogleDriveConnector(service, "it's").list_documents())
-    assert _query(http.request_sequence[0][0])["q"] == "'it\\'s' in parents and trashed = false"
+    assert _query(_listings(http)[0][0])["q"] == "'it\\'s' in parents and trashed = false"
 
 
 # --- mapping --------------------------------------------------------------------------
@@ -226,7 +236,8 @@ def test_fetch_of_a_google_doc_exports_it_as_docx():
 
 def test_fetch_of_an_unlisted_id_looks_up_its_type_first():
     sheet = _file("s1", "Budget", "application/vnd.google-apps.spreadsheet")
-    connector, http = _connector([(OK, json.dumps(sheet)), (OK, b"a,b\n1,2\n")])
+    service, http = _service([(OK, json.dumps(sheet)), (OK, b"a,b\n1,2\n")])
+    connector = GoogleDriveConnector(service, ROOT)
     assert connector.fetch("s1") == b"a,b\n1,2\n"
     lookup, export = (r[0] for r in http.request_sequence)
     assert urlparse(lookup).path.endswith("/drive/v3/files/s1")
@@ -283,3 +294,24 @@ def test_from_config_uses_the_key_and_the_read_only_scope(monkeypatch, tmp_path)
     assert connector.folder_id == "abc"
     assert connector.recursive is False
     assert google_drive.SCOPES == ["https://www.googleapis.com/auth/drive.readonly"]
+
+
+# --- the root folder ------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("status", ["404", "403"])
+def test_a_wrong_or_unshared_folder_id_is_a_clear_error(status):
+    """files.list on an unknown parent returns 200 with no files, which would look
+    like an empty folder. The folder is looked up first so the operator is told."""
+    error = json.dumps({"error": {"code": int(status), "message": "File not found: nope."}})
+    service, _ = _service([({"status": status}, error)])
+    with pytest.raises(DriveSetupError, match="not found or not shared with the service account"):
+        list(GoogleDriveConnector(service, "nope").list_documents())
+
+
+def test_a_folder_id_that_is_a_file_is_a_clear_error():
+    service, _ = _service(
+        [(OK, json.dumps({"id": "f", "name": "a.pdf", "mimeType": "application/pdf"}))]
+    )
+    with pytest.raises(DriveSetupError, match="is not a folder"):
+        list(GoogleDriveConnector(service, "f").list_documents())

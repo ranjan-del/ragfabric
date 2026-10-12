@@ -148,6 +148,12 @@ def test_a_removed_source_deletes_its_document(db):
     assert report.deleted == 1
     assert [d.filename for d in _docs(db)] == ["b.txt"]
     assert [i.source_id for i in db.query(ConnectorItem)] == ["b.txt"]
+    # Gone from every store, not only the documents table.
+    from ragfabric_core.models.index import ChunkEmbedding, ChunkSearch
+
+    [kept] = _docs(db)
+    for model in (ChunkEmbedding, ChunkSearch):
+        assert {row.document_id for row in db.query(model)} == {kept.id}, model.__name__
 
 
 def test_on_delete_keep_leaves_the_document(db):
@@ -296,3 +302,56 @@ def test_files_the_connector_passed_over_are_counted(db):
     assert "1 ignored" in report.summary()
     # Not a problem: a Drive folder legitimately holds other files.
     assert report.problems == [] and report.skipped == 0
+
+
+def _break_indexing(monkeypatch, broken: list[bool]):
+    import ragfabric_core.ingest.pipeline as pipeline
+
+    real = pipeline.schedule_indexing
+
+    def flaky(*args, **kwargs):
+        if broken[0]:
+            raise RuntimeError("embedding server unreachable")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(pipeline, "schedule_indexing", flaky)
+
+
+def test_a_failed_ingest_is_counted_failed_and_retried_in_place(db, monkeypatch):
+    broken = [True]
+    _break_indexing(monkeypatch, broken)
+    fake = FakeConnector()
+    fake.put("a.txt", b"annual leave is twenty days")
+    report = _sync(db, fake)
+    assert (report.added, report.failed) == (0, 1)
+    assert "embedding server unreachable" in report.problems[0]
+    [doc] = _docs(db)
+    assert doc.status == "failed"
+
+    broken[0] = False
+    fake.fetches.clear()
+    report = _sync(db, fake)
+    assert fake.fetches == ["a.txt"], "a failed source must be fetched again"
+    assert report.updated == 1 and report.failed == 0
+    [doc] = _docs(db)  # retried in place: still one document
+    db.refresh(doc)
+    assert doc.status == "ready"
+
+
+def test_a_new_source_has_no_row_until_its_document_exists(db, monkeypatch):
+    """The row and its document are written together: an ingest that dies part
+    way must not leave a row with no document, or the next pass would ingest the
+    file again as a second document that no row ever deletes."""
+    import ragfabric_core.connectors.sync as sync_module
+
+    def dies(session, **kwargs):
+        session.commit()  # ingest_document commits the document row part way through
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(sync_module, "ingest_document", dies)
+    fake = FakeConnector()
+    fake.put("a.txt", b"annual leave is twenty days")
+    with pytest.raises(KeyboardInterrupt):
+        _sync(db, fake)
+    db.rollback()
+    assert db.query(ConnectorItem).count() == 0

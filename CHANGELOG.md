@@ -58,7 +58,8 @@ Phase 9 (assistant UI and TypeScript SDK) and Phase 10 (hardening, connectors, d
   alongside the existing per API key limit. A request is charged once however often it identifies its
   caller. 429 responses add `Retry-After`, `X-RateLimit-Limit` and `X-RateLimit-Remaining`; the body is
   unchanged. Redis counts with INCR and EXPIRE in one transaction. If the cache is unreachable the
-  request is allowed and an ERROR is logged with the request id.
+  request is allowed and an ERROR is logged with the request id; Redis connections use one second
+  timeouts, so a Redis that hangs fails fast rather than holding every request.
 - **Upload validation in core**, shared by the API, `ragfabric ingest` and connectors: content must
   match the extension (415), and a DOCX or PPTX is refused (413) over 10,000 entries,
   `limits.max_uncompressed_mb` (200) uncompressed, or an entry compressed more than 100 to 1, read
@@ -69,11 +70,14 @@ Phase 9 (assistant UI and TypeScript SDK) and Phase 10 (hardening, connectors, d
   files are not re-ingested, changed files are re-ingested in place (same document id, version bumped),
   and files that leave the source delete only the documents that connector created
   (`on_delete: delete`, or `keep`). An empty listing never deletes. A source larger than
-  `limits.max_upload_mb` is refused before it is downloaded.
+  `limits.max_upload_mb` is refused before it is downloaded. A source whose ingestion fails is
+  counted as failed and retried on the next pass, in place. A connector whose `owner` is not a
+  user fails on its own without stopping the others.
 - A watched folder connector (polled, settle check for files still being copied, temporaries and
   hidden files ignored, symlinks followed only inside the folder) and a Google Drive connector on the
   official client with a service account and the read-only scope (extra `ragfabric[drive]`; Docs,
-  Slides and Sheets exported to DOCX, PPTX and CSV). The Drive connector is tested with fake HTTP and
+  Slides and Sheets exported to DOCX, PPTX and CSV; a wrong or unshared `folder_id` is reported as
+  such rather than as an empty folder). The Drive connector is tested with fake HTTP and
   the client's own discovery document; it has not been run against a real Google account.
 - `ragfabric connectors list` and `ragfabric connectors sync [NAME] [--watch]`, configured under
   `connectors:` in `ragfabric.yaml`.
@@ -113,6 +117,8 @@ Phase 9 (assistant UI and TypeScript SDK) and Phase 10 (hardening, connectors, d
   dimension column.
 - Under JSON logs, `ragfabric db upgrade` and `db downgrade` log migrations as JSON.
 - The API image includes the `drive` extra.
+- `ragfabric ingest` refuses a file over `limits.max_upload_mb` from its size on disk, before
+  reading it.
 
 ### Security
 

@@ -23,7 +23,7 @@ def test_a_safe_incoming_request_id_is_echoed(client):
     assert res.headers["x-request-id"] == "edge-proxy.42_a"
 
 
-@pytest.mark.parametrize("bad", ["a b", "x" * 129, 'q"uote', "brace{"])
+@pytest.mark.parametrize("bad", ["a b", "x" * 129, "x" * 500, 'q"uote', "brace{", "tab\there"])
 def test_an_unsafe_incoming_request_id_is_replaced(client, bad):
     res = client.get("/health", headers={"X-Request-ID": bad})
     rid = res.headers["x-request-id"]
@@ -93,7 +93,21 @@ def test_an_unhandled_error_is_a_json_500_with_the_request_id(client, caplog):
     assert errors and errors[0].request_id == "boom-1"
 
 
-def test_a_streamed_ask_still_streams_and_carries_the_request_id(client, admin_token, ingested_doc):
+def test_a_streamed_ask_still_streams_and_carries_the_request_id(
+    client, admin_token, ingested_doc, caplog
+):
+    import conftest
+
+    from ragfabric_server.deps import get_llm_provider
+
+    class LoggingLLM(conftest._FakeCitingLLM):
+        def stream(self, *args, **kwargs):
+            for piece in super().stream(*args, **kwargs):
+                logging.getLogger("test.stream").info("token sent")
+                yield piece
+
+    client.app.dependency_overrides[get_llm_provider] = lambda: LoggingLLM()
+    caplog.set_level(logging.INFO, logger="test.stream")
     headers = {"Authorization": f"Bearer {admin_token}", "X-Request-ID": "stream-1"}
     body = {"query": "how many days of annual leave", "stream": True, "top_k": 3}
     with client.stream("POST", "/api/ask", json=body, headers=headers) as res:
@@ -101,6 +115,10 @@ def test_a_streamed_ask_still_streams_and_carries_the_request_id(client, admin_t
         raw = "".join(res.iter_text())
     assert res.status_code == 200
     assert "event: done" in raw
+    # Lines written while the response is streaming, inside the generator,
+    # belong to the request too, not just the ones before the first byte.
+    streamed = [r for r in caplog.records if r.name == "test.stream"]
+    assert streamed and all(getattr(r, "request_id", None) == "stream-1" for r in streamed)
 
 
 def test_startup_warns_when_the_shipped_admin_password_is_in_use(caplog):

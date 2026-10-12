@@ -38,8 +38,15 @@ OpenAI compatible endpoint works through `base_url`.
 
 - `DATABASE_URL` arrives as `postgresql://...`; RagFabric maps it to its psycopg driver at
   startup, so it can be used as given.
-- `FORWARDED_ALLOW_IPS="*"` is set because the API is reachable only through Render's proxy, which
-  sets `X-Forwarded-For`. The sign-in limit then counts real client addresses.
+- **Client addresses.** The sign-in limit counts per client address. Render's proxy appends the
+  client's address to any `X-Forwarded-For` the client sent, so trusting every hop (`*`) would let
+  a client choose its own address and dodge the limit. The Blueprint sets
+  `FORWARDED_ALLOW_IPS=10.0.0.0/8`: uvicorn then walks the header from the right, skips addresses
+  in that range, and takes the first one outside it, which is the one Render's edge added. That
+  range is an assumption about Render's internal network that the project has not verified. After
+  deploying, sign in once and check that the access log's `client` field shows your own public
+  address; if it shows a private address, widen or correct the range, and if it shows a different
+  public address, remove the setting.
 - Logs are JSON lines in the service's Logs tab. Each response's `X-Request-ID` finds its lines
   (see [Operations](../operations.md)).
 - A disk ties the service to one instance. Scaling out needs the uploads moved off local disk,
