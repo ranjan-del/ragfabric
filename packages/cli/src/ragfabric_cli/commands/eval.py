@@ -24,6 +24,7 @@ from ragfabric_core.evaluation.dataset import (
     shipped_corpus_paths,
     shipped_questions_path,
 )
+from ragfabric_core.evaluation.datasets import DATASETS, import_dataset
 from ragfabric_core.evaluation.report import render_report
 from ragfabric_core.evaluation.runner import run_batch
 from ragfabric_core.evaluation.session import prepare
@@ -66,25 +67,105 @@ def _fmt(value) -> str:
     return "n/a" if value is None else f"{value:.2f}"
 
 
+def _corpus_files(folder: Path) -> list[Path]:
+    return sorted(p for p in folder.iterdir() if p.is_file() and not p.name.startswith("."))
+
+
 @eval_app.command("corpus")
 def corpus(
     collection: str | None = typer.Option(
         None, "--collection", help="Defaults to evaluation.collection."
     ),
+    path: Path | None = typer.Option(
+        None, "--path", help="A folder of documents, such as an imported corpus/ folder."
+    ),
 ) -> None:
-    """Ingest the shipped synthetic corpus into the evaluation collection (idempotent).
+    """Ingest the shipped synthetic corpus, or a folder, into a collection (idempotent).
 
     \b
     Examples:
       ragfabric eval corpus
+      ragfabric eval corpus --path ./bench/scifact-100/corpus --collection scifact-100
     """
     name = collection or get_config().evaluation.collection
-    ingested, skipped, failed = ingest_corpus(get_session_factory(), name, shipped_corpus_paths())
+    if path is not None and not path.is_dir():
+        _fail(f"{path} is not a directory")
+    paths = _corpus_files(path) if path is not None else shipped_corpus_paths()
+    ingested, skipped, failed = ingest_corpus(get_session_factory(), name, paths)
     typer.echo(
         f"{name}: {len(ingested)} ingested, {len(skipped)} already loaded, {len(failed)} failed"
     )
     if failed:
         _fail(f"failed: {', '.join(failed)}")
+
+
+@eval_app.command("datasets")
+def datasets(as_json: bool = typer.Option(False, "--json")) -> None:
+    """List the public datasets ``eval import`` can convert, with source and licence.
+
+    \b
+    Examples:
+      ragfabric eval datasets
+      ragfabric eval datasets --json
+    """
+    rows = [
+        {
+            "name": d.spec.name,
+            "title": d.spec.title,
+            "source": d.spec.source,
+            "licence": d.spec.licence,
+        }
+        for d in DATASETS.values()
+    ]
+    if as_json:
+        typer.echo(json.dumps(rows))
+        return
+    for r in rows:
+        typer.echo(f"{r['name']:<14} {r['title']}")
+        typer.echo(f"{'':<14} source:  {r['source']}")
+        typer.echo(f"{'':<14} licence: {r['licence']}")
+
+
+@eval_app.command("import")
+def import_command(
+    name: str = typer.Argument(..., help="Dataset name; see ragfabric eval datasets."),
+    limit: int | None = typer.Option(
+        None, "--limit", min=2, help="Number of documents; default the whole corpus."
+    ),
+    questions: int | None = typer.Option(None, "--questions", min=1, help="Question cap."),
+    seed: int = typer.Option(11, "--seed", help="Sampling seed."),
+    out: Path | None = typer.Option(None, "--out", help="Default ./bench/<name>-<limit|full>."),
+    cache_dir: Path | None = typer.Option(
+        None, "--cache-dir", help="Download cache; default ~/.cache/ragfabric/datasets."
+    ),
+) -> None:
+    """Download (cached), sample and convert a public dataset to the evaluation format.
+
+    \b
+    Examples:
+      ragfabric eval import scifact --limit 100
+      ragfabric eval import multihop-rag --limit 100 --questions 50 --seed 11 --out ./bench/mh-100
+    """
+    target = out or Path("bench") / f"{name}-{limit if limit is not None else 'full'}"
+    try:
+        manifest = import_dataset(
+            name, target, limit=limit, questions=questions, seed=seed, cache_dir=cache_dir
+        )
+    except (ValueError, OSError) as exc:
+        _fail(str(exc))
+    counts = manifest["counts"]
+    typer.echo(
+        f"{manifest['dataset']}: {counts['documents']} documents, {counts['questions']} questions "
+        f"written to {target}"
+    )
+    for dropped in manifest.get("dropped", []):
+        typer.echo(f"  dropped {dropped['count']} {dropped['what']}: {dropped['reason']}")
+    typer.echo(f"licence (as stated by the source): {manifest['licence']}")
+    typer.echo(f"next: ragfabric eval corpus --path {target / 'corpus'} --collection {target.name}")
+    typer.echo(
+        f"      ragfabric eval run --questions {target / 'questions.json'} "
+        f"--collection {target.name}"
+    )
 
 
 @eval_app.command("run")
