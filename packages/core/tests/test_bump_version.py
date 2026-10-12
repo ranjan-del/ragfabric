@@ -53,7 +53,7 @@ def test_every_version_and_pin_moves(tree):
         assert old not in text, rel
         assert "9.8.7" in text, rel
     cli = (tree / "packages/cli/pyproject.toml").read_text()
-    assert 'ragfabric-core[drive]==9.8.7' in cli and 'ragfabric-sdk==9.8.7' in cli
+    assert "ragfabric-core[drive]==9.8.7" in cli and "ragfabric-sdk==9.8.7" in cli
     assert '__version__ = "9.8.7"' in (tree / FILES[4]).read_text()
     assert "RAGFABRIC_VERSION:-9.8.7" in (tree / OPTIONAL[0]).read_text()
     assert "RAGFABRIC_VERSION=9.8.7" in (tree / OPTIONAL[1]).read_text()
