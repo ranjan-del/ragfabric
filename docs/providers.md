@@ -32,7 +32,7 @@ response, never estimated when the provider reports them.
 | Provider | Status | Notes |
 |---|---|---|
 | Ollama (`nomic-embed-text` and others) | Phase 1 (shipped) | **Default** since Phase 3. Local |
-| OpenAI `text-embedding-3-*` | Phase 1 (shipped) | |
+| OpenAI `text-embedding-3-*` | Phase 1 (shipped) | Asked for `embeddings.dim` dimensions (Phase 10), so `dim: 768` fits the column migration 0004 pins |
 | Offline hashing | Phase 1 (shipped) | Test double from v1, deterministic, no network. Not for production use |
 | Voyage, Cohere, sentence transformers | later | |
 
@@ -123,8 +123,8 @@ Interface: Phase 1 (shipped).
 | Connector | Status |
 |---|---|
 | Upload | Phase 1 (shipped, v1 upload) |
-| Watched folder | v1.0.0 |
-| Google Drive | v1.0.0 |
+| Watched folder | Phase 10 (on the phase branch): polled, settle check, symlinks kept inside the folder. See [connectors.md](connectors.md) |
+| Google Drive | Phase 10 (on the phase branch, extra `ragfabric[drive]`): service account, read-only scope; tested with fake HTTP only, not yet against a real account |
 | Slack, Jira, Confluence, S3 | later |
 
 ## Writing a provider
