@@ -48,6 +48,10 @@ rerank = ["sentence-transformers>=5.1"]
 # LM Studio nor Ollama can skip it.
 openai = ["openai>=3.13"]
 anthropic = ["anthropic>=1.5"]
+# Google Drive connector (connectors/google_drive.py): the official API client
+# and service account credentials. Optional because only a deployment that
+# syncs a Drive folder needs it.
+drive = ["google-api-python-client>=2.190", "google-auth>=2.40"]
 
 [project.urls]
 Homepage = "https://github.com/ranjan-del/ragfabric"

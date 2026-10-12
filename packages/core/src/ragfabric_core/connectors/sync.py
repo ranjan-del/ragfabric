@@ -37,7 +37,7 @@ from ragfabric_core.config_file import LimitsConfig
 from ragfabric_core.connectors.base import Connector, SourceDocument
 from ragfabric_core.ingest.delete import delete_document_everywhere
 from ragfabric_core.ingest.pipeline import ingest_document, reingest_document
-from ragfabric_core.ingest.validate import UploadRejected, validate_upload
+from ragfabric_core.ingest.validate import UploadRejected, check_size, validate_upload
 from ragfabric_core.models.connector import ConnectorItem
 from ragfabric_core.models.document import Document
 from ragfabric_core.runtime import get_config
@@ -58,6 +58,9 @@ class SyncReport:
     failed: int = 0
     # Listed but not ready yet (still being written); looked at again next pass.
     pending: int = 0
+    # Passed over by the connector itself as not a document (a Drive image or
+    # shortcut). Not a problem: a shared folder legitimately holds other files.
+    ignored: int = 0
     # One line per refused or failed source: "<source id>: <reason>".
     problems: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -67,6 +70,7 @@ class SyncReport:
             f"{self.connector}: {self.added} added, {self.updated} updated, "
             f"{self.unchanged} unchanged, {self.deleted} deleted, {self.skipped} skipped, "
             f"{self.failed} failed, {self.pending} pending"
+            + (f", {self.ignored} ignored" if self.ignored else "")
         )
 
 
@@ -91,6 +95,24 @@ def _remember(item: ConnectorItem, source: SourceDocument) -> None:
     item.source_version = source.version
 
 
+def _refuse(
+    db: Session,
+    item: ConnectorItem,
+    source: SourceDocument,
+    exc: UploadRejected,
+    *,
+    name: str,
+    report: SyncReport,
+) -> None:
+    """Record a refused source with its reason, so it is not fetched again until it changes."""
+    _remember(item, source)
+    item.rejected_reason = exc.reason
+    db.commit()
+    report.skipped += 1
+    report.problems.append(f"{source.source_id}: {exc.reason}")
+    log.warning("connector %s refused %s: %s", name, source.source_id, exc.reason)
+
+
 def _sync_one(
     db: Session,
     connector: Connector,
@@ -110,27 +132,33 @@ def _sync_one(
         report.unchanged += 1
         return
 
+    if item is None:
+        item = ConnectorItem(connector=name, source_id=source.source_id)
+        db.add(item)
+
+    # A size the source declares is checked before the download, so a 5 GB
+    # file in a Drive folder is refused without being read into memory.
+    if source.size_bytes is not None:
+        try:
+            check_size(source.size_bytes, limits)
+        except UploadRejected as exc:
+            _refuse(db, item, source, exc, name=name, report=report)
+            return
+
     try:
         data = connector.fetch(source.source_id)
     except Exception as exc:
         report.failed += 1
         report.problems.append(f"{source.source_id}: could not fetch ({exc})")
         log.warning("connector %s could not fetch %s: %s", name, source.source_id, exc)
+        if item in db.new:
+            db.expunge(item)  # a failed fetch writes no row
         return
-
-    if item is None:
-        item = ConnectorItem(connector=name, source_id=source.source_id)
-        db.add(item)
 
     try:
         validate_upload(source.name, data, limits)
     except UploadRejected as exc:
-        _remember(item, source)
-        item.rejected_reason = exc.reason
-        db.commit()
-        report.skipped += 1
-        report.problems.append(f"{source.source_id}: {exc.reason}")
-        log.warning("connector %s refused %s: %s", name, source.source_id, exc.reason)
+        _refuse(db, item, source, exc, name=name, report=report)
         return
 
     content_hash = hashlib.sha256(data).hexdigest()
@@ -188,6 +216,7 @@ def sync_connector(
     # raises here, and nothing below runs, so nothing is deleted on a partial view.
     sources = list(connector.list_documents())
     listed = {source.source_id for source in sources}
+    report.ignored = len(getattr(connector, "ignored", None) or [])
 
     for source in sources:
         _sync_one(

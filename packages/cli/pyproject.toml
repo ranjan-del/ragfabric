@@ -27,6 +27,7 @@ anthropic = ["ragfabric-core[anthropic]==0.4.0"]
 chroma = ["ragfabric-core[chroma]==0.4.0"]
 bm25 = ["ragfabric-core[bm25]==0.4.0"]
 rerank = ["ragfabric-core[rerank]==0.4.0"]
+drive = ["ragfabric-core[drive]==0.4.0"]
 
 [project.scripts]
 ragfabric = "ragfabric_cli.main:main"
