@@ -62,6 +62,7 @@ class ImportedDataset:
     description: str
     dropped: list[dict] = field(default_factory=list)
     counts: dict[str, int] = field(default_factory=dict)
+    files: list[dict] = field(default_factory=list)  # extra downloads made while converting
 
 
 def urllib_fetcher(url: str, dest: Path) -> None:
@@ -189,7 +190,7 @@ def write_imported(
         "source": spec.source,
         "licence": spec.licence,
         "notes": spec.notes,
-        "files": files,
+        "files": files + data.files,
         "sampling": {"limit": limit, "questions": questions, "seed": seed},
         "counts": {"documents": len(data.documents), "questions": len(data.questions)}
         | data.counts,

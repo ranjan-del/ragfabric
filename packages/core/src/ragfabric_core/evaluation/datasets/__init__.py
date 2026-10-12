@@ -14,13 +14,16 @@ from ragfabric_core.evaluation.datasets.base import (
     DEFAULT_CACHE_DIR,
     DEFAULT_SEED,
     Fetcher,
+    RemoteFile,
     fetch_cached,
     sha256_of,
     write_imported,
 )
 from ragfabric_core.evaluation.datasets.beir import FIQA, NFCORPUS, SCIFACT
+from ragfabric_core.evaluation.datasets.financebench import FINANCEBENCH
+from ragfabric_core.evaluation.datasets.multihop import MULTIHOP_RAG
 
-DATASETS = {d.spec.name: d for d in (SCIFACT, NFCORPUS, FIQA)}
+DATASETS = {d.spec.name: d for d in (SCIFACT, NFCORPUS, FIQA, MULTIHOP_RAG, FINANCEBENCH)}
 
 
 def import_dataset(
@@ -49,7 +52,11 @@ def import_dataset(
         local = fetch_cached(name, remote, cache, fetcher, verify=verify_checksums)
         paths[remote.filename] = local
         files.append({"url": remote.url, "filename": remote.filename, "sha256": sha256_of(local)})
-    data = dataset.convert(paths, limit=limit, questions=questions, seed=seed)
+
+    def fetch(remote: RemoteFile) -> Path:
+        return fetch_cached(name, remote, cache, fetcher, verify=verify_checksums)
+
+    data = dataset.convert(paths, limit=limit, questions=questions, seed=seed, fetch=fetch)
     return write_imported(
         Path(out), dataset.spec, data, files=files, limit=limit, questions=questions, seed=seed
     )
