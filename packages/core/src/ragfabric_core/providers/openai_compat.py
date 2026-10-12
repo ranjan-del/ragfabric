@@ -18,7 +18,13 @@ import time
 from collections.abc import Iterator
 from typing import Any
 
-from ragfabric_core.providers.base import Completion, EmbeddingResult, Message, ProviderError
+from ragfabric_core.providers.base import (
+    Completion,
+    EmbeddingResult,
+    Message,
+    ProviderError,
+    StreamUsage,
+)
 
 REASONING_MODEL_PREFIXES = ("gpt-5", "o1", "o3", "o4")
 
@@ -114,14 +120,13 @@ class OpenAICompatibleLLM:
         model: str | None = None,
         max_tokens: int = 1024,
         temperature: float = 0.0,
+        usage: StreamUsage | None = None,
     ) -> Iterator[str]:
         """Yield text deltas from a server sent event stream.
 
-        Shared by ``OpenAIProvider`` and ``OllamaProvider``, since Ollama serves
-        the same streamed chunk shape at its OpenAI compatible endpoint. Usage
-        is not reported on streamed chunks by either vendor, so no token count
-        is returned here; the caller accounts for that honestly rather than
-        estimating (ADR 0004).
+        ``stream_options.include_usage`` asks for a final chunk that carries
+        ``usage`` and no choices; its counts fill ``usage`` when one is given.
+        A server that ignores the option leaves ``usage`` unknown (``None``).
         """
         chosen = model or self.default_model
         kwargs: dict[str, Any] = {
@@ -129,6 +134,7 @@ class OpenAICompatibleLLM:
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "max_completion_tokens": max_tokens,
             "stream": True,
+            "stream_options": {"include_usage": True},
         }
         if not chosen.startswith(REASONING_MODEL_PREFIXES):
             kwargs["temperature"] = temperature
@@ -139,6 +145,10 @@ class OpenAICompatibleLLM:
         except Exception as exc:  # the SDK raises many types; callers get one
             raise ProviderError(self.name, str(exc)) from exc
         for chunk in chunks:
+            reported = getattr(chunk, "usage", None)
+            if reported is not None and usage is not None:
+                usage.input_tokens = int(getattr(reported, "prompt_tokens", 0) or 0)
+                usage.output_tokens = int(getattr(reported, "completion_tokens", 0) or 0)
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta.content
@@ -273,7 +283,9 @@ class OllamaProvider:
         model: str | None = None,
         max_tokens: int = 1024,
         temperature: float = 0.0,
+        usage: StreamUsage | None = None,
     ) -> Iterator[str]:
+        """Yield content deltas; the final chunk's counts fill ``usage`` when given."""
         body = self._body(messages, model, max_tokens, temperature, stream=True)
         try:
             for line in self._transport.stream(self._chat_url, body):
@@ -283,6 +295,9 @@ class OllamaProvider:
                 delta = (data.get("message") or {}).get("content")
                 if delta:
                     yield delta
+                if data.get("done") and usage is not None:
+                    usage.input_tokens = int(data.get("prompt_eval_count") or 0)
+                    usage.output_tokens = int(data.get("eval_count") or 0)
         except ProviderError:
             raise
         except Exception as exc:

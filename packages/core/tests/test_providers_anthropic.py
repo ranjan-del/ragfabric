@@ -112,3 +112,31 @@ def test_anthropic_provider_without_the_extra_names_the_install_command(monkeypa
     with pytest.raises(ProviderError) as exc:
         AnthropicProvider(api_key="k")
     assert "ragfabric[anthropic]" in str(exc.value)
+
+
+class _FakeStream:
+    def __init__(self, pieces, in_tok, out_tok):
+        self.text_stream = iter(pieces)
+        self._final = SimpleNamespace(
+            usage=SimpleNamespace(input_tokens=in_tok, output_tokens=out_tok)
+        )
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def get_final_message(self):
+        return self._final
+
+
+def test_stream_fills_usage_from_the_final_message():
+    from ragfabric_core.providers.base import StreamUsage
+
+    fm = FakeMessages()
+    fm.stream = lambda **kwargs: _FakeStream(["a", "b"], 30, 2)
+    usage = StreamUsage()
+    llm = AnthropicProvider(api_key="k", client=client_with(fm))
+    assert "".join(llm.stream([Message(role="user", content="q")], usage=usage)) == "ab"
+    assert (usage.input_tokens, usage.output_tokens) == (30, 2)

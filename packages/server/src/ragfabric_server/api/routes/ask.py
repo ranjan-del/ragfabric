@@ -71,7 +71,13 @@ from ragfabric_core.models.access import AuditLog
 from ragfabric_core.models.document import QueryLog
 from ragfabric_core.models.runs import RetrievalRun, Source
 from ragfabric_core.pricing import run_cost
-from ragfabric_core.providers.base import LLMProvider, Message, is_offline
+from ragfabric_core.providers.base import (
+    LLMProvider,
+    Message,
+    StreamUsage,
+    is_offline,
+    stream_accepts_usage,
+)
 from ragfabric_core.providers.registry import answering_model
 from ragfabric_core.runtime import get_config
 from ragfabric_core.strategies.base import (
@@ -144,6 +150,13 @@ def _context(payload: AskRequest, principal: Principal, access: AccessFilter) ->
 def _rows(chunks: list[RetrievedChunk]) -> list[dict]:
     """Reuse ``search.py``'s per-chunk dict mapping rather than restating it."""
     return [_chunk_to_row(c) for c in chunks]
+
+
+def _stream(llm: LLMProvider, messages: list[Message], usage: StreamUsage):
+    """Stream an answer, passing ``usage`` to providers that can fill it."""
+    if stream_accepts_usage(llm):
+        return llm.stream(messages, max_tokens=800, usage=usage)
+    return llm.stream(messages, max_tokens=800)
 
 
 def _record(
@@ -381,7 +394,9 @@ def ask(
             llm_calls = result.llm_calls + _cited_llm_calls(cited)
         elif uses_graph_path(result):
             pieces = []
-            for delta in llm.stream(
+            stream_usage = StreamUsage()
+            for delta in _stream(
+                llm,
                 [
                     Message(role="system", content=GRAPH_SYSTEM_PROMPT),
                     Message(
@@ -389,14 +404,14 @@ def ask(
                         content=build_graph_prompt(payload.query, result.chunks, result.subgraph),
                     ),
                 ],
-                max_tokens=800,
+                stream_usage,
             ):
                 pieces.append(delta)
                 yield _event("token", {"text": delta})
             streamed = "".join(pieces)
-            # The stream protocol yields no usage, so zero tokens is the
-            # honest count here, the same as the other streamed branches.
-            in_tokens = out_tokens = 0
+            # What the provider reported for the stream; None when it reported
+            # nothing, which the done event shows as null (ADR 0004).
+            in_tokens, out_tokens = stream_usage.input_tokens, stream_usage.output_tokens
             # Exactly one call, whatever the contract then removes: the graph
             # answer is edited claim by claim, never regenerated.
             llm_calls = result.llm_calls + 1
@@ -416,20 +431,21 @@ def ask(
                 )
         else:
             pieces: list[str] = []
-            for delta in llm.stream(
+            stream_usage = StreamUsage()
+            for delta in _stream(
+                llm,
                 [
                     Message(role="system", content=SYSTEM_PROMPT),
                     Message(role="user", content=build_prompt(payload.query, result.chunks)),
                 ],
-                max_tokens=800,
+                stream_usage,
             ):
                 pieces.append(delta)
                 yield _event("token", {"text": delta})
             text = "".join(pieces)
-            # The stream protocol yields text only, no usage, so an accepted
-            # streamed answer honestly reports zero tokens here rather than a
-            # number the provider never gave us.
-            in_tokens = out_tokens = 0
+            # What the provider reported for the stream; None when it reported
+            # nothing, which the done event shows as null (ADR 0004).
+            in_tokens, out_tokens = stream_usage.input_tokens, stream_usage.output_tokens
             try:
                 assert_citation_contract(text, result.chunks)
             except CitationViolation:
@@ -456,7 +472,10 @@ def ask(
                 else:
                     cited = generate_cited_answer(payload.query, result.chunks, llm)
                     text = cited.text
-                    in_tokens, out_tokens = cited.input_tokens, cited.output_tokens
+                    # The rejected stream's tokens were spent too; unknown
+                    # stays unknown rather than being dropped from the sum.
+                    in_tokens = None if in_tokens is None else in_tokens + cited.input_tokens
+                    out_tokens = None if out_tokens is None else out_tokens + cited.output_tokens
                     # One real call was already spent on the rejected stream;
                     # _cited_llm_calls (search.py, reused rather than
                     # reimplemented) accounts correctly for however many more
@@ -489,8 +508,10 @@ def ask(
             spans=spans,
             embedding_model=embedding_model,
             llm_calls=llm_calls,
-            input_tokens=result.input_tokens + in_tokens,
-            output_tokens=result.output_tokens + out_tokens,
+            # The run row's token columns are not nullable, so an unreported
+            # stream adds 0 there; the done event below says null instead.
+            input_tokens=result.input_tokens + (in_tokens or 0),
+            output_tokens=result.output_tokens + (out_tokens or 0),
             total_ms=total_ms,
             retrieval_ms=retrieval_ms,
             llm=llm,
@@ -509,8 +530,10 @@ def ask(
                     "embedding_calls": result.embedding_calls,
                     "llm_calls": llm_calls,
                     "retrieval_calls": result.retrieval_calls,
-                    "input_tokens": result.input_tokens + in_tokens,
-                    "output_tokens": result.output_tokens + out_tokens,
+                    "input_tokens": None if in_tokens is None else result.input_tokens + in_tokens,
+                    "output_tokens": None
+                    if out_tokens is None
+                    else result.output_tokens + out_tokens,
                 },
             },
         )

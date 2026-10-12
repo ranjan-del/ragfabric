@@ -40,6 +40,29 @@ class Completion(BaseModel):
     finish_reason: str | None = None
 
 
+class StreamUsage(BaseModel):
+    """Token counts a provider reports for one streamed answer, filled when the stream ends.
+
+    ``None`` means the provider reported nothing, never zero (ADR 0004). A
+    caller passes one to ``stream(..., usage=...)`` and reads it after the
+    last delta.
+    """
+
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+
+
+def stream_accepts_usage(llm: object) -> bool:
+    """True when ``llm.stream`` takes a ``usage`` argument (test doubles may not)."""
+    import inspect
+
+    try:
+        params = inspect.signature(llm.stream).parameters  # type: ignore[attr-defined]
+    except (TypeError, ValueError, AttributeError):
+        return False
+    return "usage" in params or any(p.kind is p.VAR_KEYWORD for p in params.values())
+
+
 @runtime_checkable
 class LLMProvider(Protocol):
     name: str
@@ -62,6 +85,7 @@ class LLMProvider(Protocol):
         model: str | None = None,
         max_tokens: int = 1024,
         temperature: float = 0.0,
+        usage: StreamUsage | None = None,
     ) -> Iterator[str]: ...
 
 

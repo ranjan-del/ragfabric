@@ -139,3 +139,19 @@ def test_ollama_chat_no_longer_needs_the_openai_extra(monkeypatch):
 
     monkeypatch.setattr(openai_compat, "_import_openai", boom)
     assert OllamaProvider().name == "ollama"
+
+
+def test_stream_fills_usage_from_the_final_chunk():
+    from ragfabric_core.providers.base import StreamUsage
+
+    lines = [
+        json.dumps({"message": {"content": "hi"}, "done": False}),
+        json.dumps(
+            {"message": {"content": ""}, "done": True, "eval_count": 5, "prompt_eval_count": 42}
+        ),
+    ]
+    usage = StreamUsage()
+    out = "".join(
+        OllamaProvider(transport=FakeTransport(stream_lines=lines)).stream(_user(), usage=usage)
+    )
+    assert out == "hi" and (usage.input_tokens, usage.output_tokens) == (42, 5)
