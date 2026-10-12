@@ -1,0 +1,92 @@
+# The documentation site (mkdocs.yml).
+#
+# build:  on pull requests that touch the docs, builds the site in strict mode,
+#         so a broken link or a page missing from the nav fails the check. It is
+#         an optional check, not one of the three required ones.
+# deploy: on manual dispatch only. Builds the site and pushes it to the
+#         organisation repository ragfabric/ragfabric.github.io, which serves
+#         https://ragfabric.github.io. Nothing publishes on a push to main.
+#
+# Owner setup for deploy, once (docs/contributing.md):
+#   1. Create the repository ragfabric/ragfabric.github.io with Pages serving
+#      the main branch.
+#   2. Generate a key pair; add the public key to that repository as a deploy
+#      key with write access, and the private key here as the secret
+#      DOCS_DEPLOY_KEY.
+name: docs
+
+on:
+  pull_request:
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.12.13"
+
+jobs:
+  build:
+    name: Docs site builds (strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - run: uv sync --frozen --only-group docs
+      - run: uv run --no-sync mkdocs build --strict
+      - uses: actions/upload-artifact@v7
+        with:
+          name: site
+          path: site/
+          if-no-files-found: error
+
+  deploy:
+    name: Publish to ragfabric.github.io
+    needs: build
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: docs-deploy
+      cancel-in-progress: false
+    steps:
+      - name: Require the deploy key
+        env:
+          DOCS_DEPLOY_KEY: ${{ secrets.DOCS_DEPLOY_KEY }}
+        run: |
+          if [ -z "$DOCS_DEPLOY_KEY" ]; then
+            echo "::error::The DOCS_DEPLOY_KEY secret is not set. Create ragfabric/ragfabric.github.io, add a deploy key with write access there, and store its private key as DOCS_DEPLOY_KEY in this repository (see the header of .github/workflows/docs.yml)."
+            exit 1
+          fi
+      - uses: actions/download-artifact@v8
+        with:
+          name: site
+          path: site/
+      - uses: actions/checkout@v7
+        with:
+          repository: ragfabric/ragfabric.github.io
+          ssh-key: ${{ secrets.DOCS_DEPLOY_KEY }}
+          path: pages
+      - name: Replace the published site with this build
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          cd pages
+          git rm -rq --ignore-unmatch .
+          cp -R ../site/. .
+          touch .nojekyll
+          git add -A
+          if git diff --cached --quiet; then
+            echo "The site is unchanged; nothing to publish."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -q -m "docs: publish from ranjan-del/ragfabric@${SOURCE_SHA}"
+          git push origin HEAD

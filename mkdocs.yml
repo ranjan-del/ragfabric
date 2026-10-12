@@ -1,0 +1,125 @@
+# mkdocs.yml: the documentation site, built from docs/ as it is.
+#   uv sync --group docs
+#   uv run mkdocs serve            # http://127.0.0.1:8000, reloads on save
+#   uv run mkdocs build --strict   # what CI runs; any broken link fails it
+# Published to https://ragfabric.github.io by .github/workflows/docs.yml, on manual dispatch only.
+
+site_name: RagFabric
+site_description: Self hosted, measurement first retrieval augmented generation.
+site_url: https://ragfabric.github.io/
+repo_url: https://github.com/ranjan-del/ragfabric
+repo_name: ranjan-del/ragfabric
+edit_uri: edit/main/docs/
+docs_dir: docs
+site_dir: site
+
+# Working documents stay in the repository, not on the site. README.md is the
+# repository's index of docs/; index.md is the site's.
+exclude_docs: |
+  plans/
+  design/
+  /README.md
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - content.code.copy
+    - content.action.edit
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+nav:
+  - Home: index.md
+  - Quick start: getting-started.md
+  - Concepts:
+      - Ingestion: concepts/ingestion.md
+      - Embeddings: concepts/embeddings.md
+      - Lexical and vector search: concepts/lexical-vs-vector.md
+      - Reranking: concepts/reranking.md
+      - Agentic loops: concepts/agentic-loops.md
+      - Knowledge graphs: concepts/knowledge-graphs.md
+      - Routing as classification: concepts/routing-as-classification.md
+      - Access control: concepts/access-control.md
+      - Trade-offs: trade-offs.md
+      - Failure cases: failure-cases.md
+      - Learning notes:
+          - Lexical and semantic: learning/lexical-vs-semantic.md
+          - First agentic run: learning/agentic-first-run.md
+          - First graph extraction: learning/graph-extraction-first-run.md
+          - First routing run: learning/routing-first-run.md
+          - First hardening run: learning/hardening-first-run.md
+  - Strategies:
+      - Traditional: traditional-rag.md
+      - Vectorless: vectorless-rag.md
+      - Agentic: agentic-rag.md
+      - Graph: graph-rag.md
+      - Routing: routing.md
+  - Connectors: connectors.md
+  - Deployment:
+      - Overview: deployment.md
+      - Single VM: deploy/single-vm.md
+      - Render: deploy/render.md
+      - Railway: deploy/railway.md
+      - Static web app: deploy/static-ui.md
+  - Operations: operations.md
+  - Reference:
+      - Configuration: configuration.md
+      - Providers: providers.md
+      - Troubleshooting: troubleshooting.md
+      - Architecture: architecture.md
+      - Evaluation: evaluation.md
+      - Benchmarks: benchmarks/README.md
+      - Cost: cost.md
+      - Architecture decisions:
+          - 0001 Monorepo with layered packages: adr/0001-monorepo-with-layered-packages.md
+          - 0002 Common retrieval result: adr/0002-common-retrieval-result.md
+          - 0003 Access control inside retrieval: adr/0003-access-control-inside-retrieval.md
+          - 0004 Measurement first: adr/0004-measurement-first-no-fabricated-numbers.md
+          - 0005 Apache 2.0: adr/0005-apache-2-license.md
+          - 0006 Pinned embedding model: adr/0006-pinned-embedding-model-and-dimension.md
+          - 0007 BM25 in SQL: adr/0007-bm25-in-sql.md
+          - 0008 RRF over score fusion: adr/0008-rrf-over-score-fusion.md
+          - 0009 Plain state machine: adr/0009-plain-state-machine-over-langgraph.md
+          - 0010 Repair policy and termination: adr/0010-repair-policy-and-termination.md
+          - 0011 Recursive CTE over Neo4j: adr/0011-postgres-recursive-cte-over-neo4j.md
+          - 0012 Extraction confidence: adr/0012-extraction-confidence-and-graph-citations.md
+          - 0013 Router as a strategy: adr/0013-router-as-a-strategy.md
+          - 0014 Signals override the planner: adr/0014-signals-override-the-planner.md
+  - Contributing:
+      - Contributing: contributing.md
+      - Releasing: releasing.md
+  - Licensing: licensing.md

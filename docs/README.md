@@ -1,5 +1,8 @@
 # RagFabric documentation
 
+These pages are also built into a documentation site with Material for MkDocs (`mkdocs.yml`;
+`uv sync --group docs && uv run mkdocs serve`). Plans and design documents are not published.
+
 | Document | What it covers | Status |
 |---|---|---|
 | [getting-started.md](getting-started.md) | Install, first ingest, first question | Phase 3: the real end to end flow with Traditional RAG; Vectorless RAG lands in Phase 4 |
@@ -22,6 +25,14 @@
 | [evaluation.md](evaluation.md) | Question set, metrics, `make eval`, complexity score | Concept complete; implementation v0.5.0 |
 | [configuration.md](configuration.md) | `ragfabric.yaml`, environment, pricing | Phase 3: every top level key, including `llm`, `reranker` and `limits`, is read by the runtime |
 | [providers.md](providers.md) | LLM, embedding, store and connector implementations | Phase 3: pgvector and Chroma queried, rerankers shipped, Ollama the default provider |
+| [connectors.md](connectors.md) | Watched folder and Google Drive connectors: setup, what is synced, what is deleted | Phase 10: folder verified for real, Drive tested with fake HTTP only |
+| [deployment.md](deployment.md) | Choosing a route; the production rails every route needs | Phase 10 |
+| [deploy/single-vm.md](deploy/single-vm.md) | One machine with Docker Compose and Caddy for HTTPS | Phase 10: run on a workstation, not yet on a public server |
+| [deploy/render.md](deploy/render.md), [deploy/railway.md](deploy/railway.md) | Render Blueprint and Railway setup | Phase 10: written from the providers' documentation, not deployed |
+| [deploy/static-ui.md](deploy/static-ui.md) | The web app on a static host that can proxy `/api` | Phase 10: not deployed |
+| [operations.md](operations.md) | Logs, request ids, rate limits, upload validation, backups, upgrades | Phase 10 |
+| [releasing.md](releasing.md) | Version script, release workflow, switching on PyPI | Phase 10: no release has used it yet |
+| [learning/hardening-first-run.md](learning/hardening-first-run.md) | A record of the first real run of the production stack, including what went wrong | Phase 10 |
 | [licensing.md](licensing.md) | Apache 2.0 in plain words, why not MIT or copyleft, the CLA | Current |
 | [troubleshooting.md](troubleshooting.md) | Common failures and how to diagnose them | Grows with each release |
 | [design/](design/) | Full design document | Approved 2026-09-13 |
@@ -40,6 +51,5 @@ Added for the flagship documentation standard (see the README section "Project d
 |---|---|
 | [benchmarks/README.md](benchmarks/README.md) | partial |
 | [cost.md](cost.md) | to be written |
-| [deployment.md](deployment.md) | partial |
 | [failure-cases.md](failure-cases.md) | partial |
 | [trade-offs.md](trade-offs.md) | partial |

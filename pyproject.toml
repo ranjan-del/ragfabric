@@ -35,6 +35,14 @@ dev = [
   "ruff>=0.16",
   "import-linter>=2.15",
 ]
+# The documentation site (mkdocs.yml). Not part of the product and not in the
+# default sync: `uv sync --group docs`, then `uv run mkdocs serve`.
+# MkDocs is held below 2.0, which drops the plugin and theme system Material
+# is built on (Material's own warning when it builds).
+docs = [
+  "mkdocs-material>=9.7",
+  "mkdocs>=1.6,<2",
+]
 
 [tool.pytest.ini_options]
 testpaths = [
