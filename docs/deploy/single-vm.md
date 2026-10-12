@@ -100,6 +100,9 @@ All in `deploy/compose/`:
 
    Open `https://$DOMAIN/`, sign in as the first admin, upload a document and ask a question.
 
+   For a trial on other ports (`HTTP_PORT`, `HTTPS_PORT`), use the HTTPS address with its port:
+   Caddy's redirect from plain HTTP assumes 443.
+
 ## Profiles
 
 | Profile | Starts | When |

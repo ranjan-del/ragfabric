@@ -22,6 +22,27 @@ def test_db_upgrade_and_downgrade_on_sqlite(tmp_path, monkeypatch):
     assert inspect(create_engine(url)).get_table_names() == ["alembic_version"]
 
 
+def test_db_upgrade_logs_in_the_configured_format(tmp_path, monkeypatch):
+    """The container runs `ragfabric db upgrade` before `serve`; under JSON logs its
+    migration lines must be JSON too, or a log shipper gets a mixed stream."""
+    import json
+
+    from ragfabric_core import runtime
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'cli.db'}")
+    monkeypatch.setenv("RAGFABRIC_LOG_FORMAT", "json")
+    (tmp_path / "ragfabric.yaml").write_text("logging:\n  format: text\n")
+    monkeypatch.setenv("RAGFABRIC_CONFIG", str(tmp_path / "ragfabric.yaml"))
+    runtime.reset_config()
+    result = runner.invoke(app, ["db", "upgrade"])
+    assert result.exit_code == 0, result.output
+    migration_lines = [line for line in result.output.splitlines() if "Running upgrade" in line]
+    assert migration_lines
+    for line in migration_lines:
+        assert json.loads(line)["logger"] == "alembic.runtime.migration"
+    runtime.reset_config()
+
+
 def test_config_validate_reports_active_implementations(tmp_path):
     p = tmp_path / "ragfabric.yaml"
     p.write_text(
