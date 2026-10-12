@@ -1,4 +1,6 @@
-# Publishes container images to GHCR when a v* tag is pushed.
+# Runs when a v* tag is pushed: checks the tag against the code, publishes the
+# container images to GHCR, builds the Python distributions, and (only when the
+# owner has switched it on) uploads them to PyPI. Guide: docs/releasing.md
 #
 # The API and the worker are the SAME image. deploy/docker/api.Dockerfile is
 # built once, and the worker differs only by its command (`ragfabric worker`),
@@ -7,7 +9,13 @@
 # produce two images that are byte identical and free to drift apart later.
 #
 # Nothing here runs on a branch push. The only trigger is a tag matching v*, so
-# the release is an explicit act.
+# the release is an explicit act. Every job waits for `verify`: a tag that does
+# not match the versions in the code builds nothing, because a mismatched
+# upload to PyPI can never be taken back.
+#
+# PyPI publishing is off until the repository variable PYPI_PUBLISH is set to
+# true, and uses trusted publishing (no token in the repository) from the
+# `pypi` environment, which can require a reviewer.
 name: release
 
 on:
@@ -17,11 +25,24 @@ on:
 
 permissions:
   contents: read
-  packages: write
+
+env:
+  UV_VERSION: "0.12.13"
 
 jobs:
-  images:
+  verify:
+    name: Tag matches the package versions
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: python3 scripts/bump_version.py --check "$GITHUB_REF_NAME"
+
+  images:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v7
 
@@ -69,3 +90,37 @@ jobs:
             ghcr.io/${{ github.repository }}/ui:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  dists:
+    name: Build and check the Python distributions
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+      - run: uv build --all-packages --out-dir dist
+      - run: uvx twine check --strict dist/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dists
+          path: dist/
+          if-no-files-found: error
+
+  pypi:
+    name: Publish to PyPI
+    needs: dists
+    if: vars.PYPI_PUBLISH == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/ragfabric/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dists
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@v1.14.2
