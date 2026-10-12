@@ -1,0 +1,48 @@
+# deploy/compose/ragfabric.prod.yaml
+# ragfabric.yaml for the single VM stack (docker-compose.prod.yml). Every key not
+# set here keeps its default; ragfabric.example.yaml lists them all.
+# Secrets never go here: they come from deploy/compose/.env.
+
+llm:
+  provider: ollama
+  model: llama3.2:3b
+  base_url: http://ollama:11434/v1     # the ollama profile; or an OpenAI compatible endpoint
+
+embeddings:
+  provider: ollama
+  model: nomic-embed-text              # 768 dimensions, pinned by migration 0004
+  dim: 768
+  base_url: http://ollama:11434/v1
+
+vector_store:
+  kind: pgvector
+lexical_store:
+  kind: postgres_fts
+cache:
+  kind: redis                          # rate limits are shared across processes
+
+ingestion:
+  uploads_dir: /app/data/uploads       # the uploads volume, shared by api and connectors
+  indexing: inline
+
+router:
+  mode: auto
+
+limits:
+  max_upload_mb: 50
+  max_uncompressed_mb: 200
+  user_rate_limit_per_minute: 120
+  auth_attempts_per_minute: 10
+
+logging:
+  format: json                         # RAGFABRIC_LOG_FORMAT in the compose file says the same
+  level: INFO
+
+connectors:
+  - name: inbox                        # the connectors profile; INBOX_DIR on the host
+    kind: folder
+    path: /data/inbox
+    collection: inbox
+    interval_seconds: 30
+    settle_seconds: 5
+    on_delete: delete
