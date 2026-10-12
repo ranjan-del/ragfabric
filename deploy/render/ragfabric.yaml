@@ -1,0 +1,33 @@
+# deploy/render/ragfabric.yaml
+# ragfabric.yaml for the Render Blueprint (render.yaml). Add it to the
+# ragfabric-api service as a Secret File named ragfabric.yaml; the service reads
+# it at /etc/secrets/ragfabric.yaml. It holds no secret itself: OPENAI_API_KEY
+# and the rest stay environment variables.
+#
+# Render has no GPU and no Ollama, so this selects OpenAI for answers and
+# embeddings. text-embedding-3-small is asked for 768 dimensions, the width
+# migration 0004 pins. Any OpenAI compatible endpoint works through base_url.
+
+llm:
+  provider: openai
+  model: gpt-5.4-mini
+
+embeddings:
+  provider: openai
+  model: text-embedding-3-small
+  dim: 768
+
+vector_store:
+  kind: pgvector
+lexical_store:
+  kind: postgres_fts
+cache:
+  kind: redis
+
+ingestion:
+  uploads_dir: /app/data/uploads       # the service's disk
+  indexing: inline
+
+logging:
+  format: json
+  level: INFO

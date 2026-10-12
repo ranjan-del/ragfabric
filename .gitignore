@@ -8,6 +8,8 @@ deploy/compose/inbox/
 
 # local configuration (copy of ragfabric.example.yaml)
 ragfabric.yaml
+# the Render Blueprint's config template is a tracked file, not a local copy
+!deploy/render/ragfabric.yaml
 
 # OS
 .DS_Store
