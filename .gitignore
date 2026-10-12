@@ -52,3 +52,6 @@ MEMORY*.md
 *.key
 *.p12
 secrets/
+
+# mkdocs build output
+site/

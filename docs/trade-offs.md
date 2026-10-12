@@ -11,6 +11,6 @@ The choices made, what each one gave up, and the alternatives that were consider
 
 ## Covered elsewhere for now
 
-The README section "How to choose a RAG architecture" and the ADRs in [adr/](adr/).
+The README section "How to choose a RAG architecture" and the ADRs, starting with [ADR 0001](adr/0001-monorepo-with-layered-packages.md).
 
 No number appears here unless it comes from a recorded run.
