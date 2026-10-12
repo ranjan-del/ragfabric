@@ -178,3 +178,27 @@ def test_openai_live_roundtrip():
     )
     assert "pong" in out.text.lower()
     assert out.input_tokens > 0 and out.output_tokens > 0
+
+
+def test_openai_text_embedding_3_is_asked_for_the_configured_width():
+    """text-embedding-3 models shorten their vectors on request, so a deployment
+    can keep the 768 dimension column migration 0004 pins (docs/deploy/render.md)."""
+    fake = FakeEmbeddings(dim=768)
+    emb = OpenAIEmbeddingProvider(api_key="k", dim=768, client=fake_client(embeddings=fake))
+    emb.embed(["a"])
+    assert fake.calls[0]["dimensions"] == 768
+
+
+def test_older_openai_embedding_models_are_not_sent_a_width():
+    fake = FakeEmbeddings(dim=1536)
+    emb = OpenAIEmbeddingProvider(
+        api_key="k", model="text-embedding-ada-002", client=fake_client(embeddings=fake)
+    )
+    emb.embed(["a"])
+    assert "dimensions" not in fake.calls[0]
+
+
+def test_ollama_embeddings_are_not_sent_a_width():
+    fake = FakeEmbeddings(dim=768)
+    OllamaEmbeddingProvider(client=fake_client(embeddings=fake)).embed(["a"])
+    assert "dimensions" not in fake.calls[0]

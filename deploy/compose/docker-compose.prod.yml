@@ -1,0 +1,156 @@
+# deploy/compose/docker-compose.prod.yml
+# RagFabric on one machine, behind HTTPS. Guide: docs/deploy/single-vm.md
+#
+#   cp deploy/compose/.env.prod.example deploy/compose/.env    # then fill it in
+#   docker compose -f deploy/compose/docker-compose.prod.yml --env-file deploy/compose/.env up -d
+#
+# Only Caddy publishes ports. PostgreSQL, Redis, the API and the UI sit on the
+# internal network, reachable from Caddy and from each other, never from outside.
+# Caddy obtains and renews a certificate for DOMAIN on its own.
+#
+# Optional profiles (add --profile NAME, or COMPOSE_PROFILES=a,b in .env):
+#   ollama      a local model server for ragfabric.prod.yaml's default llm and embeddings
+#   connectors  `ragfabric connectors sync --watch`: the INBOX_DIR folder (docs/connectors.md)
+#   workers     `ragfabric worker`, needed only with ingestion.indexing: queue
+#
+# Images: RAGFABRIC_VERSION selects a published release from GHCR. From a source
+# checkout, `up -d --build` builds the same images locally instead.
+
+name: ragfabric
+
+x-app: &app
+  image: ghcr.io/ranjan-del/ragfabric/api:${RAGFABRIC_VERSION:-0.4.0}
+  build:
+    context: ../..
+    dockerfile: deploy/docker/api.Dockerfile
+  restart: unless-stopped
+  environment: &app-env
+    ENVIRONMENT: production
+    RAGFABRIC_LOG_FORMAT: json
+    RAGFABRIC_CONFIG: /app/ragfabric.yaml
+    DATABASE_URL: postgresql+psycopg://ragfabric:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/ragfabric
+    REDIS_URL: redis://redis:6379/0
+    JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+    FIRST_ADMIN_EMAIL: ${FIRST_ADMIN_EMAIL:-}
+    FIRST_ADMIN_PASSWORD: ${FIRST_ADMIN_PASSWORD:-}
+    CORS_ORIGINS: https://${DOMAIN:-localhost}
+    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  volumes:
+    - ${RAGFABRIC_CONFIG_FILE:-./ragfabric.prod.yaml}:/app/ragfabric.yaml:ro
+    - uploads:/app/data/uploads
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  caddy:
+    # caddy:2.10.2-alpine as of 2026-10-12
+    image: caddy@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      ui:
+        condition: service_started
+
+  api:
+    <<: *app
+    environment:
+      <<: *app-env
+      # The API is reachable only on the internal network, where its one client
+      # is Caddy, so uvicorn may take the client address from X-Forwarded-For.
+      # Caddy replaces any X-Forwarded-For a client sends with the real address,
+      # which keeps the sign-in rate limit per real client (docs/operations.md).
+      FORWARDED_ALLOW_IPS: "*"
+
+  ui:
+    image: ghcr.io/ranjan-del/ragfabric/ui:${RAGFABRIC_VERSION:-0.4.0}
+    build:
+      context: ../..
+      dockerfile: deploy/docker/ui.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+
+  postgres:
+    # pgvector/pgvector:0.8.6-pg18 as of 2026-09-21
+    image: pgvector/pgvector@sha256:2ba9ca5f2e7daa0f0e7723cba1ee9167bab54efd3640516a44ac1a928dd67e7a
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ragfabric
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ragfabric
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ragfabric -d ragfabric"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    # redis:8.8-alpine as of 2026-09-21
+    image: redis@sha256:e2c307e77bcaf306fa9e468bda845165a46c4c015ffd238fb3c92ae5d71d486f
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  ollama:
+    # ollama/ollama:0.34.0 as of 2026-10-12
+    image: ollama/ollama@sha256:684d8674b4315fa18f4f0e973a118ec2652ed96f67563277839985175858e0ba
+    profiles: ["ollama"]
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+
+  connectors:
+    <<: *app
+    profiles: ["connectors"]
+    command: ["ragfabric", "connectors", "sync", "--watch"]
+    healthcheck:
+      disable: true
+    volumes:
+      - ${RAGFABRIC_CONFIG_FILE:-./ragfabric.prod.yaml}:/app/ragfabric.yaml:ro
+      - uploads:/app/data/uploads
+      - ${INBOX_DIR:-./inbox}:/data/inbox
+    depends_on:
+      api:
+        condition: service_healthy
+
+  worker:
+    <<: *app
+    profiles: ["workers"]
+    command: ["ragfabric", "worker"]
+    healthcheck:
+      disable: true
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads:
+  caddy_data:
+  caddy_config:
+  ollama_models:

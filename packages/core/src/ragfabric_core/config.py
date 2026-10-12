@@ -12,7 +12,7 @@ and no vector-DB server are required to run or test the app.
 
 from functools import lru_cache
 
-from pydantic import PrivateAttr
+from pydantic import PrivateAttr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from ragfabric_core import __version__
@@ -46,6 +46,21 @@ class Settings(BaseSettings):
     # Database. Local default = SQLite (no install needed). Docker/hosting can
     # override with a PostgreSQL URL via the DATABASE_URL env var.
     database_url: str = "sqlite:///./rag.db"
+
+    @field_validator("database_url")
+    @classmethod
+    def _psycopg_driver(cls, url: str) -> str:
+        """Point a bare PostgreSQL URL at psycopg 3, the driver RagFabric installs.
+
+        Hosted databases (Render, Railway, most others) hand out
+        ``postgres://`` or ``postgresql://`` URLs, which SQLAlchemy maps to
+        psycopg2. Without this, pasting the URL a provider gives you fails at
+        startup with a missing-module error.
+        """
+        for prefix in ("postgres://", "postgresql://"):
+            if url.startswith(prefix):
+                return "postgresql+psycopg://" + url[len(prefix) :]
+        return url
 
     # Create missing tables from the models at startup. Convenient locally and
     # in the tests, wrong anywhere real: create_all only ever ADDS tables, so a
