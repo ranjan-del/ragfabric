@@ -25,9 +25,9 @@ import unicodedata
 from enum import StrEnum
 from typing import Annotated, Self
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from ragfabric_core.json_contract import ContractViolation, parse_contract
+from ragfabric_core.json_contract import ContractViolation, load_json_object, parse_contract
 
 
 class EntityType(StrEnum):
@@ -217,8 +217,86 @@ def parse_extraction(text: str) -> ExtractionResponse | ContractViolation:
     return parse_contract(text, "extraction", ExtractionResponse)
 
 
+def salvage_extraction(
+    text: str,
+) -> tuple[ExtractionResponse, int, int] | ContractViolation:
+    """Keep every valid item of an extraction reply; return it with the dropped counts.
+
+    ``parse_extraction`` is all or nothing: one relationship naming an entity
+    the reply never listed rejects the whole reply, and with it every entity
+    the model did report. Small models do that often (an edge to "the chief
+    technology officer" next to two correctly listed people), so the writer
+    uses this instead. Each entity and relationship is validated on its own; a
+    relationship is also dropped when an endpoint is unlisted, listed under
+    two types, or the same as the other endpoint. Only a reply that is not a
+    JSON object, or has no ``entities`` list, is a violation.
+
+    Returns ``(response, entities_dropped, relationships_dropped)``.
+    """
+    payload, error = load_json_object(text)
+    if payload is None:
+        return ContractViolation(contract="extraction", raw=text, error=error)
+    raw_entities = payload.get("entities")
+    raw_relationships = payload.get("relationships", [])
+    if not isinstance(raw_entities, list) or not isinstance(raw_relationships, list):
+        return ContractViolation(
+            contract="extraction", raw=text, error="entities and relationships must be lists"
+        )
+    entities: list[ExtractedEntity] = []
+    for item in raw_entities:
+        try:
+            entities.append(ExtractedEntity.model_validate(item))
+        except ValidationError:
+            continue
+    types_by_name: dict[str, set[EntityType]] = {}
+    for entity in entities:
+        types_by_name.setdefault(normalise(entity.name), set()).add(entity.entity_type)
+    relationships: list[ExtractedRelationship] = []
+    for item in raw_relationships:
+        try:
+            rel = ExtractedRelationship.model_validate(item)
+        except ValidationError:
+            continue
+        source, target = normalise(rel.source), normalise(rel.target)
+        if source == target:
+            continue
+        if any(len(types_by_name.get(end, ())) != 1 for end in (source, target)):
+            continue
+        relationships.append(rel)
+    response = ExtractionResponse.model_construct(entities=entities, relationships=relationships)
+    return (
+        response,
+        len(raw_entities) - len(entities),
+        len(raw_relationships) - len(relationships),
+    )
+
+
 def parse_question(text: str) -> QuestionExtraction | ContractViolation:
-    return parse_contract(text, "question", QuestionExtraction)
+    """The question's entity mentions and implied relation types.
+
+    A type the schema does not know is dropped rather than voiding the reply
+    (fix wave, Phase 11): an unknown relation type is removed from
+    ``implied_relation_types`` and an unknown entity type becomes "unstated",
+    so the entities the model did find are still looked up. A missing list or
+    a blank name is still a violation.
+    """
+    payload, error = load_json_object(text)
+    if payload is None:
+        return ContractViolation(contract="question", raw=text, error=error)
+    relations = payload.get("implied_relation_types")
+    if isinstance(relations, list):
+        known = {t.value for t in RelationType}
+        payload["implied_relation_types"] = [r for r in relations if r in known]
+    entities = payload.get("entities")
+    if isinstance(entities, list):
+        types = {t.value for t in EntityType}
+        for mention in entities:
+            if isinstance(mention, dict) and mention.get("entity_type") not in types:
+                mention["entity_type"] = None
+    try:
+        return QuestionExtraction.model_validate(payload)
+    except ValidationError as exc:
+        return ContractViolation(contract="question", raw=text, error=str(exc))
 
 
 class EmptyReason(StrEnum):

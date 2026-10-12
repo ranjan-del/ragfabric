@@ -372,19 +372,32 @@ def test_no_implied_relation_types_is_accepted_as_no_restriction():
     assert result.implied_relation_types == []
 
 
-def test_an_unknown_implied_relation_type_is_a_violation():
+def test_an_unknown_implied_relation_type_is_dropped_not_fatal():
+    """Fix wave (Phase 11): a model naming DEPENDS_ON used to void the whole question,
+    so the graph strategy matched no entity at all. The unknown type is dropped;
+    the entities the model found are still looked up."""
     result = parse_question(
-        '{"entities": [{"name": "Atlas"}], "implied_relation_types": ["HATES"]}'
+        '{"entities": [{"name": "Atlas"}], "implied_relation_types": ["HATES", "OWNS"]}'
     )
-    assert isinstance(result, ContractViolation)
-    assert result.contract == "question"
+    assert isinstance(result, QuestionExtraction)
+    assert [e.name for e in result.entities] == ["Atlas"]
+    assert result.implied_relation_types == [RelationType.OWNS]
 
 
-def test_an_unknown_question_entity_type_is_a_violation():
+def test_only_unknown_implied_relation_types_mean_no_restriction():
+    result = parse_question(
+        '{"entities": [{"name": "Atlas"}], "implied_relation_types": ["DEPENDS_ON"]}'
+    )
+    assert isinstance(result, QuestionExtraction)
+    assert result.implied_relation_types == []
+
+
+def test_an_unknown_question_entity_type_becomes_unstated():
     result = parse_question(
         '{"entities": [{"name": "Mars", "entity_type": "planet"}], "implied_relation_types": []}'
     )
-    assert isinstance(result, ContractViolation)
+    assert isinstance(result, QuestionExtraction)
+    assert result.entities[0].name == "Mars" and result.entities[0].entity_type is None
 
 
 def test_a_missing_implied_relation_types_list_is_a_violation():

@@ -194,3 +194,34 @@ def test_ollama_embeddings_are_not_sent_a_width():
     fake = FakeEmbeddings(dim=768)
     OllamaEmbeddingProvider(client=fake_client(embeddings=fake)).embed(["a"])
     assert "dimensions" not in fake.calls[0]
+
+
+def test_openai_stream_asks_for_usage_and_fills_it_from_the_last_chunk():
+    from ragfabric_core.providers.base import StreamUsage
+
+    def chunk(content=None, usage=None):
+        choices = (
+            [] if content is None else [SimpleNamespace(delta=SimpleNamespace(content=content))]
+        )
+        return SimpleNamespace(choices=choices, usage=usage)
+
+    class StreamChat:
+        def __init__(self):
+            self.calls = []
+
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            return iter(
+                [
+                    chunk("x"),
+                    chunk("y"),
+                    chunk(usage=SimpleNamespace(prompt_tokens=12, completion_tokens=2)),
+                ]
+            )
+
+    chat = StreamChat()
+    usage = StreamUsage()
+    llm = OpenAIProvider(api_key="k", client=fake_client(chat=chat))
+    assert "".join(llm.stream([Message(role="user", content="q")], usage=usage)) == "xy"
+    assert chat.calls[0]["stream_options"] == {"include_usage": True}
+    assert (usage.input_tokens, usage.output_tokens) == (12, 2)

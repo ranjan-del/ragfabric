@@ -17,7 +17,7 @@ import time
 from collections.abc import Iterator
 from typing import Any
 
-from ragfabric_core.providers.base import Completion, Message, ProviderError
+from ragfabric_core.providers.base import Completion, Message, ProviderError, StreamUsage
 
 
 def _import_anthropic():
@@ -101,13 +101,12 @@ class AnthropicProvider:
         model: str | None = None,
         max_tokens: int = 1024,
         temperature: float = 0.0,
+        usage: StreamUsage | None = None,
     ) -> Iterator[str]:
         """Yield text deltas using the SDK's streaming context manager.
 
-        Usage is not surfaced by ``text_stream``, so no token count is
-        returned here; zero would be a lie and an estimate would be a
-        fabrication (ADR 0004), so the caller of a streamed answer accounts
-        for tokens as unknown rather than guessing.
+        ``text_stream`` carries no usage; the final message read after it does,
+        and fills ``usage`` when one is given.
         """
         system_parts = [m.content for m in messages if m.role == "system"]
         kwargs: dict[str, Any] = {
@@ -122,6 +121,11 @@ class AnthropicProvider:
         try:
             with self._client.messages.stream(**kwargs) as stream:
                 yield from stream.text_stream
+                if usage is not None:
+                    final = getattr(stream.get_final_message(), "usage", None)
+                    if final is not None:
+                        usage.input_tokens = int(getattr(final, "input_tokens", 0) or 0)
+                        usage.output_tokens = int(getattr(final, "output_tokens", 0) or 0)
         except ProviderError:
             raise
         except Exception as exc:

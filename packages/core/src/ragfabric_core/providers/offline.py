@@ -140,8 +140,10 @@ class ScriptedLLMProvider:
             finish_reason="stop",
         )
 
-    def stream(self, messages, *, model=None, max_tokens=1024, temperature=0.0):
+    def stream(self, messages, *, model=None, max_tokens=1024, temperature=0.0, usage=None):
         """Yield the scripted response word by word so tests exercise a real stream.
+
+        ``usage`` is accepted and left unknown: a script measures no tokens.
 
         An exhausted script yields nothing rather than raising, unlike
         ``complete``: a caller that streams is by definition prepared to see

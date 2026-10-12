@@ -379,12 +379,18 @@ def run_agent(
             detail = f"max_iterations of {max_iterations} reached"
             break
 
-        spent = _spend_stop(
-            origin=origin, latency_cap=latency_cap, cost_cap=cost_cap, ledger=ledger
-        )
-        if spent is not None:
-            stop, detail = spent
-            break
+        # Not checked before the first retrieval: retrieval spends no model
+        # call, and a plan slower than the wall clock cap (a contended local
+        # model) would otherwise stop the run with no evidence at all, so the
+        # strategy could only answer that nothing was found. The check after
+        # retrieval still stops the run before the assessment spends a call.
+        if state.iterations > 0:
+            spent = _spend_stop(
+                origin=origin, latency_cap=latency_cap, cost_cap=cost_cap, ledger=ledger
+            )
+            if spent is not None:
+                stop, detail = spent
+                break
 
         state.iterations += 1
         retrieved = retrieve(state, tools=tools, ctx=ctx, overrides=overrides, origin=origin)
