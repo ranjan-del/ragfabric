@@ -27,6 +27,17 @@ response, never estimated when the provider reports them.
 | OpenAI | `gpt-5.4-mini` | `text-embedding-3-small` |
 | Anthropic | `claude-sonnet-5` | (uses OpenAI or Ollama for embeddings) |
 
+### Ollama context window (`llm.num_ctx`)
+
+Ollama chat goes through Ollama's native `/api/chat` endpoint, not its OpenAI compatible `/v1`
+one, and sends `options.num_ctx` (default 8192) on every call. Through `/v1`, Ollama 0.34 ignores
+`num_ctx` and runs each prompt in the model's default window of about 2,048 tokens, cutting a longer
+prompt from the front without an error: the system prompt and the first ranked passages are what
+is lost. Measured on `qwen2.5:1.5b` with a 6,400 token prompt whose first line held the answer: 2,050
+prompt tokens and a wrong answer with the default window, 6,443 tokens and the right answer with
+`num_ctx: 8192`. Set `num_ctx: null` to keep the model's own default; raise it for longer prompts if
+the machine has the memory. Embeddings still use `/v1`.
+
 ## Embedding providers (`EmbeddingProvider`)
 
 | Provider | Status | Notes |

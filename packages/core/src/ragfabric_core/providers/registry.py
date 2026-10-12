@@ -52,7 +52,9 @@ def build_llm_provider(cfg: LLMConfig, env: Mapping[str, str] | None = None) -> 
     if cfg.provider == "ollama":
         model = cfg.model if _set(cfg, "model") else None
         return OllamaProvider(
-            base_url=cfg.base_url or DEFAULT_OLLAMA_URL, default_model=model or "llama3.2"
+            base_url=cfg.base_url or DEFAULT_OLLAMA_URL,
+            default_model=model or "llama3.2",
+            num_ctx=cfg.num_ctx,
         )
     model = cfg.model if _set(cfg, "model") else None
     return OfflineLLMProvider(model=model or "scripted")
