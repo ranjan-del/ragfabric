@@ -224,9 +224,12 @@ built and released as v0.4.0 on 2026-10-07. See
 - [x] `@ragfabric/sdk` generated from the OpenAPI spec, apps use only the SDK (prepared for npm, publishing is an owner action)
 
 ### Phase 10: Hardening, docs, deployment
-- [ ] End-to-end tests, rate limiting, file validation, structured logging
-- [ ] Connectors: watched folder, Google Drive
-- [ ] Docs site, deployment guides, release automation (repository already renamed to `ragfabric`)
+Built on `feat/phase-10-hardening` (design `docs/plans/2026-10-10-phase-10-hardening.md`). Releases
+nothing: v1.0.0 is Phase 11.
+- [x] End-to-end tests, rate limiting, file validation, structured logging
+- [x] Connectors: watched folder, Google Drive (Drive tested with fake HTTP only; no real account used)
+- [x] Docs site, deployment guides, release automation (repository already renamed to `ragfabric`).
+      The site deploy and the PyPI upload are built switched off; the owner switches them on
 
 ### Phase 11: Public benchmarks and fix wave (added on 2026-09-30)
 
