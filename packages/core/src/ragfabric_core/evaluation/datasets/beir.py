@@ -12,6 +12,7 @@ import csv
 import io
 import json
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 
 from ragfabric_core.evaluation.dataset import EvalQuestion, ExpectedSource, QuestionType
@@ -49,7 +50,13 @@ class BeirDataset:
         raise ValueError(f"{self.spec.name}: {suffix} not found in the zip")
 
     def convert(
-        self, paths: dict[str, Path], *, limit: int | None, questions: int | None, seed: int
+        self,
+        paths: dict[str, Path],
+        *,
+        limit: int | None,
+        questions: int | None,
+        seed: int,
+        fetch: Callable[[RemoteFile], Path] | None = None,
     ) -> ImportedDataset:
         name = self.spec.name
         with zipfile.ZipFile(paths[self.spec.files[0].filename]) as zf:
