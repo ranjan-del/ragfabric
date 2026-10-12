@@ -6,7 +6,6 @@ import pytest
 from ragfabric_core.providers.base import LLMProvider, Message, ProviderError
 from ragfabric_core.providers.openai_compat import (
     OllamaEmbeddingProvider,
-    OllamaProvider,
     OpenAIEmbeddingProvider,
     OpenAIProvider,
 )
@@ -92,14 +91,6 @@ def test_json_schema_is_passed_as_response_format():
     )
 
 
-def test_ollama_provider_uses_local_defaults_and_sends_temperature():
-    chat = FakeChat()
-    llm = OllamaProvider(client=fake_client(chat=chat))
-    assert llm.name == "ollama" and llm.default_model == "llama3.2"
-    llm.complete([Message(role="user", content="x")])
-    assert chat.calls[0]["model"] == "llama3.2" and chat.calls[0]["temperature"] == 0.0
-
-
 def test_provider_errors_are_wrapped():
     class Boom:
         def create(self, **kwargs):
@@ -155,9 +146,10 @@ def test_openai_provider_without_the_extra_names_the_install_command(monkeypatch
     assert "ragfabric[openai]" in str(exc.value)
 
 
-def test_ollama_provider_without_the_extra_also_names_the_openai_install_command(monkeypatch):
-    """Ollama is served through the OpenAI-compatible client too, so it hits
-    the same extra, not a made-up "ollama" one."""
+def test_ollama_embeddings_without_the_extra_also_name_the_openai_install_command(monkeypatch):
+    """Ollama embeddings are served through the OpenAI-compatible client, so
+    they hit the same extra, not a made-up "ollama" one. (Ollama chat uses the
+    native API; see test_providers_ollama_native.py.)"""
     from ragfabric_core.providers import openai_compat
 
     def boom():
@@ -165,7 +157,7 @@ def test_ollama_provider_without_the_extra_also_names_the_openai_install_command
 
     monkeypatch.setattr(openai_compat, "_import_openai", boom)
     with pytest.raises(ProviderError) as exc:
-        OllamaProvider()
+        OllamaEmbeddingProvider()
     assert "ragfabric[openai]" in str(exc.value)
 
 
