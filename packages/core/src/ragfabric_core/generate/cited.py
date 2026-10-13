@@ -2,8 +2,9 @@
 
 The model is told to cite with [n], to quote only verbatim, and to say it cannot
 find the answer rather than guess. The output is then checked against the
-citation contract. A violation is retried once with the specific reason quoted
-back, because a named failure is repairable and a generic "try again" is not. A
+citation contract. A violation is retried once with the rejected answer shown
+back as the model's own turn and the specific reason quoted, because a named
+failure is repairable and a generic "try again" is not. A
 second violation falls back to the extractive generator, which satisfies the
 contract by construction, and the result records which generator produced it so
 nothing downstream mistakes a fallback for a model answer.
@@ -72,15 +73,27 @@ class CitedAnswer(BaseModel):
     retried: bool = False
 
 
-def build_prompt(query: str, chunks: list[RetrievedChunk], violation: str | None = None) -> str:
+def build_prompt(query: str, chunks: list[RetrievedChunk]) -> str:
     passages = "\n\n".join(f"[{i}] {c.text}" for i, c in enumerate(chunks, start=1))
-    prompt = f"Question: {query}\n\nPassages:\n{passages}"
-    if violation is not None:
-        prompt += (
-            "\n\nYour previous answer was rejected: "
-            f"{violation}. Answer again, obeying the citation rules exactly."
-        )
-    return prompt
+    return f"Question: {query}\n\nPassages:\n{passages}"
+
+
+def repair_prompt(violation: str) -> str:
+    """The correction sent after a rejected answer, which is resent as the model's own turn.
+
+    The rejected answer must be in front of the model: told only that "your previous
+    answer" failed, a small model cannot repair what it cannot see, regenerates from
+    scratch and takes the no-evidence exit. Phase 11 run 13 (MultiHop-RAG,
+    llama3.2:3b) lost right answers that way, among them one whose only fault was a
+    quote cited to the wrong passage.
+    """
+    return (
+        f"Your answer was rejected: {violation}. "
+        "Correct the citations and keep what the passages support: put the number of the "
+        "passage each claim comes from in square brackets, and quote only words that appear "
+        "in the passage you cite. "
+        f"Reply with {NO_EVIDENCE_ANSWER!r} only if the passages do not answer the question."
+    )
 
 
 def generate_cited_answer(
@@ -120,13 +133,14 @@ def generate_cited_answer(
     input_tokens = 0
     output_tokens = 0
     last_model = model or getattr(llm, "default_model", "unknown")
+    messages = [
+        Message(role="system", content=SYSTEM_PROMPT),
+        Message(role="user", content=build_prompt(query, chunks)),
+    ]
 
     for attempt in (1, 2):
         completion = llm.complete(
-            [
-                Message(role="system", content=SYSTEM_PROMPT),
-                Message(role="user", content=build_prompt(query, chunks, violation)),
-            ],
+            messages,
             model=model,
             max_tokens=max_tokens,
         )
@@ -141,6 +155,11 @@ def generate_cited_answer(
             violation = exc.reason
             if attempt == 2:
                 break
+            messages = [
+                *messages,
+                Message(role="assistant", content=completion.text),
+                Message(role="user", content=repair_prompt(violation)),
+            ]
             continue
         return CitedAnswer(
             text=completion.text,
