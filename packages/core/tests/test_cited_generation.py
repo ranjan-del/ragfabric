@@ -17,9 +17,11 @@ class ScriptedLLM:
     def __init__(self, *texts: str) -> None:
         self._texts = list(texts)
         self.prompts: list[str] = []
+        self.conversations: list[list] = []
 
     def complete(self, messages, *, model=None, max_tokens=1024, temperature=0.0, json_schema=None):
         self.prompts.append(messages[-1].content)
+        self.conversations.append(list(messages))
         text = self._texts.pop(0) if self._texts else ""
         return Completion(
             text=text,
@@ -62,6 +64,31 @@ def test_a_contract_violation_is_retried_once_with_the_reason_in_the_prompt():
     # and retried must be true because a second call was really issued.
     assert out.generator == "llm"
     assert out.input_tokens == 20 and out.output_tokens == 10
+
+
+def test_the_retry_shows_the_model_the_answer_it_must_repair():
+    """A named failure is only repairable if the model can see what it wrote.
+
+    Phase 11 run 13 (MultiHop-RAG, llama3.2:3b): the retry carried the reason
+    but not the rejected answer, so the model regenerated from scratch and
+    took the no-evidence exit, losing answers that were right but cited badly.
+    """
+    rejected = "Staff get 24 days of leave."
+    llm = ScriptedLLM(rejected, "Staff get 24 days of leave [1].")
+    out = generate_cited_answer("q", chunks("Employees receive 24 days."), llm)
+    assert out.text == "Staff get 24 days of leave [1]."
+    first, second = llm.conversations
+    # The original question and passages are sent again unchanged ...
+    assert [m.role for m in second[:2]] == ["system", "user"]
+    assert second[1].content == first[1].content
+    # ... followed by the rejected answer as the model's own turn ...
+    assert second[2].role == "assistant" and second[2].content == rejected
+    # ... and a correction that names the reason and asks for a repair, not a rewrite.
+    assert second[3].role == "user"
+    correction = second[3].content
+    assert "no [n] marker" in correction
+    assert "correct" in correction.lower() and "citation" in correction.lower()
+    assert "only if the passages do not answer" in correction.lower()
 
 
 def test_two_violations_fall_back_to_the_extractive_generator():
