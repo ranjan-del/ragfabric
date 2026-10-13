@@ -21,6 +21,20 @@ Phase 9 (assistant UI and TypeScript SDK) and Phase 10 (hardening, connectors, d
 
 ### Added
 
+- **Public benchmarks (Phase 11).** `ragfabric eval datasets` lists importable datasets with their
+  source and licence as the source states it; `ragfabric eval import <dataset>` downloads into a cache
+  (`~/.cache/ragfabric/datasets`), samples deterministically (`--limit` documents, `--questions`,
+  `--seed`) and writes the corpus, `questions.json` and a manifest with checksums and the licence.
+  SciFact, NFCorpus and FiQA-2018 (BEIR), MultiHop-RAG and the FinanceBench open sample. No dataset
+  content is shipped.
+- `ragfabric eval corpus --path` loads any converted corpus; `ragfabric eval run --resume` continues a
+  named batch, `--retrieval-only` skips generation and judging, `--judge-metric` limits the judge to
+  the named metrics. A target that does not emit `[n]` markers declares it and its citation
+  correctness is `null`.
+- `benchmarks/`: tier and comparison scripts, configurations per answering model, LlamaIndex and
+  LangChain targets over RagFabric's own chunks (pinned, run with `uv run --with`, not workspace
+  dependencies), the access leak test, and `summarise.py`, which prints batch tables and fills the
+  marked tables in `docs/benchmarks/comparison.md` and `docs/benchmarks/results/` from stored runs.
 - **Assistant UI and TypeScript SDK (Phase 9, issue #10, v1.0.0).** Four pages in `apps/assistant`:
   **Ask** (AUTO or MANUAL, a router decision card with the strategy, rule or classifier, confidence as
   reported and reasoning, a called out fallback, the answer streamed and replaced in place when the
@@ -103,6 +117,19 @@ Phase 9 (assistant UI and TypeScript SDK) and Phase 10 (hardening, connectors, d
 - Opening an admin page directly (a reload or a pasted link to `/console` or `/evaluation`) no
   longer sends an admin to the dashboard: the admin guard waits for the profile when a token is
   present and the profile has not loaded yet
+- Ollama chat goes through the native `/api/chat` endpoint and sends `llm.num_ctx` (default 8192) on
+  every call. The OpenAI compatible endpoint ignored it and cut prompts longer than about 2,048
+  tokens from the front, losing the system prompt and the top ranked passages.
+- Graph extraction keeps every valid entity and relationship in a model reply and counts what it
+  drops, instead of discarding the whole reply for one malformed relationship. A question naming an
+  unknown relation or entity type drops that type instead of being voided.
+- Agentic retrieval always retrieves once before the spend caps can stop it, so a slow plan no
+  longer ends in an answer with no evidence.
+- Streamed answers report the provider's token counts, or `null` when the provider reports none,
+  instead of 0 output tokens.
+- The citation retry shows the model its rejected answer and asks for a repair, and a quote cited to
+  the wrong passage names the passage that holds it. Before, the model never saw what it had to
+  repair and often replied that it could not find an answer.
 
 ### Changed
 

@@ -235,21 +235,26 @@ nothing: v1.0.0 is Phase 11.
 
 Phase 8 builds the measuring instrument and measures RagFabric against itself. This phase points it
 outward: the same questions, run through RagFabric and through widely used RAG tools, published with
-the losses as well as the wins, then a fix wave on whatever the comparison exposes. The exact
-competitors, datasets and metrics are chosen when the phase is planned, from what is current and
-runnable then; the lists below are the starting candidates, not a commitment.
+the losses as well as the wins, then a fix wave on whatever the comparison exposes. Design and
+decisions: `docs/plans/2026-10-10-phase-11-benchmarks.md`.
 
-- [ ] Candidate comparisons: pipeline frameworks (LlamaIndex, LangChain, Haystack), graph RAG tools
-      (Microsoft GraphRAG, LightRAG), and self-hosted RAG platforms (RAGFlow, R2R)
-- [ ] Candidate datasets: public multi-hop and retrieval sets (for example HotpotQA, MultiHop-RAG,
-      BEIR subsets) alongside the Phase 8 synthetic corpus
-- [ ] A fair harness: the same LLM, embedding model, chunking, corpus and hardware for every system,
-      with each competitor's configuration published so the run can be reproduced
-- [ ] Metrics from the Phase 8 framework (retrieval, generation, citation correctness, latency, cost),
-      plus an access-control leak test, since filtering after retrieval is where most pipelines differ
-- [ ] Every loss recorded as an issue, fixed, and the benchmark rerun before the numbers are published
-- [ ] `docs/benchmarks/comparison.md` with method, versions, dates, results and scripts. Per ADR 0004,
-      a number is one dated run on a named setup, never a general claim
+- [x] Dataset importers (standard library only, cached downloads, deterministic sampling, licence
+      recorded as each source states it): SciFact, NFCorpus, FiQA-2018 (BEIR), MultiHop-RAG,
+      FinanceBench open sample. `ragfabric eval datasets | import`, `eval corpus --path`
+- [x] Runner: resumable named batches, retrieval only runs, judge metric choice, targets that do not
+      cite declare it
+- [x] Comparison targets LlamaIndex and LangChain over RagFabric's own chunks, same embedding and
+      answering models, pinned versions outside the workspace dependencies. Haystack, graph tools
+      (Microsoft GraphRAG, LightRAG) and platforms (RAGFlow, R2R) deferred, with the reason recorded
+- [x] Access leak test: forbidden chunks retrieved and unfilled slots, per target
+- [ ] Benchmark runs: MultiHop-RAG and BEIR 100 document tiers, FinanceBench 10 filings, BEIR 1,000
+      and full tiers, graph tiers, model sweep (`qwen2.5:1.5b`, `llama3.2:3b`, `llama3.1:8b`)
+- [ ] Fix wave: every loss recorded, fixed test first where possible, affected batches rerun and both
+      numbers published (fixes so far: Ollama context window, graph extraction salvage, agentic first
+      retrieval, streamed token counts, citation retry)
+- [ ] `docs/benchmarks/comparison.md` and `docs/benchmarks/results/` filled from stored runs by
+      `benchmarks/summarise.py --fill`. Per ADR 0004, a number is one dated run on a named setup,
+      never a general claim. NFCorpus results stay marked pending licence confirmation
 - [ ] **Release v1.0.0**, first production deployment
 
 ## Later
