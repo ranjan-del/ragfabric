@@ -34,10 +34,9 @@ app; apps never call the API without the SDK. CI enforces this with import linti
 | `packages/core` | Strategies, router, ingestion, evaluation, access policy, tracing hooks, all interfaces | nothing in the repo |
 | `packages/server` | FastAPI app: auth, REST, SSE streaming, admin endpoints, trace and metrics endpoints | core |
 | `packages/cli` | `ragfabric` command | core, and the server over HTTP when running |
-| `packages/sdk-python` | Typed client generated from the OpenAPI spec | nothing |
-| `packages/sdk-typescript` | Same, published as `@ragfabric/sdk` | nothing |
-| `apps/console` | Admin: users, groups, collections, grants, API keys, providers, dashboards | sdk-typescript |
-| `apps/assistant` | Reference end user UI: Ask, Compare, Trace, Sources | sdk-typescript |
+| `packages/sdk-python` | Typed client, hand written over `httpx` | nothing |
+| `packages/sdk-typescript` | `@ragfabric/sdk`: types generated from the server's OpenAPI specification (`openapi.json`, checked in), request builders, an SSE decoder, a `fetch` client (ADR 0016) | nothing |
+| `apps/assistant` | Reference UI: Ask, Compare, Trace, Evaluation, and the admin console (users, groups, grants, API keys, providers) under `/console`. Talks to the server only through the SDK, executing its requests through Angular's `HttpClient` | sdk-typescript |
 
 ## Request flow
 

@@ -26,11 +26,29 @@ export const routes: Routes = [
       ),
   },
   {
-    path: 'search',
+    path: 'ask',
+    canActivate: [authGuard],
+    loadComponent: () => import('./pages/ask/ask.component').then((m) => m.AskComponent),
+  },
+  {
+    path: 'compare',
     canActivate: [authGuard],
     loadComponent: () =>
-      import('./pages/search/search.component').then((m) => m.SearchComponent),
+      import('./pages/compare/compare.component').then((m) => m.CompareComponent),
   },
+  {
+    path: 'trace/:runId',
+    canActivate: [authGuard],
+    loadComponent: () => import('./pages/trace/trace.component').then((m) => m.TraceComponent),
+  },
+  {
+    path: 'evaluation',
+    canActivate: [authGuard, adminGuard],
+    loadComponent: () =>
+      import('./pages/evaluation/evaluation.component').then((m) => m.EvaluationComponent),
+  },
+  // The v1 Search page became Ask (Phase 9, decision D18); old links still land.
+  { path: 'search', redirectTo: 'ask', pathMatch: 'full' },
   {
     path: 'collections',
     canActivate: [authGuard],

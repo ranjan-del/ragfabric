@@ -1,9 +1,9 @@
-import { Injectable, computed, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { Injectable, computed, inject, signal } from '@angular/core';
+import { requests } from '@ragfabric/sdk';
 import { Observable, tap } from 'rxjs';
 
-import { ApiService } from './api.service';
-import { Token, User } from '../models';
+import { SdkHttp } from '../sdk/sdk-http.service';
+import { User } from '../models';
 
 const TOKEN_KEY = 'rag_token';
 
@@ -18,7 +18,7 @@ export class AuthService {
   readonly isAuthenticated = computed(() => this._user() !== null);
   readonly isAdmin = computed(() => this._user()?.role === 'admin');
 
-  constructor(private http: HttpClient, private api: ApiService) {}
+  private readonly sdk = inject(SdkHttp);
 
   get token(): string | null {
     return localStorage.getItem(TOKEN_KEY);
@@ -26,14 +26,9 @@ export class AuthService {
 
   /** Log in with email + password (OAuth2 password form) and load the profile. */
   login(email: string, password: string): Observable<User> {
-    const body = new URLSearchParams();
-    body.set('username', email);
-    body.set('password', password);
     return new Observable<User>((subscriber) => {
-      this.http
-        .post<Token>(`${this.api.baseUrl}/auth/login`, body.toString(), {
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        })
+      this.sdk
+        .send(requests.auth.login(email, password))
         .subscribe({
           next: (token) => {
             localStorage.setItem(TOKEN_KEY, token.access_token);
@@ -51,15 +46,12 @@ export class AuthService {
   }
 
   register(email: string, password: string): Observable<User> {
-    return this.http.post<User>(`${this.api.baseUrl}/auth/register`, {
-      email,
-      password,
-    });
+    return this.sdk.send(requests.auth.register(email, password));
   }
 
   loadProfile(): Observable<User> {
-    return this.http
-      .get<User>(`${this.api.baseUrl}/auth/me`)
+    return this.sdk
+      .send(requests.auth.me())
       .pipe(tap((user) => this._user.set(user)));
   }
 
