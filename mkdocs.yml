@@ -105,7 +105,15 @@ nav:
       - Troubleshooting: troubleshooting.md
       - Architecture: architecture.md
       - Evaluation: evaluation.md
-      - Benchmarks: benchmarks/README.md
+      - Benchmarks:
+          - Overview: benchmarks/README.md
+          - Comparison: benchmarks/comparison.md
+          - Access leak test: benchmarks/results/access-leak.md
+          - BEIR retrieval: benchmarks/results/beir.md
+          - FinanceBench: benchmarks/results/financebench.md
+          - Fix wave: benchmarks/results/fix-wave.md
+          - Model sweep: benchmarks/results/model-sweep.md
+          - MultiHop-RAG: benchmarks/results/multihop-rag.md
       - Latest evaluation run: benchmarks/latest.md
       - Complexity score: complexity.md
       - Cost: cost.md

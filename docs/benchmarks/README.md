@@ -18,7 +18,7 @@ with the commit, models, judge and date that produced it. How the numbers are co
 
 [comparison.md](comparison.md) (Phase 11) compares RagFabric's strategies with LlamaIndex and
 LangChain on public datasets, with the method, datasets and licences, setup, and results; the
-detailed tables are in [results/](results/). Its tables are filled from stored runs by
+detailed tables are on the pages listed under it in the navigation. Its tables are filled from stored runs by
 `benchmarks/summarise.py --fill`.
 
 No number appears here unless it comes from a recorded run.
