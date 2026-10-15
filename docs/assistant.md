@@ -4,7 +4,7 @@
 > evaluation API that Phase 8 adds; until a server has it, the page says so.
 
 The reference UI in `apps/assistant` is an Angular 22 app that talks to the server only through
-[`@ragfabric/sdk`](../packages/sdk-typescript/README.md). It has the console pages from earlier
+[`@ragfabric/sdk`](https://github.com/ranjan-del/ragfabric/blob/main/packages/sdk-typescript/README.md). It has the console pages from earlier
 releases (documents, collections, analytics, users, groups, grants, keys, providers) and four pages
 for asking questions and reading the results.
 

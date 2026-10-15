@@ -82,12 +82,15 @@ nav:
           - First graph extraction: learning/graph-extraction-first-run.md
           - First routing run: learning/routing-first-run.md
           - First hardening run: learning/hardening-first-run.md
+          - First assistant run: learning/assistant-first-run.md
+          - First evaluation run: learning/evaluation-first-run.md
   - Strategies:
       - Traditional: traditional-rag.md
       - Vectorless: vectorless-rag.md
       - Agentic: agentic-rag.md
       - Graph: graph-rag.md
       - Routing: routing.md
+  - Assistant: assistant.md
   - Connectors: connectors.md
   - Deployment:
       - Overview: deployment.md
@@ -103,6 +106,8 @@ nav:
       - Architecture: architecture.md
       - Evaluation: evaluation.md
       - Benchmarks: benchmarks/README.md
+      - Latest evaluation run: benchmarks/latest.md
+      - Complexity score: complexity.md
       - Cost: cost.md
       - Architecture decisions:
           - 0001 Monorepo with layered packages: adr/0001-monorepo-with-layered-packages.md
@@ -119,6 +124,8 @@ nav:
           - 0012 Extraction confidence: adr/0012-extraction-confidence-and-graph-citations.md
           - 0013 Router as a strategy: adr/0013-router-as-a-strategy.md
           - 0014 Signals override the planner: adr/0014-signals-override-the-planner.md
+          - 0015 Evaluation targets and judges: adr/0015-evaluation-targets-and-judges.md
+          - 0016 TypeScript SDK types and builders: adr/0016-typescript-sdk-generated-types-request-builders.md
   - Contributing:
       - Contributing: contributing.md
       - Releasing: releasing.md
