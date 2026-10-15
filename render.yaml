@@ -1,0 +1,90 @@
+# render.yaml: a Render Blueprint for RagFabric. Guide: docs/deploy/render.md
+#
+# Written against Render's Blueprint specification; the project has not
+# deployed it. Render offers to create everything below in one step from
+# Dashboard > Blueprints > New Blueprint Instance.
+#
+# What it creates: the API (this repository's api.Dockerfile) with a disk for
+# uploaded originals, a PostgreSQL database (pgvector is available there), a
+# Key Value instance (Redis compatible) for shared rate limits, and the web app
+# as a static site that forwards /api to the API.
+#
+# Two things the Blueprint cannot do, done by hand once (the guide says how):
+#   1. Add a Secret File named ragfabric.yaml to the API service, from
+#      deploy/render/ragfabric.yaml. It is read at /etc/secrets/ragfabric.yaml.
+#   2. Fill in the values marked sync: false when Render asks for them.
+
+services:
+  - type: web
+    name: ragfabric-api
+    runtime: docker
+    dockerfilePath: ./deploy/docker/api.Dockerfile
+    dockerContext: .
+    plan: starter            # a disk needs a paid instance
+    healthCheckPath: /health
+    disk:
+      name: uploads
+      mountPath: /app/data/uploads
+      sizeGB: 5
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: RAGFABRIC_LOG_FORMAT
+        value: json
+      - key: RAGFABRIC_CONFIG
+        value: /etc/secrets/ragfabric.yaml
+      - key: PORT
+        value: "8000"
+      # Trust X-Forwarded-For only from Render's private network, so uvicorn
+      # takes the right-most address outside it: the one Render's edge added.
+      # Never "*" here: Render appends to a client's own header, and the
+      # left-most entry is whatever the client sent. Unverified range; check
+      # the access log's client field against your own address after deploying
+      # (docs/deploy/render.md).
+      - key: FORWARDED_ALLOW_IPS
+        value: "10.0.0.0/8"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL     # postgresql://..., mapped to the psycopg driver at startup
+        fromDatabase:
+          name: ragfabric-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: ragfabric-cache
+          property: connectionString
+      - key: FIRST_ADMIN_EMAIL
+        sync: false
+      - key: FIRST_ADMIN_PASSWORD
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+
+  - type: keyvalue
+    name: ragfabric-cache
+    plan: starter
+    ipAllowList: []          # reachable from this account's services only
+    maxmemoryPolicy: allkeys-lru
+
+  - type: web
+    name: ragfabric-ui
+    runtime: static
+    buildCommand: cd apps/assistant && npm ci && npm run build
+    staticPublishPath: apps/assistant/dist/assistant/browser
+    routes:
+      # The web app calls /api on its own origin (design D33). Replace the
+      # host with the API's own onrender.com address if Render named it differently.
+      - type: rewrite
+        source: /api/*
+        destination: https://ragfabric-api.onrender.com/api/*
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+databases:
+  - name: ragfabric-db
+    plan: basic-256mb
+    databaseName: ragfabric
+    postgresMajorVersion: "17"
+    ipAllowList: []          # reachable from this account's services only

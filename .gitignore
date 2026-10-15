@@ -2,9 +2,14 @@
 .env
 .env.*
 !.env.example
+!deploy/compose/.env.prod.example
+# the single VM stack's dropped-file inbox
+deploy/compose/inbox/
 
 # local configuration (copy of ragfabric.example.yaml)
 ragfabric.yaml
+# the Render Blueprint's config template is a tracked file, not a local copy
+!deploy/render/ragfabric.yaml
 
 # OS
 .DS_Store
@@ -47,3 +52,6 @@ MEMORY*.md
 *.key
 *.p12
 secrets/
+
+# mkdocs build output
+site/

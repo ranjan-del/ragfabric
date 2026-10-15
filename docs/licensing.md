@@ -2,8 +2,8 @@
 
 ## The project license: Apache License 2.0
 
-RagFabric is licensed under the Apache License, Version 2.0. The full text is in [LICENSE](../LICENSE)
-and the copyright notice in [NOTICE](../NOTICE).
+RagFabric is licensed under the Apache License, Version 2.0. The full text is in [LICENSE](https://github.com/ranjan-del/ragfabric/blob/main/LICENSE)
+and the copyright notice in [NOTICE](https://github.com/ranjan-del/ragfabric/blob/main/NOTICE).
 
 | What you may do | Condition |
 |---|---|
@@ -33,7 +33,7 @@ companies adopt. Decision recorded in [ADR 0005](adr/0005-apache-2-license.md).
 
 ## Contributor License Agreement
 
-Contributors sign the [Individual CLA](../CLA.md) once, by posting a sentence on their first pull
+Contributors sign the [Individual CLA](https://github.com/ranjan-del/ragfabric/blob/main/CLA.md) once, by posting a sentence on their first pull
 request. A GitHub Action checks every pull request and blocks review until all authors have signed.
 Signatures are stored in the `cla-signatures` branch of this repository.
 

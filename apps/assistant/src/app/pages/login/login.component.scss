@@ -88,18 +88,6 @@
   color: var(--brand);
   font-weight: 600;
 }
-.demo-hint {
-  margin-top: 1rem;
-  text-align: center;
-  font-size: 0.8rem;
-}
-.demo-hint code {
-  background: var(--surface-2);
-  padding: 0.1rem 0.35rem;
-  border-radius: 5px;
-  border: 1px solid var(--border);
-}
-
 @media (max-width: 820px) {
   .auth {
     grid-template-columns: 1fr;

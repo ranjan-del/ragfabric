@@ -271,6 +271,10 @@ citation checking, each agent node and each graph traversal. LLM spans carry tok
 Traces are stored for the built in Trace page and dashboards (latency percentiles, cost per day, calls per
 strategy, fallback rate, quality trend) and exported over OTLP when configured.
 
+Every response carries an `X-Request-ID`, and every log line written while serving it, including the
+lines libraries such as the HTTP client write, carries the same id. `logging.format: json` writes one
+JSON object per line for a log shipper ([docs/operations.md](docs/operations.md)).
+
 ## Evaluation methodology
 
 The repository ships a synthetic company corpus and a `questions.json` with eight categories: simple
@@ -308,6 +312,9 @@ a general claim (ADR 0004).
 | [packages/sdk-typescript](packages/sdk-typescript/README.md) | `@ragfabric/sdk`: the TypeScript client |
 | [docs/configuration.md](docs/configuration.md), [providers.md](docs/providers.md) | `ragfabric.yaml`, environment, provider and store matrix |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Symptoms, causes, fixes |
+| [docs/connectors.md](docs/connectors.md) | Keeping a watched folder or a Google Drive folder in sync |
+| [docs/deployment.md](docs/deployment.md), [operations.md](docs/operations.md) | Running it for other people: single VM with HTTPS, Render, Railway, a static host; logs, request ids, rate limits, backups, upgrades |
+| [docs/releasing.md](docs/releasing.md) | The version script and the guarded release workflow |
 | [docs/adr](docs/adr), [docs/design](docs/design) | Decisions and the full design |
 
 ## Technology stack
@@ -540,6 +547,18 @@ Phase 9 (issue #10, on the phase branch for v1.0.0) adds the assistant pages and
 
 See [docs/assistant.md](docs/assistant.md) and ADR 0016.
 
+Phase 10 (hardening, on its branch, not yet released) makes it fit to run for other people:
+
+- Request ids on every response and structured JSON logs carrying them
+- Rate limits for signed-in users and per address on sign-in, alongside the per API key limit, with
+  `Retry-After`; uploads checked for content matching their extension, zip bombs refused before
+  decompression, and the size bounded on the wire
+- Connectors: a watched folder and a Google Drive folder, synced by `ragfabric connectors sync`
+- An end-to-end test from upload to cited answer through the SDK, on SQLite and on PostgreSQL in CI
+- A production compose stack with Caddy for HTTPS, a Render Blueprint, guides for Railway and static
+  hosts, a documentation site built with MkDocs, and a release workflow that refuses a tag that does
+  not match the code
+
 ```bash
 uv sync                       # Python 3.13 workspace: core, server, cli
 uv run ragfabric db upgrade
@@ -590,7 +609,7 @@ Every flagship repository documents the same ten things. Status shows what exist
 | Failure cases | [docs/failure-cases.md](docs/failure-cases.md) | Partial |
 | Evaluation | [docs/evaluation.md](docs/evaluation.md) | Written |
 | Trade-offs | [docs/trade-offs.md](docs/trade-offs.md) | Partial |
-| Deployment | [docs/deployment.md](docs/deployment.md) | Partial |
+| Deployment | [docs/deployment.md](docs/deployment.md) | Written (guides; the single VM stack was run on a workstation, nothing is deployed by the project) |
 | Cost | [docs/cost.md](docs/cost.md) | To be written |
 | Future work | [ROADMAP.md](ROADMAP.md) | Written |
 

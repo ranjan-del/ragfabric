@@ -17,6 +17,8 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 
 ## [Unreleased]
 
+Phase 9 (assistant UI and TypeScript SDK) and Phase 10 (hardening, connectors, docs site, deployment). Releases nothing by itself.
+
 ### Added
 
 - **Assistant UI and TypeScript SDK (Phase 9, issue #10, v1.0.0).** Four pages in `apps/assistant`:
@@ -42,6 +44,59 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 - `GET /api/runs/{id}` returns `router_confidence` and `router_reasoning`
 - `POST /api/ask` documents its JSON and event stream responses in the OpenAPI specification
 - `npm start` proxies `/api` to a server on `localhost:8000`
+- **Request ids.** Every response carries `X-Request-ID`. A caller's id is kept when it is 1 to 128
+  characters of letters, digits, `.`, `_` and `-`, and replaced by a fresh one otherwise, so a header
+  cannot inject into the logs. Streamed `/api/ask` responses keep streaming. An unhandled error returns
+  `{"detail": "Internal server error", "request_id": ...}` and logs the traceback under that id.
+- **Structured logging.** `logging.format` (`text` or `json`) and `logging.level` in `ragfabric.yaml`,
+  overridden by `RAGFABRIC_LOG_FORMAT` and `RAGFABRIC_LOG_LEVEL`. JSON lines carry `ts`, `level`,
+  `logger`, `msg`, `request_id` (or `job:<id>` in the worker, `connector:<name>` in a sync), trace ids
+  and any extra fields. One access line per request, never with the query string; uvicorn's own
+  access log is off.
+- **Rate limits for signed-in users and sign-in attempts.** `limits.user_rate_limit_per_minute` (120)
+  per user and `limits.auth_attempts_per_minute` (10) per client address on login and register,
+  alongside the existing per API key limit. A request is charged once however often it identifies its
+  caller. 429 responses add `Retry-After`, `X-RateLimit-Limit` and `X-RateLimit-Remaining`; the body is
+  unchanged. Redis counts with INCR and EXPIRE in one transaction. If the cache is unreachable the
+  request is allowed and an ERROR is logged with the request id; Redis connections use one second
+  timeouts, so a Redis that hangs fails fast rather than holding every request.
+- **Upload validation in core**, shared by the API, `ragfabric ingest` and connectors: content must
+  match the extension (415), and a DOCX or PPTX is refused (413) over 10,000 entries,
+  `limits.max_uncompressed_mb` (200) uncompressed, or an entry compressed more than 100 to 1, read
+  from the zip's directory without decompressing. The upload size is enforced on the wire, from
+  `Content-Length` or by counting a chunked body, before the file is read.
+- **Connectors.** A sync engine over the existing `Connector` protocol with per-source state in a new
+  `connector_items` table (migration 0009): unchanged files are not fetched, touched but identical
+  files are not re-ingested, changed files are re-ingested in place (same document id, version bumped),
+  and files that leave the source delete only the documents that connector created
+  (`on_delete: delete`, or `keep`). An empty listing never deletes. A source larger than
+  `limits.max_upload_mb` is refused before it is downloaded. A source whose ingestion fails is
+  counted as failed and retried on the next pass, in place. A connector whose `owner` is not a
+  user fails on its own without stopping the others.
+- A watched folder connector (polled, settle check for files still being copied, temporaries and
+  hidden files ignored, symlinks followed only inside the folder) and a Google Drive connector on the
+  official client with a service account and the read-only scope (extra `ragfabric[drive]`; Docs,
+  Slides and Sheets exported to DOCX, PPTX and CSV; a wrong or unshared `folder_id` is reported as
+  such rather than as an empty folder). The Drive connector is tested with fake HTTP and
+  the client's own discovery document; it has not been run against a real Google account.
+- `ragfabric connectors list` and `ragfabric connectors sync [NAME] [--watch]`, configured under
+  `connectors:` in `ragfabric.yaml`.
+- End-to-end tests from registration to a downloaded cited document through the Python SDK: on
+  SQLite in "Backend tests", and on PostgreSQL with pgvector and full text in "Migrations apply
+  cleanly", which now also runs the PostgreSQL migration tests.
+- `deploy/compose/docker-compose.prod.yml`: Caddy for automatic HTTPS as the only service publishing
+  ports, PostgreSQL and Redis on the internal network, production settings and JSON logs, and optional
+  `ollama`, `connectors` and `workers` profiles. `render.yaml`, a Render Blueprint. Guides for a single
+  VM, Render, Railway and static hosting of the web app, and an operations guide.
+- `scripts/bump_version.py`, which moves every version and pin in one step and checks a tag against
+  them. The release workflow now refuses a tag that does not match, builds and checks the
+  distributions, and has a PyPI job that runs only when the repository variable `PYPI_PUBLISH` is
+  `true`, through trusted publishing.
+- A documentation site built with Material for MkDocs from `docs/` (`uv sync --group docs`), checked in
+  strict mode on pull requests that touch the docs, and published to `ragfabric.github.io` only by
+  manual dispatch.
+- `docs/learning/hardening-first-run.md`: the first real run of the production stack, including what
+  went wrong.
 
 ### Fixed
 
@@ -54,6 +109,24 @@ Release plan (see [ROADMAP.md](ROADMAP.md) for the phases inside each release):
 - Karma builds with the esbuild based `builderMode: application`, so the app can compile the SDK
   from source
 - The UI image copies `packages/sdk-typescript/src` into its build stage
+- A file with a supported extension whose content does not match is refused with 415 at upload,
+  where it used to be accepted and fail during ingestion.
+- A `postgres://` or `postgresql://` `DATABASE_URL`, as hosted providers issue, is mapped to the
+  psycopg driver RagFabric installs.
+- OpenAI `text-embedding-3` models are asked for `embeddings.dim` dimensions, so they fit the 768
+  dimension column.
+- Under JSON logs, `ragfabric db upgrade` and `db downgrade` log migrations as JSON.
+- The API image includes the `drive` extra.
+- `ragfabric ingest` refuses a file over `limits.max_upload_mb` from its size on disk, before
+  reading it.
+
+### Security
+
+- The sign-in page no longer shows demo admin credentials. The server logs a warning at startup while
+  the shipped admin password or a placeholder `JWT_SECRET` is in use in development, and says so when
+  production refused the shipped admin. The password is never logged.
+- Sign-in attempts are rate limited per client address, taken from the connection, or from
+  `X-Forwarded-For` only when uvicorn trusts the peer (`FORWARDED_ALLOW_IPS`).
 
 ## [0.5.0] - unreleased
 

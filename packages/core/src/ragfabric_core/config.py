@@ -12,6 +12,7 @@ and no vector-DB server are required to run or test the app.
 
 from functools import lru_cache
 
+from pydantic import PrivateAttr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from ragfabric_core import __version__
@@ -46,6 +47,21 @@ class Settings(BaseSettings):
     # override with a PostgreSQL URL via the DATABASE_URL env var.
     database_url: str = "sqlite:///./rag.db"
 
+    @field_validator("database_url")
+    @classmethod
+    def _psycopg_driver(cls, url: str) -> str:
+        """Point a bare PostgreSQL URL at psycopg 3, the driver RagFabric installs.
+
+        Hosted databases (Render, Railway, most others) hand out
+        ``postgres://`` or ``postgresql://`` URLs, which SQLAlchemy maps to
+        psycopg2. Without this, pasting the URL a provider gives you fails at
+        startup with a missing-module error.
+        """
+        for prefix in ("postgres://", "postgresql://"):
+            if url.startswith(prefix):
+                return "postgresql+psycopg://" + url[len(prefix) :]
+        return url
+
     # Create missing tables from the models at startup. Convenient locally and
     # in the tests, wrong anywhere real: create_all only ever ADDS tables, so a
     # changed column is skipped in silence and the app then queries a schema
@@ -73,6 +89,10 @@ class Settings(BaseSettings):
     # Optional bootstrap admin, seeded on startup when both are set.
     first_admin_email: str | None = "admin@example.com"
     first_admin_password: str | None = "adminpass123"
+
+    # Set when production refused the shipped admin credentials, so startup
+    # can say why no bootstrap admin was seeded.
+    _refused_default_admin: bool = PrivateAttr(default=False)
 
     @property
     def cors_origins_list(self) -> list[str]:
@@ -117,8 +137,40 @@ class Settings(BaseSettings):
         ):
             self.first_admin_email = None
             self.first_admin_password = None
+            self._refused_default_admin = True
 
         self.auto_create_tables = False
+
+    def startup_warnings(self) -> list[str]:
+        """What the operator should hear about once, at startup. Never a secret.
+
+        In development the shipped credentials work, which is convenient on a
+        laptop and dangerous anywhere reachable; the sign-in page no longer
+        prints them, so the log says they are in use. In production they are
+        refused (see ``model_post_init``), and the log says why no admin exists.
+        """
+        warnings: list[str] = []
+        if self.is_production:
+            if self._refused_default_admin:
+                warnings.append(
+                    "FIRST_ADMIN_EMAIL / FIRST_ADMIN_PASSWORD are the shipped defaults and were "
+                    "refused in production; no bootstrap admin was seeded. Set your own values, "
+                    "or create one with `ragfabric users create --email ... --password ... --role admin`."
+                )
+            return warnings
+        if self.first_admin_password == DEFAULT_ADMIN_PASSWORD:
+            warnings.append(
+                f"development mode: the bootstrap admin {self.first_admin_email} uses the "
+                "shipped default password. Set FIRST_ADMIN_PASSWORD, and never expose this "
+                "server on a network with the defaults."
+            )
+        if self.jwt_secret.strip() in INSECURE_SECRETS:
+            warnings.append(
+                "development mode: JWT_SECRET is a placeholder, so anyone who has read the "
+                "repository can sign tokens. Set ENVIRONMENT=production and a real secret "
+                "before exposing this server."
+            )
+        return warnings
 
 
 @lru_cache

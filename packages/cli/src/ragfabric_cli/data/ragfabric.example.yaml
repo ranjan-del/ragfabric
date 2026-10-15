@@ -81,8 +81,30 @@ evaluation:                   # ragfabric eval and make eval; every key is read
 
 limits:                       # request guards
   max_upload_mb: 50           # largest accepted upload
+  max_uncompressed_mb: 200    # largest a DOCX or PPTX may expand to, checked before decompressing
   allowed_types: [pdf, docx, pptx, txt, csv, md]  # accepted file formats
   rate_limit_per_minute: 60   # default per API key limit, requests per minute
+  user_rate_limit_per_minute: 120  # per signed-in user, requests per minute
+  auth_attempts_per_minute: 10     # login and register calls per client address per minute
 
 telemetry:                    # tracing export
   otlp_endpoint: null         # off by default; e.g. http://otel-collector:4318
+
+logging:                      # RAGFABRIC_LOG_FORMAT and RAGFABRIC_LOG_LEVEL override both keys
+  format: text                # text for a terminal | json: one object per line, with the request id
+  level: INFO                 # DEBUG | INFO | WARNING | ERROR | CRITICAL
+
+connectors: []                # document sources synced by `ragfabric connectors sync`; see docs/connectors.md
+# connectors:
+#   - name: inbox             # keys the sync state; keep it stable
+#     kind: folder
+#     path: /data/inbox
+#     collection: handbook     # created if missing
+#     interval_seconds: 30
+#     settle_seconds: 5        # a file modified more recently is still being written
+#     on_delete: delete        # delete | keep: what happens when a file leaves the folder
+#   - name: shared-policies
+#     kind: google_drive       # needs: pip install 'ragfabric[drive]'
+#     folder_id: 1AbCdEf
+#     credentials_file: /run/secrets/drive-service-account.json
+#     interval_seconds: 300

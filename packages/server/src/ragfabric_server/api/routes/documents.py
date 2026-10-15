@@ -23,16 +23,15 @@ from sqlalchemy.orm import Session
 
 from ragfabric_core.auth.principal import AccessFilter, Principal
 from ragfabric_core.db.session import get_db
-from ragfabric_core.graph.extract import detach_documents
-from ragfabric_core.ingest.parser import SUPPORTED_FORMATS
+from ragfabric_core.ingest.delete import delete_document_everywhere
 from ragfabric_core.ingest.pipeline import ingest_document
 from ragfabric_core.ingest.storage import get_storage
+from ragfabric_core.ingest.validate import UploadRejected, check_size, check_type, validate_upload
 from ragfabric_core.models.document import Chunk, Collection, Document
 from ragfabric_core.models.index import ChunkEmbedding, ChunkSearch
 from ragfabric_core.models.user import Role, User
-from ragfabric_core.runtime import get_config, get_session_factory
+from ragfabric_core.runtime import get_config
 from ragfabric_core.stores.access_sql import access_clause
-from ragfabric_core.stores.registry import build_lexical_store, build_vector_store
 from ragfabric_server.deps import get_access_filter, get_current_user, get_principal
 from ragfabric_server.schemas.document import DocumentList, DocumentMove, DocumentOut
 
@@ -103,32 +102,17 @@ async def upload_document(
     an overlap that does not fit its chunk size gets a 422, never a silently
     adjusted document.
 
-    ``limits.allowed_types`` and ``limits.max_upload_mb`` (ragfabric.yaml) are
-    enforced here too: a format outside the deployment's own allow-list (a
-    narrower, operator-configured subset of ``SUPPORTED_FORMATS``, the
-    parser's fixed capability list) is rejected the same as an unparseable
-    one, and a file over the configured size is rejected before it is ever
-    handed to the ingestion pipeline.
+    Every rule in ``ragfabric_core.ingest.validate`` applies (type, allow-list,
+    size, content matching the extension, zip bounds), the same rules the CLI
+    and the connectors use: 400 for a type this deployment does not take, 413
+    for a file too large, 415 for content that is not what its name claims.
     """
     cfg = get_config()
     filename = file.filename or "upload"
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    if ext not in SUPPORTED_FORMATS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"Unsupported format '{ext or filename}'. "
-                f"Supported: {', '.join(SUPPORTED_FORMATS)}."
-            ),
-        )
-    if ext not in cfg.limits.allowed_types:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"File type '.{ext}' is not allowed by this deployment's configuration. "
-                f"Allowed: {', '.join(cfg.limits.allowed_types)}."
-            ),
-        )
+    try:
+        check_type(filename, cfg.limits)
+    except UploadRejected as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.reason) from exc
     if collection_id is not None:
         if db.get(Collection, collection_id) is None:
             raise HTTPException(
@@ -139,20 +123,15 @@ async def upload_document(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found."
             )
 
-    data = await file.read()
-    if not data:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty."
-        )
-    max_bytes = cfg.limits.max_upload_mb * 1024 * 1024
-    if len(data) > max_bytes:
-        raise HTTPException(
-            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-            detail=(
-                f"Uploaded file is {len(data) / (1024 * 1024):.1f} MB, over the configured "
-                f"limit of {cfg.limits.max_upload_mb} MB."
-            ),
-        )
+    # UploadSizeLimitMiddleware has already bounded the body on the wire; the
+    # spooled file's own size is checked before it is read into memory.
+    try:
+        if file.size is not None:
+            check_size(file.size, cfg.limits)
+        data = await file.read()
+        validate_upload(filename, data, cfg.limits)
+    except UploadRejected as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.reason) from exc
 
     if chunk_size is not None or chunk_overlap is not None:
         cfg_ingestion = cfg.ingestion
@@ -333,24 +312,7 @@ def delete_document(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You may only delete your own documents.",
         )
-    # The chunks' graph links would go with the cascade below, leaving the
-    # entities and edges they supported with a confidence no remaining source
-    # reported, or with no source at all. Recompute and collect first (R42).
-    detach_documents(db, [document.id])
-    db.delete(document)  # cascades to chunks
-    db.commit()
-    # The ORM cascade above deletes `chunks` rows. `chunk_embeddings` and
-    # `chunk_search` have an ON DELETE CASCADE foreign key to `chunks.id`, a
-    # database-level constraint. SQLite now enforces foreign keys too
-    # (PRAGMA foreign_keys=ON, set globally in db/session.py), so on both
-    # SQLite and PostgreSQL those rows are cascaded away by the database
-    # itself. On a real Chroma collection nothing will ever cascade it:
-    # Chroma is an external service with no foreign key at all. Delete from
-    # the configured vector and lexical stores explicitly so no orphaned rows
-    # accumulate and silently crowd out live results.
-    cfg = get_config()
-    sf = get_session_factory()
-    build_vector_store(cfg.vector_store, sf).delete_document(document_id)
-    build_lexical_store(cfg.lexical_store, sf).delete_document(document_id)
-    get_storage().delete(document_id)
+    # Graph detach, row and cascades, the vector and lexical stores, and the
+    # retained original, in that order: see ragfabric_core.ingest.delete.
+    delete_document_everywhere(db, document.id)
     return {"detail": "Document deleted.", "id": document_id}

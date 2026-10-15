@@ -77,10 +77,13 @@ router:
   min_confidence: 0.6         # a classifier confidence below this fuses Traditional and Vectorless. Untuned until Phase 8
   classifier_model: null      # read by the router classifier; null uses llm.model if set, else the provider default
 
-limits:                       # enforced, not just read: upload rejects an over-size or wrong-type file,
-  max_upload_mb: 50            # the rate limiter uses rate_limit_per_minute as its window
+limits:                       # enforced, not just read: upload rejects an over-size, wrong-type or mislabelled file
+  max_upload_mb: 50            # the largest accepted upload, also checked on the wire
+  max_uncompressed_mb: 200     # a DOCX or PPTX expanding past this is refused before decompression
   allowed_types: [pdf, docx, pptx, txt, csv, md]
-  rate_limit_per_minute: 60
+  rate_limit_per_minute: 60   # default for a new API key; each key keeps its own value
+  user_rate_limit_per_minute: 120  # per signed-in user
+  auth_attempts_per_minute: 10     # login and register, per client address
 
 telemetry:
   otlp_endpoint: null         # off by default; e.g. http://otel-collector:4318
@@ -90,13 +93,36 @@ evaluation:                   # ragfabric eval and make eval; every key is read 
   judge: auto                 # auto | llm | lexical. auto is llm unless llm.provider is offline
   judge_model: null           # model the llm judge asks; null uses llm.model
   top_k: 5                    # retrieval depth for every evaluated target, so they compare fairly
+logging:                      # RAGFABRIC_LOG_FORMAT and RAGFABRIC_LOG_LEVEL override both keys
+  format: text                # text | json (one object per line, with request_id)
+  level: INFO
+
+connectors: []                # document sources for `ragfabric connectors sync`; see docs/connectors.md
+# connectors:
+#   - name: inbox             # unique; keys the sync state, so renaming makes every file look new
+#     kind: folder            # folder | google_drive
+#     path: /data/inbox       # folder only
+#     collection: handbook    # created if missing; optional
+#     owner: admin@example.com  # an existing user; optional
+#     recursive: true
+#     interval_seconds: 30    # between passes under --watch (Drive: default 300, at least 30)
+#     settle_seconds: 5       # folder only: a file modified more recently is still being written
+#     on_delete: delete       # delete | keep: what happens when a file leaves the source
+#   - name: shared-policies
+#     kind: google_drive      # needs the drive extra
+#     folder_id: 1AbCdEf      # the last part of the folder's URL
+#     credentials_file: /run/secrets/drive-service-account.json   # a path, never the key itself
 ```
+
+What the limits and the logging keys do at run time (429 headers, which address the sign-in limit
+counts, what a JSON line contains, what happens when Redis is down) is in
+[Operations](operations.md).
 
 ## Environment variables
 
 | Variable | Purpose |
 |---|---|
-| `DATABASE_URL` | PostgreSQL connection string |
+| `DATABASE_URL` | PostgreSQL connection string. A hosted provider's `postgres://` or `postgresql://` URL is mapped to the psycopg driver RagFabric installs, so it can be pasted as given |
 | `REDIS_URL` | Redis connection string |
 | `RAGFABRIC_CONFIG` | Path to `ragfabric.yaml`; the api container mounts it at `/app/ragfabric.yaml` |
 | `RAGFABRIC_TEST_DATABASE_URL` | PostgreSQL connection string used only by the `PgVectorStore` and `PostgresLexicalStore` integration tests; unset, those tests skip |
@@ -106,6 +132,8 @@ evaluation:                   # ragfabric eval and make eval; every key is read 
 | `JWT_SECRET` | At least 32 characters; production refuses placeholders |
 | `FIRST_ADMIN_EMAIL`, `FIRST_ADMIN_PASSWORD` | Bootstrap admin; production refuses the shipped defaults |
 | `ENVIRONMENT` | `development` or `production` |
+| `RAGFABRIC_LOG_FORMAT`, `RAGFABRIC_LOG_LEVEL` | Override `logging.format` (`text` or `json`) and `logging.level` without editing the file |
+| `FORWARDED_ALLOW_IPS` | Read by uvicorn: the proxy addresses whose `X-Forwarded-For` is trusted for the client address (default `127.0.0.1`). Set it to your proxy, or `*` only when nothing but the proxy can reach the API; see [Operations](operations.md) |
 
 ## Optional dependencies (extras)
 
@@ -117,6 +145,7 @@ Installed with `uv sync --extra <name>` or `pip install 'ragfabric[<name>]'`.
 | `anthropic` | `llm.provider: anthropic` | The `anthropic` SDK |
 | `chroma` | `vector_store.kind: chroma` | The `chromadb` client |
 | `rerank` | `reranker.kind: cross_encoder` | `sentence-transformers`, which pulls in `torch`; the model itself is downloaded lazily, on the first rerank call, not at process start |
+| `drive` | `connectors` entries with `kind: google_drive` | `google-api-python-client` and `google-auth`. Without it the connector stops with a message naming `pip install 'ragfabric[drive]'`. The API image includes it |
 
 ## Changing the embedding model
 

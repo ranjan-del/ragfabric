@@ -12,6 +12,7 @@ Two things are worth reading here rather than skipping as boilerplate:
    packages/core/tests/test_migrations.py assert that the two have not drifted apart.
 """
 
+import logging
 from logging.config import fileConfig
 
 from alembic import context
@@ -26,8 +27,13 @@ from ragfabric_core.models.base import Base
 
 config = context.config
 
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+# Only configure logging when nothing has: a bare `alembic` command gets
+# alembic.ini's console format, but a process that already set up logging
+# (`ragfabric serve`, quickstart, the tests) keeps its handlers, and no logger
+# that already exists is disabled. Calling fileConfig unconditionally did
+# both, which silenced the request access log after an in-process migration.
+if config.config_file_name is not None and not logging.getLogger().handlers:
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 
 def database_url() -> str:

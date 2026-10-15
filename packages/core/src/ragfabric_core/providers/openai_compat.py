@@ -181,6 +181,9 @@ class OpenAICompatibleEmbeddings:
         self.model = model
         self.dim = dim
         self._client = client or _build_client(name, api_key, base_url)
+        # Sent only where the model honours it (OpenAI's text-embedding-3
+        # family shortens its vectors on request); other servers may reject it.
+        self.send_dimensions = False
 
     def embed(self, texts: list[str]) -> EmbeddingResult:
         if not texts:
@@ -189,7 +192,8 @@ class OpenAICompatibleEmbeddings:
             )
         started = time.perf_counter()
         try:
-            response = self._client.embeddings.create(model=self.model, input=texts)
+            extra = {"dimensions": self.dim} if self.send_dimensions else {}
+            response = self._client.embeddings.create(model=self.model, input=texts, **extra)
         except Exception as exc:
             raise ProviderError(self.name, str(exc)) from exc
         ordered = sorted(response.data, key=lambda item: item.index)
@@ -212,6 +216,8 @@ class OpenAIEmbeddingProvider(OpenAICompatibleEmbeddings):
         client: Any | None = None,
     ) -> None:
         super().__init__("openai", api_key, model, dim, base_url=None, client=client)
+        # Lets a deployment keep the 768 dimension column migration 0004 pins.
+        self.send_dimensions = model.startswith("text-embedding-3")
 
 
 class OllamaEmbeddingProvider(OpenAICompatibleEmbeddings):

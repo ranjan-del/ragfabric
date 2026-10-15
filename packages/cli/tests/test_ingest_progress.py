@@ -114,3 +114,47 @@ def test_quiet_prints_nothing_but_still_calls_on_file(env, monkeypatch, capsys, 
     assert captured.out == "" and captured.err == ""
     assert result == (2, 0)
     assert seen == ["a.txt", "b.md"]
+
+
+def test_a_file_whose_content_does_not_match_its_extension_is_skipped_with_the_reason(
+    env, monkeypatch
+):
+    """The CLI applies the same validation as the API, so a fake PDF never
+    reaches the parser and the run says why."""
+    monkeypatch.setattr(console, "is_rich", lambda stream=None: False)
+    (env / "fake.pdf").write_bytes(b"this is not a pdf")
+    seen: list[str] = []
+    result = runner.invoke(app, ["ingest", str(env)])
+    assert result.exit_code == 1
+    assert "fake.pdf: rejected (File is named .pdf but is not a PDF" in result.stdout
+    assert "2 ingested, 1 failed" in result.stdout
+    ingested, failed = ingest_module.ingest_files(
+        [env / "fake.pdf"],
+        collection=None,
+        owner=None,
+        on_file=lambda path, doc: seen.append(path.name),
+        quiet=True,
+    )
+    assert (ingested, failed) == (0, 1)
+    assert seen == []  # no Document was created, so on_file has nothing to report
+
+
+def test_a_file_over_the_size_limit_is_refused_before_it_is_read(env, monkeypatch):
+    from pathlib import Path
+
+    from ragfabric_core import runtime
+
+    monkeypatch.setattr(console, "is_rich", lambda stream=None: False)
+    big = env / "huge.txt"
+    with big.open("wb") as handle:  # sparse: 60 MB on paper, nothing on disk
+        handle.truncate(60 * 1024 * 1024)
+    real_read = Path.read_bytes
+
+    def guarded(self):
+        assert self.name != "huge.txt", "an oversize file must not be read"
+        return real_read(self)
+
+    monkeypatch.setattr(Path, "read_bytes", guarded)
+    runtime.get_config().limits.max_upload_mb = 50
+    ingested, failed = ingest_module.ingest_files([big], collection=None, owner=None)
+    assert (ingested, failed) == (0, 1)

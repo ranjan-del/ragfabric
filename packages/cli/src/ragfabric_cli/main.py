@@ -14,6 +14,7 @@ import typer
 from pydantic import ValidationError
 
 from ragfabric_cli.commands import access as access_commands
+from ragfabric_cli.commands import connectors as connectors_commands
 from ragfabric_cli.commands import eval as eval_commands
 from ragfabric_cli.commands import graph as graph_commands
 from ragfabric_cli.commands import ingest as ingest_commands
@@ -81,6 +82,7 @@ app.add_typer(access_commands.grants_app, name="grants")
 app.add_typer(access_commands.keys_app, name="keys")
 app.add_typer(graph_commands.graph_app, name="graph")
 app.add_typer(eval_commands.eval_app, name="eval")
+app.add_typer(connectors_commands.connectors_app, name="connectors")
 app.command("ingest")(ingest_commands.ingest)
 app.command("worker")(worker_command)
 app.command("reindex")(reindex_command)
@@ -108,6 +110,28 @@ def version() -> None:
     typer.echo(f"ragfabric {__version__}")
 
 
+def _configure_migration_logging() -> None:
+    """Under JSON logs, log migrations as JSON too.
+
+    The container runs `db upgrade` before `serve`, and Alembic's own console
+    format would otherwise put plain text lines into a JSON log stream. Under
+    the text format nothing changes: Alembic keeps its familiar output.
+    """
+    from ragfabric_core.runtime import get_config
+    from ragfabric_core.telemetry.logs import configure_logging, resolve
+
+    try:
+        log_cfg = get_config().logging
+        fmt, level = log_cfg.format, log_cfg.level
+    except Exception:
+        # A migration must not depend on ragfabric.yaml being valid; the
+        # environment overrides still apply.
+        fmt, level = "text", "INFO"
+    fmt, level = resolve(fmt, level)
+    if fmt == "json":
+        configure_logging(fmt, level)
+
+
 @db_app.command()
 def upgrade(revision: str = typer.Option("head", help="Target revision.")) -> None:
     """Apply migrations up to REVISION (default head).
@@ -117,6 +141,7 @@ def upgrade(revision: str = typer.Option("head", help="Target revision.")) -> No
       ragfabric db upgrade
       ragfabric db upgrade --revision head
     """
+    _configure_migration_logging()
     migrate.upgrade(_database_url(), revision)
     typer.echo(f"database upgraded to {revision}")
 
@@ -131,6 +156,7 @@ def downgrade(revision: str = typer.Option("base", help="Target revision.")) -> 
 
     Rolling back to base removes every table; name the revision you want.
     """
+    _configure_migration_logging()
     migrate.downgrade(_database_url(), revision)
     typer.echo(f"database downgraded to {revision}")
 
@@ -292,7 +318,22 @@ def serve(
 
     import uvicorn
 
-    uvicorn.run("ragfabric_server.main:app", host=host, port=port, reload=reload)
+    from ragfabric_core.runtime import get_config
+    from ragfabric_core.telemetry.logs import configure_logging
+
+    # RagFabric owns logging (format, level, request ids): log_config=None
+    # stops uvicorn installing its own handlers, and its access log is off
+    # because the server's middleware writes one access line per request.
+    log_cfg = get_config().logging
+    configure_logging(log_cfg.format, log_cfg.level)
+    uvicorn.run(
+        "ragfabric_server.main:app",
+        host=host,
+        port=port,
+        reload=reload,
+        log_config=None,
+        access_log=False,
+    )
 
 
 def main() -> None:
