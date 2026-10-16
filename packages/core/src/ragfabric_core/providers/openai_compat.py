@@ -13,11 +13,18 @@ is only sent for models outside REASONING_MODEL_PREFIXES.
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Iterator
 from typing import Any
 
-from ragfabric_core.providers.base import Completion, EmbeddingResult, Message, ProviderError
+from ragfabric_core.providers.base import (
+    Completion,
+    EmbeddingResult,
+    Message,
+    ProviderError,
+    StreamUsage,
+)
 
 REASONING_MODEL_PREFIXES = ("gpt-5", "o1", "o3", "o4")
 
@@ -113,14 +120,13 @@ class OpenAICompatibleLLM:
         model: str | None = None,
         max_tokens: int = 1024,
         temperature: float = 0.0,
+        usage: StreamUsage | None = None,
     ) -> Iterator[str]:
         """Yield text deltas from a server sent event stream.
 
-        Shared by ``OpenAIProvider`` and ``OllamaProvider``, since Ollama serves
-        the same streamed chunk shape at its OpenAI compatible endpoint. Usage
-        is not reported on streamed chunks by either vendor, so no token count
-        is returned here; the caller accounts for that honestly rather than
-        estimating (ADR 0004).
+        ``stream_options.include_usage`` asks for a final chunk that carries
+        ``usage`` and no choices; its counts fill ``usage`` when one is given.
+        A server that ignores the option leaves ``usage`` unknown (``None``).
         """
         chosen = model or self.default_model
         kwargs: dict[str, Any] = {
@@ -128,6 +134,7 @@ class OpenAICompatibleLLM:
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "max_completion_tokens": max_tokens,
             "stream": True,
+            "stream_options": {"include_usage": True},
         }
         if not chosen.startswith(REASONING_MODEL_PREFIXES):
             kwargs["temperature"] = temperature
@@ -138,6 +145,10 @@ class OpenAICompatibleLLM:
         except Exception as exc:  # the SDK raises many types; callers get one
             raise ProviderError(self.name, str(exc)) from exc
         for chunk in chunks:
+            reported = getattr(chunk, "usage", None)
+            if reported is not None and usage is not None:
+                usage.input_tokens = int(getattr(reported, "prompt_tokens", 0) or 0)
+                usage.output_tokens = int(getattr(reported, "completion_tokens", 0) or 0)
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta.content
@@ -152,15 +163,145 @@ class OpenAIProvider(OpenAICompatibleLLM):
         super().__init__("openai", api_key, default_model, base_url=None, client=client)
 
 
-class OllamaProvider(OpenAICompatibleLLM):
+DEFAULT_OLLAMA_NUM_CTX = 8192
+
+
+class _UrllibTransport:
+    """Standard library HTTP for Ollama's native API: no extra dependency."""
+
+    def __init__(self, timeout: float = 600.0) -> None:
+        self.timeout = timeout
+
+    def _open(self, url: str, body: dict) -> Any:
+        import urllib.request
+
+        request = urllib.request.Request(
+            url, data=json.dumps(body).encode("utf-8"), headers={"Content-Type": "application/json"}
+        )
+        return urllib.request.urlopen(request, timeout=self.timeout)
+
+    def post(self, url: str, body: dict) -> dict:
+        with self._open(url, body) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def stream(self, url: str, body: dict) -> Iterator[str]:
+        with self._open(url, body) as response:
+            for raw in response:
+                line = raw.decode("utf-8").strip()
+                if line:
+                    yield line
+
+
+def _native_root(base_url: str) -> str:
+    root = base_url.rstrip("/")
+    return root[: -len("/v1")] if root.endswith("/v1") else root
+
+
+class OllamaProvider:
+    """Ollama chat through the native ``/api/chat`` endpoint.
+
+    Why not ``/v1`` like the embeddings: Ollama's OpenAI compatible endpoint
+    ignores ``num_ctx`` in the request and runs every prompt in the model's
+    default window, cutting a longer prompt silently and keeping its end. The
+    system prompt and the first ranked passages are what is lost. Measured on
+    Ollama 0.34: a 6,400 token prompt arrived as 2,050 tokens through ``/v1``
+    and whole (6,443) through ``/api/chat`` with ``options.num_ctx`` 8192.
+
+    ``num_ctx`` is sent on every call; ``None`` leaves the model's own default.
+    Keeping one value for every call also avoids Ollama reloading the model
+    each time the window changes.
+    """
+
     def __init__(
         self,
         base_url: str = "http://localhost:11434/v1",
         default_model: str = "llama3.2",
-        client: Any | None = None,
+        num_ctx: int | None = DEFAULT_OLLAMA_NUM_CTX,
+        transport: Any | None = None,
     ) -> None:
-        # Ollama ignores the key but the SDK requires a non empty string.
-        super().__init__("ollama", "ollama", default_model, base_url=base_url, client=client)
+        self.name = "ollama"
+        self.default_model = default_model
+        self.num_ctx = num_ctx
+        self._chat_url = _native_root(base_url) + "/api/chat"
+        self._transport = transport or _UrllibTransport()
+
+    def _body(
+        self,
+        messages: list[Message],
+        model: str | None,
+        max_tokens: int,
+        temperature: float,
+        stream: bool,
+    ) -> dict[str, Any]:
+        options: dict[str, Any] = {"temperature": temperature, "num_predict": max_tokens}
+        if self.num_ctx is not None:
+            options["num_ctx"] = self.num_ctx
+        return {
+            "model": model or self.default_model,
+            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "stream": stream,
+            "options": options,
+        }
+
+    def complete(
+        self,
+        messages: list[Message],
+        *,
+        model: str | None = None,
+        max_tokens: int = 1024,
+        temperature: float = 0.0,
+        json_schema: dict | None = None,
+    ) -> Completion:
+        body = self._body(messages, model, max_tokens, temperature, stream=False)
+        if json_schema is not None:
+            body["format"] = json_schema
+        started = time.perf_counter()
+        try:
+            data = self._transport.post(self._chat_url, body)
+        except ProviderError:
+            raise
+        except Exception as exc:  # network and HTTP errors; callers get one type
+            raise ProviderError(self.name, str(exc)) from exc
+        latency_ms = int((time.perf_counter() - started) * 1000)
+        if "error" in data:
+            raise ProviderError(self.name, str(data["error"]))
+        message = data.get("message") or {}
+        return Completion(
+            text=message.get("content") or "",
+            model=data.get("model") or body["model"],
+            provider=self.name,
+            input_tokens=int(data.get("prompt_eval_count") or 0),
+            output_tokens=int(data.get("eval_count") or 0),
+            latency_ms=latency_ms,
+            finish_reason=data.get("done_reason"),
+        )
+
+    def stream(
+        self,
+        messages: list[Message],
+        *,
+        model: str | None = None,
+        max_tokens: int = 1024,
+        temperature: float = 0.0,
+        usage: StreamUsage | None = None,
+    ) -> Iterator[str]:
+        """Yield content deltas; the final chunk's counts fill ``usage`` when given."""
+        body = self._body(messages, model, max_tokens, temperature, stream=True)
+        try:
+            for line in self._transport.stream(self._chat_url, body):
+                data = json.loads(line)
+                if "error" in data:
+                    raise ProviderError(self.name, str(data["error"]))
+                delta = (data.get("message") or {}).get("content")
+                if delta:
+                    yield delta
+                if data.get("done") and usage is not None:
+                    usage.input_tokens = int(data.get("prompt_eval_count") or 0)
+                    usage.output_tokens = int(data.get("eval_count") or 0)
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(self.name, str(exc)) from exc
 
 
 class OpenAICompatibleEmbeddings:

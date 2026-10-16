@@ -114,6 +114,18 @@ def assert_citation_contract(answer: str, chunks: list[RetrievedChunk]) -> None:
         if not _should_verify(quote):
             continue
         if _flat(quote) not in cited_text:
-            raise CitationViolation(
-                f"quote {quote[:60]!r} does not appear in any chunk the answer cites"
-            )
+            reason = f"quote {quote[:60]!r} does not appear in any chunk the answer cites"
+            holder = _passage_holding(quote, chunks)
+            if holder is not None:
+                # Said so the retry can move the marker instead of giving up.
+                reason += f"; it appears in passage [{holder}]"
+            raise CitationViolation(reason)
+
+
+def _passage_holding(quote: str, chunks: list[RetrievedChunk]) -> int | None:
+    """The 1-based number of the first retrieved chunk that holds ``quote``, if any."""
+    wanted = _flat(quote)
+    for n, chunk in enumerate(chunks, start=1):
+        if wanted in _flat(chunk.text):
+            return n
+    return None

@@ -164,6 +164,7 @@ class _FakeCitingLLM:
         model: str | None = None,
         max_tokens: int = 1024,
         temperature: float = 0.0,
+        usage=None,
     ):
         """Yield the same deterministic text ``complete`` would return, in
         pieces, so ``/api/ask`` can be exercised as a real stream without a

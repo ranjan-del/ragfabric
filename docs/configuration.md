@@ -26,6 +26,7 @@ llm:
   provider: ollama            # openai | anthropic | ollama | offline
   model: llama3.2:3b          # openai default: gpt-5.4-mini, anthropic default: claude-sonnet-5
   base_url: http://localhost:11434/v1   # ollama or any OpenAI compatible endpoint
+  num_ctx: 8192               # ollama only: context window sent on every call (null = model default)
 
 embeddings:
   provider: ollama            # openai | ollama | offline

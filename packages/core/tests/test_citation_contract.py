@@ -113,3 +113,26 @@ def test_a_long_false_quote_is_still_a_violation():
             chunks("Employees receive 24 days of annual leave."),
         )
     assert "quote" in exc.value.reason
+
+
+def test_a_quote_cited_to_the_wrong_passage_names_the_passage_that_holds_it():
+    """The reason is fed back to the model on the retry, so it must say how to repair.
+
+    Phase 11 run 13: "A conscious criminal" was in passage [3] and cited to [1];
+    the reason only said the quote was missing, and the retry gave up.
+    """
+    with pytest.raises(CitationViolation) as exc:
+        assert_citation_contract(
+            'He is called "a conscious criminal" [1].',
+            chunks("Opening statements began.", "The jury was sworn.", "A conscious criminal..."),
+        )
+    assert "does not appear in any chunk the answer cites" in exc.value.reason
+    assert "it appears in passage [3]" in exc.value.reason
+
+
+def test_a_quote_in_no_passage_at_all_is_not_given_a_passage():
+    with pytest.raises(CitationViolation) as exc:
+        assert_citation_contract(
+            'It says "an invented sentence here" [1].', chunks("Something else.", "Other text.")
+        )
+    assert "appears in passage" not in exc.value.reason

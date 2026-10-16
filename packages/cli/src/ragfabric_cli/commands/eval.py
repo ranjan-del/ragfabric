@@ -8,6 +8,7 @@ database and providers, with no server (design decisions D1 and D16).
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,6 +25,7 @@ from ragfabric_core.evaluation.dataset import (
     shipped_corpus_paths,
     shipped_questions_path,
 )
+from ragfabric_core.evaluation.datasets import DATASETS, import_dataset
 from ragfabric_core.evaluation.report import render_report
 from ragfabric_core.evaluation.runner import run_batch
 from ragfabric_core.evaluation.session import prepare
@@ -48,7 +50,14 @@ def _fail(message: str) -> None:
 
 
 def _commit() -> str:
-    """The checkout's short commit, or empty when not run from a git checkout."""
+    """The checkout's short commit, or empty when not run from a git checkout.
+
+    ``RAGFABRIC_EVAL_COMMIT`` overrides it, for runs from an exported source
+    tree, so long benchmarks can run on frozen code while the checkout moves on.
+    """
+    pinned = os.environ.get("RAGFABRIC_EVAL_COMMIT", "").strip()
+    if pinned:
+        return pinned
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
@@ -66,25 +75,105 @@ def _fmt(value) -> str:
     return "n/a" if value is None else f"{value:.2f}"
 
 
+def _corpus_files(folder: Path) -> list[Path]:
+    return sorted(p for p in folder.iterdir() if p.is_file() and not p.name.startswith("."))
+
+
 @eval_app.command("corpus")
 def corpus(
     collection: str | None = typer.Option(
         None, "--collection", help="Defaults to evaluation.collection."
     ),
+    path: Path | None = typer.Option(
+        None, "--path", help="A folder of documents, such as an imported corpus/ folder."
+    ),
 ) -> None:
-    """Ingest the shipped synthetic corpus into the evaluation collection (idempotent).
+    """Ingest the shipped synthetic corpus, or a folder, into a collection (idempotent).
 
     \b
     Examples:
       ragfabric eval corpus
+      ragfabric eval corpus --path ./bench/scifact-100/corpus --collection scifact-100
     """
     name = collection or get_config().evaluation.collection
-    ingested, skipped, failed = ingest_corpus(get_session_factory(), name, shipped_corpus_paths())
+    if path is not None and not path.is_dir():
+        _fail(f"{path} is not a directory")
+    paths = _corpus_files(path) if path is not None else shipped_corpus_paths()
+    ingested, skipped, failed = ingest_corpus(get_session_factory(), name, paths)
     typer.echo(
         f"{name}: {len(ingested)} ingested, {len(skipped)} already loaded, {len(failed)} failed"
     )
     if failed:
         _fail(f"failed: {', '.join(failed)}")
+
+
+@eval_app.command("datasets")
+def datasets(as_json: bool = typer.Option(False, "--json")) -> None:
+    """List the public datasets ``eval import`` can convert, with source and licence.
+
+    \b
+    Examples:
+      ragfabric eval datasets
+      ragfabric eval datasets --json
+    """
+    rows = [
+        {
+            "name": d.spec.name,
+            "title": d.spec.title,
+            "source": d.spec.source,
+            "licence": d.spec.licence,
+        }
+        for d in DATASETS.values()
+    ]
+    if as_json:
+        typer.echo(json.dumps(rows))
+        return
+    for r in rows:
+        typer.echo(f"{r['name']:<14} {r['title']}")
+        typer.echo(f"{'':<14} source:  {r['source']}")
+        typer.echo(f"{'':<14} licence: {r['licence']}")
+
+
+@eval_app.command("import")
+def import_command(
+    name: str = typer.Argument(..., help="Dataset name; see ragfabric eval datasets."),
+    limit: int | None = typer.Option(
+        None, "--limit", min=2, help="Number of documents; default the whole corpus."
+    ),
+    questions: int | None = typer.Option(None, "--questions", min=1, help="Question cap."),
+    seed: int = typer.Option(11, "--seed", help="Sampling seed."),
+    out: Path | None = typer.Option(None, "--out", help="Default ./bench/<name>-<limit|full>."),
+    cache_dir: Path | None = typer.Option(
+        None, "--cache-dir", help="Download cache; default ~/.cache/ragfabric/datasets."
+    ),
+) -> None:
+    """Download (cached), sample and convert a public dataset to the evaluation format.
+
+    \b
+    Examples:
+      ragfabric eval import scifact --limit 100
+      ragfabric eval import multihop-rag --limit 100 --questions 50 --seed 11 --out ./bench/mh-100
+    """
+    target = out or Path("bench") / f"{name}-{limit if limit is not None else 'full'}"
+    try:
+        manifest = import_dataset(
+            name, target, limit=limit, questions=questions, seed=seed, cache_dir=cache_dir
+        )
+    except (ValueError, OSError) as exc:
+        _fail(str(exc))
+    counts = manifest["counts"]
+    typer.echo(
+        f"{manifest['dataset']}: {counts['documents']} documents, {counts['questions']} questions "
+        f"written to {target}"
+    )
+    for dropped in manifest.get("dropped", []):
+        typer.echo(f"  dropped {dropped['count']} {dropped['what']}: {dropped['reason']}")
+    typer.echo(f"licence (as stated by the source): {manifest['licence']}")
+    typer.echo(f"next: ragfabric eval corpus --path {target / 'corpus'} --collection {target.name}")
+    typer.echo(
+        f"      ragfabric eval run --questions {target / 'questions.json'} "
+        f"--collection {target.name}"
+    )
 
 
 @eval_app.command("run")
@@ -101,6 +190,17 @@ def run(
     judge: str | None = typer.Option(None, "--judge", help="auto, llm or lexical."),
     report: Path | None = typer.Option(None, "--report", help="Write the Markdown report here."),
     batch: str | None = typer.Option(None, "--batch", help="Batch label; default eval-<time>."),
+    resume: bool = typer.Option(
+        False, "--resume", help="Continue the named batch, skipping questions already stored."
+    ),
+    retrieval_only: bool = typer.Option(
+        False, "--retrieval-only", help="Retrieve and score retrieval only: no answer, no judge."
+    ),
+    judge_metric: list[str] = typer.Option(
+        None,
+        "--judge-metric",
+        help="Repeatable: correctness, faithfulness, context_relevance. Default all three.",
+    ),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """Run a question set through the strategies, score and store every answer.
@@ -110,6 +210,8 @@ def run(
       ragfabric eval run --report docs/benchmarks/latest.md
       ragfabric eval run --strategy graph --category multi_hop
       ragfabric eval run --questions ./my-questions.json --collection handbook
+      ragfabric eval run --questions ./bench/scifact-100/questions.json \\
+        --collection scifact-100 --batch scifact-100 --retrieval-only --resume
     """
     if judge is not None and judge not in ("auto", "llm", "lexical"):
         _fail(f"unknown judge {judge!r}: expected auto, llm or lexical")
@@ -132,10 +234,17 @@ def run(
             specs=list(strategy or DEFAULT_TARGETS),
             collection=collection,
             judge=judge,
+            judge_metrics=tuple(judge_metric) if judge_metric else None,
         )
     except ValueError as exc:
         _fail(str(exc))
     label = batch or f"eval-{datetime.now(UTC):%Y%m%dT%H%M%SZ}"
+    if resume and batch is None:
+        _fail("--resume needs --batch: the batch name is what is resumed")
+    if not resume:
+        with factory() as db:
+            if batch_runs(db, label):
+                _fail(f"batch {label!r} already exists: pass --resume to continue it")
     shipped_corpus = questions is None and prepared.collection == cfg.evaluation.collection
     meta = {
         "commit": _commit(),
@@ -146,11 +255,13 @@ def run(
         "categories": sorted(category) if category else None,
         **prepared.meta,
     }
+    judge_text = "none (retrieval only)" if retrieval_only else prepared.judge.kind
     if not as_json:
         typer.echo(
             f"batch {label}: {len(qs.questions)} questions x {len(prepared.targets)} targets, "
-            f"judge {prepared.judge.kind}"
-            + (f" ({prepared.judge.model})" if prepared.judge.model else "")
+            f"judge {judge_text}"
+            + (f" ({prepared.judge.model})" if prepared.judge.model and not retrieval_only else "")
+            + (" (resuming)" if resume else "")
         )
         for name, reason in prepared.skipped:
             typer.echo(f"skipped {name}: {reason}")
@@ -180,6 +291,8 @@ def run(
         llm_model=prepared.llm_model,
         embedding_model=prepared.embedding_model,
         on_result=progress,
+        resume=resume,
+        retrieval_only=retrieval_only,
     )
     with factory() as db:
         runs = batch_runs(db, label)

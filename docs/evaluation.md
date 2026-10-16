@@ -74,6 +74,42 @@ ragfabric eval run --questions ./my-questions.json --collection handbook
 The file is validated on load and every bad field is named. `--category` limits a run to some
 categories.
 
+### Public datasets
+
+`ragfabric eval import` converts a public dataset into the same format: a `corpus/` folder, a
+`questions.json` and a `manifest.json` (sources, the SHA-256 of every downloaded file, the licence as
+the source states it, the sampling arguments, counts, and what was dropped and why).
+
+```bash
+ragfabric eval datasets                                   # name, source and licence of each
+ragfabric eval import scifact --limit 100                 # writes ./bench/scifact-100
+ragfabric eval corpus --path ./bench/scifact-100/corpus --collection scifact-100
+ragfabric eval run --questions ./bench/scifact-100/questions.json --collection scifact-100
+```
+
+| Dataset | What it measures here | Licence as stated by the source |
+|---|---|---|
+| `scifact`, `nfcorpus`, `fiqa` (BEIR) | Retrieval only: BEIR has relevance judgements, not answers | SciFact CC BY 4.0; NFCorpus academic use; FiQA non-commercial |
+| `multihop-rag` | Retrieval with evidence phrases, and answers | ODC-BY |
+| `financebench` (open sample) | Retrieval of the right filing, and answers | CC BY-NC 4.0 |
+
+`--limit N` counts documents. Questions are shuffled with the seed; a question is taken when its
+relevant documents fit into half of the budget, and the rest is filled with distractors, so the same
+arguments always give the same files. Downloads are cached in `~/.cache/ragfabric/datasets`
+(`--cache-dir`) and checked against a pinned checksum; nothing is written into the repository, and
+RagFabric redistributes none of the data. Check each licence before you use a dataset.
+
+### Long runs
+
+| Option | What it does |
+|---|---|
+| `--batch NAME --resume` | Continue a named batch: each target keeps the questions already stored, retries the ones stored with an error, answers the rest, and its summary is recomputed from every stored row. Without `--resume`, an existing batch name is refused |
+| `--retrieval-only` | Retrieve and score retrieval only; nothing is generated or judged, and answer metrics are `None` (for sets with relevance judgements but no answers, such as BEIR) |
+| `--judge-metric correctness` | Repeatable; ask the judge only for these rubrics. The others are `None`, not 0 |
+
+A target that never emits `[n]` markers (another tool's default prompt) sets `cites = False` on its
+answers, and its citation correctness is `None` rather than 0.
+
 ## Metrics
 
 ### Retrieval (deterministic)

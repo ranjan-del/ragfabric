@@ -1,0 +1,3 @@
+Product overview: Larkspur Ledger
+
+Larkspur Ledger is the company's accounting product for small businesses. It supports invoicing, expense tracking and bank reconciliation. The current public release is Ledger 4.2, shipped in March 2026. Ledger runs in the browser and on Android and iOS.

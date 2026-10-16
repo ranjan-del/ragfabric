@@ -178,3 +178,17 @@ def test_a_missing_collection_says_how_to_load_it(eval_db):
     cfg_path, factory = eval_db
     with pytest.raises(ValueError, match="ragfabric eval corpus"):
         eval_session.prepare(load_config(cfg_path), factory, specs=["traditional"])
+
+
+def test_retrieve_returns_ranked_contexts_without_generating(loaded):
+    from ragfabric_core.evaluation.target import RetrievingTarget
+
+    cfg, factory, cid = loaded
+    (target,), _ = _targets(cfg, factory, cid, ["traditional"])
+    assert isinstance(target, RetrievingTarget)
+    calls_before = getattr(target.llm, "calls", 0)
+    out = target.retrieve("How many days of casual leave?")
+    assert out.answer == "" and out.contexts
+    assert out.contexts[0].document in {"leave.md", "travel.md"}
+    assert out.generation_latency_ms is None and out.retrieval_latency_ms is not None
+    assert getattr(target.llm, "calls", 0) == calls_before

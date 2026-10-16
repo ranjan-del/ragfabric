@@ -1,0 +1,3 @@
+Security basics for all staff
+
+Staff use a password manager and two factor authentication on every work account. Laptops are encrypted. Suspected phishing is reported to the security team through the help desk. Security training is repeated every year.

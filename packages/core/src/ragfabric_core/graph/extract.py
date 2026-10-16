@@ -82,7 +82,7 @@ from ragfabric_core.graph.contracts import (
     ExtractedRelationship,
     RelationType,
     normalise,
-    parse_extraction,
+    salvage_extraction,
 )
 from ragfabric_core.json_contract import ContractViolation
 from ragfabric_core.models.document import Chunk
@@ -302,9 +302,12 @@ def _extract_and_store(
         model=model,
         temperature=0.0,
     )
-    parsed = parse_extraction(completion.text)
-    if isinstance(parsed, ContractViolation):
+    salvaged = salvage_extraction(completion.text)
+    if isinstance(salvaged, ContractViolation):
         return ExtractionReport(contract_violation=True)
+    # Items that broke the contract on their own are dropped and counted with
+    # the below-floor ones; the rest of the reply is kept (fix wave, Phase 11).
+    parsed, invalid_entities, invalid_relationships = salvaged
 
     kept_entities = [
         entity
@@ -312,7 +315,7 @@ def _extract_and_store(
         if entity.confidence >= floor
         and (entity_types is None or entity.entity_type in entity_types)
     ]
-    entities_discarded = len(parsed.entities) - len(kept_entities)
+    entities_discarded = len(parsed.entities) - len(kept_entities) + invalid_entities
 
     entity_ids, entities_stored = _upsert_entities(
         db, chunk, kept_entities, extraction_model=completion.model
@@ -339,7 +342,7 @@ def _extract_and_store(
         type_by_name=type_by_name,
         extraction_model=completion.model,
     )
-    relationships_discarded += endpoint_discarded
+    relationships_discarded += endpoint_discarded + invalid_relationships
 
     return ExtractionReport(
         entities_stored=entities_stored,

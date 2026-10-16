@@ -1,0 +1,7 @@
+# Pinned for the Phase 11 comparison runs (D15). Not workspace dependencies; used with
+#   uv run --with-requirements benchmarks/requirements-competitors.txt ...
+llama-index-core==0.14.25
+llama-index-llms-ollama==0.11.0
+llama-index-embeddings-ollama==0.10.0
+langchain-core==1.6.9
+langchain-ollama==1.1.0

@@ -30,6 +30,10 @@ class LLMConfig(_Strict):
     provider: Literal["openai", "anthropic", "ollama", "offline"] = "ollama"
     model: str | None = "llama3.2:3b"
     base_url: str | None = "http://localhost:11434/v1"
+    # Ollama only: the context window requested on every call. Without it
+    # Ollama runs the model's default window (about 2,048 tokens) and cuts a
+    # longer prompt from the front without an error. None keeps that default.
+    num_ctx: int | None = Field(default=8192, ge=512)
 
 
 class EmbeddingsConfig(_Strict):
