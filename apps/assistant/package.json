@@ -14,13 +14,13 @@
   "private": true,
   "dependencies": {
     "@angular/animations": "^22.2.1",
-    "@angular/common": "^22.2.1",
-    "@angular/compiler": "^22.2.1",
-    "@angular/core": "^22.2.1",
-    "@angular/forms": "^22.2.1",
-    "@angular/platform-browser": "^22.2.1",
+    "@angular/common": "^22.2.2",
+    "@angular/compiler": "^22.2.2",
+    "@angular/core": "^22.2.2",
+    "@angular/forms": "^22.2.2",
+    "@angular/platform-browser": "^22.2.2",
     "@angular/platform-browser-dynamic": "^22.2.1",
-    "@angular/router": "^22.2.1",
+    "@angular/router": "^22.2.2",
     "rxjs": "^7.8.0",
     "tslib": "^2.6.0",
     "zone.js": "^0.16.3"
@@ -28,7 +28,7 @@
   "devDependencies": {
     "@angular-devkit/build-angular": "^22.2.2",
     "@angular/cli": "^22.2.2",
-    "@angular/compiler-cli": "^22.2.1",
+    "@angular/compiler-cli": "^22.2.2",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/jasmine": "~5.1.0",
     "istanbul-lib-instrument": "^6.0.3",
@@ -38,7 +38,7 @@
     "karma-coverage": "~2.2.0",
     "karma-jasmine": "~5.1.0",
     "karma-jasmine-html-reporter": "~2.3.0",
-    "postcss": "^8.5.29",
+    "postcss": "^8.5.30",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.3"
   }
