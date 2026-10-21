@@ -158,3 +158,18 @@ def test_an_admin_cannot_delete_their_own_account(client, admin_headers):
 
 def test_deleting_a_user_who_does_not_exist_is_404(client, admin_headers):
     assert client.delete("/api/admin/users/999999", headers=admin_headers).status_code == 404
+
+
+def test_users_list_survives_a_row_with_an_invalid_email(client, admin_headers, db_session):
+    """A bootstrap admin seeded from FIRST_ADMIN_EMAIL is never validated as an
+    address, so the row can hold a value EmailStr rejects. Listing users must
+    still answer instead of failing response validation with a 500."""
+    from ragfabric_core.models.user import User
+
+    db_session.add(User(email="admin@localhost", hashed_password="h", role="admin"))
+    db_session.commit()
+
+    resp = client.get("/api/admin/users", headers=admin_headers)
+
+    assert resp.status_code == 200, resp.text
+    assert "admin@localhost" in [u["email"] for u in resp.json()]
