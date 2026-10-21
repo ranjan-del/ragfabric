@@ -5,7 +5,7 @@ import { DocumentService } from '../services/document.service';
 import { describeError } from '../services/http-error';
 import { ModalComponent } from '../ui';
 import { score } from './format';
-import { snippetSegments } from './segments';
+import { ExpandedSnippet, expandSnippet, isTruncated, snippetSegments } from './segments';
 
 /**
  * The source behind one citation: where it came from, the passage with the
@@ -29,6 +29,15 @@ import { snippetSegments } from './segments';
             <span [class.hl]="part.highlight" [class.support]="part.support">{{ part.text }}</span>
           }
         </blockquote>
+        @if (canExpand()) {
+          <p>
+            <button type="button" class="btn btn-sm" data-test="expand" (click)="expand()" [disabled]="expanding()">
+              {{ expanding() ? 'Loading...' : 'Show more context' }}
+            </button>
+          </p>
+        } @else if (expanded()) {
+          <p class="muted legend">Showing the passage with the text around it from the original file.</p>
+        }
         <p class="legend muted">
           <span class="support">Underlined</span>: the sentence the answer quoted.
           <span class="hl">Highlighted</span>: words from your question.
@@ -73,10 +82,58 @@ export class SourceViewerComponent {
     const value = this.citation()?.score;
     return value == null ? 'not measured (graph traversal)' : score(value, 3);
   });
+  /** The wider passage for one citation; ignored once another citation is open. */
+  private readonly wider = signal<{ citation: Citation; view: ExpandedSnippet } | null>(null);
+  readonly expanding = signal(false);
+  readonly expanded = computed(() => {
+    const w = this.wider();
+    return w !== null && w.citation === this.citation() ? w.view : null;
+  });
+  /** The server cuts the snippet; the original file can be read back for text formats. */
+  readonly canExpand = computed(() => {
+    const c = this.citation();
+    return (
+      c !== null &&
+      this.expanded() === null &&
+      isTruncated(c.snippet) &&
+      c.document_id != null &&
+      /\.(txt|md|csv)$/i.test(c.filename ?? '')
+    );
+  });
   readonly parts = computed(() => {
     const c = this.citation();
-    return c ? snippetSegments(c.snippet, c.highlights ?? [], c.supporting_span ?? null) : [];
+    if (!c) {
+      return [];
+    }
+    const wide = this.expanded();
+    return wide
+      ? snippetSegments(wide.text, wide.highlights, wide.support)
+      : snippetSegments(c.snippet, c.highlights ?? [], c.supporting_span ?? null);
   });
+
+  expand(): void {
+    const c = this.citation();
+    if (c?.document_id == null) {
+      return;
+    }
+    this.expanding.set(true);
+    this.error.set(null);
+    this.documents.download(c.document_id).subscribe({
+      next: async (blob) => {
+        const view = expandSnippet(c.snippet, await blob.text(), c.highlights ?? [], c.supporting_span ?? null);
+        this.expanding.set(false);
+        if (view === null) {
+          this.error.set('The passage could not be found in the original file, so no more context is available.');
+        } else {
+          this.wider.set({ citation: c, view });
+        }
+      },
+      error: (err: unknown) => {
+        this.expanding.set(false);
+        this.error.set(describeError(err, 'The document could not be loaded.'));
+      },
+    });
+  }
 
   download(): void {
     const c = this.citation();

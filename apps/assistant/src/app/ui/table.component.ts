@@ -21,6 +21,11 @@ export type TableDensity = 'comfortable' | 'compact';
 @Component({
   selector: 'ui-table',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  // A block that may shrink below the table's width: without this the table
+  // stretches the page instead of scrolling inside its own .table-wrap.
+  styles: `
+    :host { display: block; min-width: 0; max-width: 100%; }
+  `,
   template: `
     @if (error()) {
       <div class="table-state table-error" role="alert">
