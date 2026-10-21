@@ -1,4 +1,4 @@
-import { signal } from '@angular/core';
+import { computed, signal } from '@angular/core';
 import {
   AskEvent,
   Citation,
@@ -6,6 +6,12 @@ import {
   RetrievalEvent,
   SupersededEvent,
 } from '@ragfabric/sdk';
+
+const GRAPH_REASONS: Record<string, string> = {
+  no_graph_coverage: 'No knowledge graph covers these documents yet.',
+  no_entity_matched: 'No entity in the question matched the knowledge graph.',
+  no_walkable_edges: 'The matched entities have no relationships to follow.',
+};
 
 export type AnswerStatus = 'idle' | 'running' | 'done' | 'failed';
 
@@ -25,6 +31,34 @@ export class AnswerState {
   readonly citations = signal<Citation[]>([]);
   readonly done = signal<DoneEvent['data'] | null>(null);
   readonly error = signal<string | null>(null);
+
+  /**
+   * The answer is the server's "could not find" admission with no source
+   * cited. The API has no refusal flag, so this reads the same signal the
+   * evaluation judge reads: the contract's phrase and no citation marker.
+   */
+  readonly refused = computed(
+    () =>
+      this.status() === 'done' &&
+      this.text().toLowerCase().includes('could not find') &&
+      !/\[\d+\]/.test(this.text()),
+  );
+
+  /** Why a refusal happened, in wording safe to show, or null when the API gave none. */
+  readonly refusalReason = computed<string | null>(() => {
+    if (!this.refused()) {
+      return null;
+    }
+    const retrieval = this.retrieval();
+    const graph = retrieval?.subgraph?.empty_reason;
+    if (graph) {
+      return GRAPH_REASONS[graph] ?? 'The knowledge graph had nothing to answer from.';
+    }
+    if (retrieval && retrieval.chunks === 0) {
+      return 'No passages matched this question.';
+    }
+    return null;
+  });
 
   /** Back to nothing asked. */
   reset(): void {

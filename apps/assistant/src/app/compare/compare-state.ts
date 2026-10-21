@@ -105,9 +105,14 @@ export class CompareState {
 
   readonly summary = computed<CompareSummary>(() => {
     const benchmark = this.benchmark();
+    // A refusal or a failed run did no work worth ranking: its speed and cost
+    // say nothing about the strategy. Cheapest also needs real prices that differ.
+    const answered = this.columns.filter((c) => c.answer.status() === 'done' && !c.answer.refused());
+    const costs = answered.map((c) => c.run()?.estimated_cost_usd).filter((v): v is number => v != null);
+    const priced = costs.some((v) => v > 0) && new Set(costs).size > 1;
     return {
-      fastest: best(this.columns, (c) => c.answer.done()?.latency_ms, (a, b) => a < b),
-      cheapest: best(this.columns, (c) => c.run()?.estimated_cost_usd, (a, b) => a < b),
+      fastest: best(answered, (c) => c.answer.done()?.latency_ms, (a, b) => a < b),
+      cheapest: priced ? best(answered, (c) => c.run()?.estimated_cost_usd, (a, b) => a < b) : null,
       bestBenchmark: best(this.columns, (c) => benchmark?.scores[c.strategy], (a, b) => a > b),
     };
   });

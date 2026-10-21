@@ -40,7 +40,7 @@ function unavailable(error: unknown, what: string): string {
       <section class="card block" aria-label="Latest batch">
         <div class="head">
           <h2>Batch</h2>
-          <select name="batch" [ngModel]="batch()" (ngModelChange)="batch.set($event)" data-test="batch-select">
+          <select name="batch" aria-label="Batch" [ngModel]="batch()" (ngModelChange)="batch.set($event)" data-test="batch-select">
             @for (b of names(); track b) {<option [value]="b">{{ b }}</option>}
           </select>
         </div>
@@ -87,7 +87,7 @@ function unavailable(error: unknown, what: string): string {
       <section class="card block" aria-label="Per category">
         <div class="head">
           <h2>Per category</h2>
-          <select name="target" [ngModel]="target()" (ngModelChange)="target.set($event)" data-test="target-select">
+          <select name="target" aria-label="Strategy target" [ngModel]="target()" (ngModelChange)="target.set($event)" data-test="target-select">
             @for (run of scoredRuns(); track run.id) {<option [value]="run.target">{{ run.target }}</option>}
           </select>
         </div>
@@ -111,7 +111,7 @@ function unavailable(error: unknown, what: string): string {
     <section class="dash" aria-label="Dashboards">
       <div class="head">
         <h2>Live system</h2>
-        <select name="days" [ngModel]="days()" (ngModelChange)="changeDays($event)" data-test="days">
+        <select name="days" aria-label="Period" [ngModel]="days()" (ngModelChange)="changeDays($event)" data-test="days">
           <option [ngValue]="7">7 days</option>
           <option [ngValue]="30">30 days</option>
           <option [ngValue]="90">90 days</option>

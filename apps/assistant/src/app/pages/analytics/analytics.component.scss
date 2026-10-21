@@ -28,6 +28,7 @@
 }
 .panel {
   padding: 1.35rem;
+  min-width: 0;
 }
 .panel h3 {
   font-size: 1.05rem;
@@ -41,11 +42,12 @@
 }
 .bar-row {
   display: grid;
-  grid-template-columns: 130px 1fr 34px;
+  grid-template-columns: 130px minmax(0, 1fr) 34px;
   align-items: center;
   gap: 0.6rem;
 }
 .bar-label {
+  min-width: 0;
   font-size: 0.85rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -86,6 +88,7 @@
   border-bottom: none;
 }
 .q-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -106,6 +109,6 @@
     grid-template-columns: repeat(2, 1fr);
   }
   .bar-row {
-    grid-template-columns: 90px 1fr 30px;
+    grid-template-columns: 90px minmax(0, 1fr) 30px;
   }
 }

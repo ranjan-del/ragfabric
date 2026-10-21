@@ -78,4 +78,50 @@ describe('CompareState', () => {
     expect(state.column('traditional').answer.status()).toBe('idle');
     expect(state.column('traditional').run()).toBeNull();
   });
+
+  function refuse(state: CompareState, strategy: string, latency: number): void {
+    const column = state.column(strategy as never);
+    column.answer.start();
+    column.answer.apply({ event: 'token', data: { text: 'I could not find an answer to that in the documents provided.' } });
+    column.answer.apply({ event: 'done', data: { run_id: 2, latency_ms: latency, usage: {} } });
+    column.run.set({ estimated_cost_usd: 0 } as Run);
+  }
+
+  it('test_cheapest_is_not_awarded_when_every_cost_is_zero_or_null', () => {
+    const state = new CompareState();
+    state.begin('q', false);
+    done(state, 'traditional', 900, 0);
+    done(state, 'vectorless', 500, 0);
+    done(state, 'agentic', 700, null);
+    expect(state.summary().cheapest).toBeNull();
+  });
+
+  it('test_cheapest_is_not_awarded_when_all_priced_runs_tie', () => {
+    const state = new CompareState();
+    state.begin('q', false);
+    done(state, 'traditional', 900, 0.003);
+    done(state, 'vectorless', 500, 0.003);
+    expect(state.summary().cheapest).toBeNull();
+  });
+
+  it('test_fastest_skips_a_refusal_and_a_failed_run', () => {
+    const state = new CompareState();
+    state.begin('q', false);
+    done(state, 'traditional', 900, 0.002);
+    done(state, 'vectorless', 500, 0.004);
+    refuse(state, 'graph', 36);
+    state.column('agentic').answer.start();
+    state.column('agentic').answer.fail('boom');
+    const summary = state.summary();
+    expect(summary.fastest).toBe('vectorless');
+    expect(summary.cheapest).toBe('traditional');
+  });
+
+  it('test_nothing_is_fastest_when_every_column_refused', () => {
+    const state = new CompareState();
+    state.begin('q', false);
+    refuse(state, 'traditional', 30);
+    expect(state.summary().fastest).toBeNull();
+  });
 });
+
