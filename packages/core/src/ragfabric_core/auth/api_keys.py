@@ -69,7 +69,16 @@ def create_api_key(
 
 
 def _now() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
+    return datetime.now(UTC)
+
+
+def _aware(value: datetime) -> datetime:
+    """Treat a stored timestamp as UTC when the driver returns it naive.
+
+    The columns are timestamptz. PostgreSQL returns offset-aware values;
+    SQLite has no time zone type and returns naive ones (always written as UTC).
+    """
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
 
 # How often verify_api_key is willing to write last_used_at for the same key.
@@ -93,11 +102,11 @@ def verify_api_key(db: Session, plaintext: str) -> ApiKey | None:
     if key is None or not key.is_active:
         return None
     now = _now()
-    if key.expires_at is not None and key.expires_at <= now:
+    if key.expires_at is not None and _aware(key.expires_at) <= now:
         return None
     stale = (
         key.last_used_at is None
-        or (now - key.last_used_at).total_seconds() >= LAST_USED_AT_COALESCE_SECONDS
+        or (now - _aware(key.last_used_at)).total_seconds() >= LAST_USED_AT_COALESCE_SECONDS
     )
     if stale:
         key.last_used_at = now
