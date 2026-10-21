@@ -1,6 +1,6 @@
 <div class="page-head">
   <h1>Documents</h1>
-  <p>Upload PDF, DOCX, PPTX, TXT, or CSV files to index them for search.</p>
+  <p>Upload PDF, DOCX, PPTX, TXT, CSV, or Markdown (MD) files to index them for search.</p>
 </div>
 
 <div class="upload-row">
@@ -25,7 +25,7 @@
     } @else {
     <p><strong>Drag &amp; drop files here</strong> or</p>
     <button class="btn btn-primary" (click)="fileInput.click()">Choose files</button>
-    <p class="muted formats">PDF · DOCX · PPTX · TXT · CSV</p>
+    <p class="muted formats">PDF · DOCX · PPTX · TXT · CSV · MD</p>
     }
   </div>
 
@@ -40,14 +40,21 @@
       </select>
     </div>
     <p class="muted small">
-      Files are parsed, chunked, embedded, and indexed automatically. Ingestion
-      runs offline with a deterministic embedder.
+      Files are parsed, chunked, embedded, and indexed automatically, using the
+      embedding model this server is configured with. A file the server
+      rejects is listed below with the reason.
     </p>
   </div>
 </div>
 
-@if (error()) {
-<div class="alert alert-error" role="alert">{{ error() }}</div>
+@if (errors().length) {
+<div class="alert alert-error" role="alert" data-test="upload-errors">
+  <ul class="upload-errors">
+    @for (message of errors(); track $index) {
+    <li>{{ message }}</li>
+    }
+  </ul>
+</div>
 }
 
 <div class="spread section-head">
