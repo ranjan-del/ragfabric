@@ -243,6 +243,11 @@ class RouterDecisionOut(BaseModel):
 class AnswerResponse(BaseModel):
     question: str
     answer: str
+    # True when the answer is the no-evidence admission with nothing cited (or nothing was
+    # retrieved). Set by the same rule the citation contract uses, so a client never
+    # guesses a refusal from the wording. Defaulted so an older client and an older
+    # stored payload stay valid.
+    refused: bool = False
     confidence: float
     citations: list[Citation]
     # Query-term spans within ``answer``. Every offset in this response indexes
