@@ -147,7 +147,9 @@ obvious bias: use a different `evaluation.judge_model` when you can.
 **Citation correctness** is the ground truth for citations. An answer passes when the Phase 3 citation
 contract holds (every `[n]` points at a passage that was in context, every quote is found in a cited
 passage, an answer with evidence carries a marker) **and** every sentence with a marker shares at
-least half of its content words with the passages it cites. A "could not find" answer passes only
+least half of its content words with the passages it cites, **and** no quote, code or number-with-unit
+in it is cited to a passage that lacks it while another retrieved passage has it (added 22 October 2026;
+runs stored before that were scored without this condition). A "could not find" answer passes only
 when nothing was retrieved.
 
 ### System

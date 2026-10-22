@@ -221,3 +221,10 @@ def test_the_citation_metric_fails_a_number_cited_to_the_wrong_passage():
     assert wrong.correct is False and "30 days" in wrong.reason
     right = citation_correct(repair_attribution(Q020_8B, APPROVAL_SET).text, items)
     assert right.correct is True
+
+
+def test_the_agent_path_moves_the_marker_instead_of_dropping_nothing():
+    from ragfabric_core.generate.cited import apply_agentic_contract
+
+    out = apply_agentic_contract(Q020_8B, APPROVAL_SET)
+    assert out.text.endswith("30 days [3].") and out.dropped_claims == []
