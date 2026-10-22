@@ -499,3 +499,53 @@ def test_auto_falls_back_to_traditional_when_a_graph_pick_has_no_budget_left(gra
     assert llm.calls == 0 and result.llm_calls == 1
     span = next(s for s in result.trace if s.name == "router")
     assert span.attributes["fallback_reason"] == "no calls left"
+
+
+# ---------------------------------------------------------------------------
+# D3: the relation types a question implies are a hint, not a wall
+# ---------------------------------------------------------------------------
+
+
+def _chain(graph) -> None:
+    """Atlas -MENTIONS-> Lucas -REPORTS_TO-> Aisha: a lead who is not named by a reporting edge."""
+    for name, kind in (
+        ("Atlas", EntityType.PROJECT),
+        ("Lucas", EntityType.PERSON),
+        ("Aisha", EntityType.PERSON),
+    ):
+        graph.entity(name, kind)
+    graph.edge("Atlas", RelationType.MENTIONS, "Lucas")
+    graph.edge("Lucas", RelationType.REPORTS_TO, "Aisha")
+
+
+def test_a_walk_the_implied_relation_leaves_empty_is_repeated_without_it(graph):
+    _chain(graph)
+    llm = ScriptedLLMProvider(
+        [question_response([{"name": "Atlas", "entity_type": "project"}], ["REPORTS_TO"])]
+    )
+
+    result = strategy(graph, llm).retrieve("Who does the lead of Atlas report to?", ctx())
+
+    assert {node.name for node in result.subgraph.nodes} == {"Atlas", "Lucas", "Aisha"}
+    assert len(result.subgraph.edges) == 2
+    assert result.subgraph.empty_reason is None
+    traverse_spans = [span for span in result.trace if span.name == "traverse"]
+    assert [span.attributes.get("relation_hint_dropped", False) for span in traverse_spans] == [
+        True
+    ]
+    # coverage, match, traverse with the hint, traverse without it, chunks, chunk fetch.
+    assert result.retrieval_calls == 6
+
+
+def test_a_walk_the_implied_relation_fills_is_not_repeated(graph):
+    _chain(graph)
+    llm = ScriptedLLMProvider(
+        [question_response([{"name": "Lucas", "entity_type": "person"}], ["REPORTS_TO"])]
+    )
+
+    result = strategy(graph, llm).retrieve("Who does Lucas report to?", ctx())
+
+    assert {node.name for node in result.subgraph.nodes} == {"Lucas", "Aisha"}
+    assert result.retrieval_calls == 5
+    traverse_span = next(span for span in result.trace if span.name == "traverse")
+    assert "relation_hint_dropped" not in traverse_span.attributes

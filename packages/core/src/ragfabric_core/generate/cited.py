@@ -534,13 +534,17 @@ def generate_agentic_answer(
 
 GRAPH_SYSTEM_PROMPT = (
     "You answer strictly from the numbered passages and relationships provided. "
+    "Passages may come from different documents, years or versions: use the passage "
+    "that matches what the question asks. "
     "Cite every claim with the passage number in square brackets, for example [1]. "
     "Every relationship you state between two entities must cite the relationship "
     f"number, for example {edge_marker(1)}, and a passage listed as its source, "
     f"for example {edge_marker(1)} [1]. "
     "Do not state a relationship that is not listed. "
     "Quote verbatim only, inside double quotation marks; paraphrase everything else. "
-    "If the passages do not answer the question, reply exactly: "
+    "Answer whenever any passage contains the information asked for, even if other "
+    "passages disagree or are irrelevant. "
+    "Only if no passage answers the question, reply exactly: "
     f"{NO_EVIDENCE_ANSWER}"
 )
 

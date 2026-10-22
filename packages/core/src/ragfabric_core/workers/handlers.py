@@ -168,6 +168,7 @@ class GraphExtractionOutcome:
         return (
             f"{extraction.entities_stored} entities stored, "
             f"{extraction.relationships_stored} relationships stored, "
+            f"{extraction.entities_adopted} entities adopted from relationship ends, "
             f"{extraction.entities_discarded} entities discarded, "
             f"{extraction.relationships_discarded} relationships discarded, "
             f"{len(extraction.extracted_chunk_ids)} chunks extracted, "

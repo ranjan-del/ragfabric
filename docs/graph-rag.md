@@ -62,7 +62,17 @@ count is reported (`ExtractionReport.entities_discarded`, `relationships_discard
 endpoint entity itself fell below the floor is discarded too, even if the edge's own confidence
 clears it (ruling R9): an edge cannot point at a row that was never stored. A response that fails
 the extraction contract outright stores nothing from that chunk and is reported as a contract
-violation, never raised.
+violation, never raised. An item that breaks the contract on its own (an unknown entity type, a
+relation type outside the nine) is dropped and counted; the rest of the reply is kept.
+
+A small model often names an edge's far end without listing it ("Ravi Sharma reports to the chief
+technology officer", the officer absent from `entities`). When the relation fixes what that end must
+be (the end of `REPORTS_TO` is a person, the target of `MEMBER_OF` a team, of `WORKS_ON` a project,
+of `LOCATED_IN` a location) and the name is at most six words, the end is
+**adopted** as an entity with the edge's confidence, counted in `entities_adopted` and in the
+`extract_graph` log line. For `OWNS`, `MENTIONS`, `BELONGS_TO`, `RELATED_TO` and `AUTHORED` the end
+could be anything, or the model misuses the relation, so an unlisted end is still dropped with its
+edge, never stored under a guessed type.
 
 Every stored entity and edge records the chunk it came from and the model that produced it
 (`EntitySource`, `RelationshipSource`), and the parent row's own `confidence` is recomputed as the
@@ -153,8 +163,16 @@ hold everywhere in the walk, not just at the edges of it:
   confidence, then lowest chunk id), and a question matches an entity only through the normalised
   spellings of its admitted sources (ruling R40). The stored `Entity.name` and `Entity.aliases` are
   resolution's bookkeeping: after a merge they hold spellings from every source, including ones this
-  caller cannot read, so they never reach a caller and are never matched against a question. An
-  edge's `confidence` is likewise the max over its admitted sources (ruling R43), `None` when none
+  caller cannot read, so they never reach a caller and are never matched against a question.
+  A mention that matches no spelling exactly is retried, one step at a time, stopping at the first
+  step that finds something: the same name under any type (the model often types a mention
+  wrongly), the name without leading articles, a word match (the spelling sits inside the mention,
+  "error BW-7731" holds "BW-7731", or the mention sits inside the spelling, "Asha" in "Asha Rao",
+  either way needing a word that is not a function word or a kind of thing such as "team"), and a
+  written acronym against the initials of a spelling ("CTO" and "chief technology officer"). All of
+  them read admitted spellings only. A title that no chunk spells as a name ("the technical lead")
+  matches nothing; the entity description is not used because it is stored per entity, not per
+  source chunk, so it could carry a denied chunk's text. An edge's `confidence` is likewise the max over its admitted sources (ruling R43), `None` when none
   of them measured one, never the stored aggregate that also counts denied chunks.
 - **Direction.** Every `RelationType` walks forwards. It walks backwards only when it appears in
   `INVERSES`, under its inverse name, with `reversed=True`; a relation absent from that table
@@ -166,7 +184,10 @@ The recursive term produces deduplicated `(node_id, depth)` rows, capped at
 `max_hops` (1 to `MAX_HOPS_CEILING = 4`), which bounds the walk's own work by visible nodes times
 hops rather than branching factor to the power of hops. `relation_types` (the implied types from the
 question, or every type when none is implied) narrows the walk from inside the recursive term and
-the edge fetch alike, so a node reachable only through an unimplied type is never reached.
+the edge fetch alike, so a node reachable only through an unimplied type is never reached. The
+implied types are the model's guess, and a multi-hop question guesses the last hop ("reports to")
+while the first is another type, so when the narrowed walk keeps no edge at all it is repeated once
+without the hint (one more retrieval call, `relation_hint_dropped` on the `traverse` span).
 
 ### Node budget and truncation (Task 7)
 
