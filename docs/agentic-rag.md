@@ -213,6 +213,15 @@ already has rather than on a half-applied step.
 a run stops with `budget` when the wall clock passes `max_latency_ms` or the estimated spend passes
 `max_cost_usd`, alongside the call caps above.
 
+`max_latency_ms` (default 30000) is checked between steps, never inside a model call, and it covers
+the search only: the answer is generated afterwards with one more call. A `budget` stop is not an
+error. The result carries `stop_reason` and `stop_detail` (which cap fired), the answer is written
+from the evidence gathered so far, and it ends with a note saying the search stopped early and the
+answer may be incomplete. When nothing had been found yet, the answer keeps the refusal sentence and
+adds the reason. `ragfabric ask` waits 120 seconds by default (`--timeout`) so the server's budget
+stop arrives before the client gives up; the SDK's own default is 30 seconds, so pass a longer
+`timeout` to `Client` when you call the agentic strategy from code.
+
 ## What is tracked
 
 Every counter on the result is read back off what happened, never derived from the shape of the

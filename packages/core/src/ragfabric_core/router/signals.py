@@ -40,6 +40,13 @@ _COMPARISON = (
     "differ from",
 )
 _AGGREGATION = ("how many", "total", "sum of", "count of", "list all", "list every")
+# "How many days of casual leave" asks for one stated value, not a count of items
+# gathered from several sources. When "how many" is followed by a unit of
+# measure the question is a lookup, and sending it to the agent costs several
+# model calls for nothing. "How many offices" still counts.
+_MEASURE_UNITS = frozenset(
+    "days weeks months years hours minutes seconds times percent dollars rupees".split()
+)
 _NOT_ENTITIES = frozenset(
     "who what which when where why how does do did is are was were can could should "
     "would will the a an list compare show tell give find i we our my".split()
@@ -116,6 +123,17 @@ def _has_marker(text: str, markers: Collection[str]) -> bool:
     return any(f" {marker.strip()} " in text for marker in markers)
 
 
+def _is_aggregation(text: str) -> bool:
+    """Whether the question counts or totals across sources, not asks for one measured value."""
+    if _has_marker(text, [m for m in _AGGREGATION if m != "how many"]):
+        return True
+    words = text.split()
+    for i in range(len(words) - 2):
+        if words[i] == "how" and words[i + 1] == "many":
+            return words[i + 2] not in _MEASURE_UNITS
+    return False
+
+
 def extract_signals(question: str, *, relation_types: Collection[str]) -> Signals:
     # Punctuation becomes a space so a phrase at the end of a sentence still
     # matches: "report to?" must hit " report to ".
@@ -134,7 +152,7 @@ def extract_signals(question: str, *, relation_types: Collection[str]) -> Signal
         entities=entity_mentions(question),
         relations=relations,
         comparison=_has_marker(text, _COMPARISON),
-        aggregation=_has_marker(text, _AGGREGATION),
+        aggregation=_is_aggregation(text),
         compound=question.count("?") > 1,
         words=len(question.split()),
     )

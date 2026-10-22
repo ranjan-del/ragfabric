@@ -203,3 +203,17 @@ def test_an_unavailable_fired_signal_is_named_first_and_keeps_its_query_type():
         True,
         False,
     )
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "How many days of casual leave does an employee get in 2026?",
+        "How many weeks of parental leave are there?",
+        "How many times is a failed job retried?",
+    ],
+)
+def test_how_many_of_a_unit_is_a_lookup_not_an_aggregation(question):
+    signals = extract_signals(question, relation_types=RELATIONS)
+    assert signals.aggregation is False
+    assert run(question).strategy is S.TRADITIONAL

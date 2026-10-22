@@ -21,6 +21,7 @@ from ragfabric_sdk import Client
 from ragfabric_sdk.errors import NotFoundError
 
 DEFAULT_URL = "http://localhost:8000"
+DEFAULT_ASK_TIMEOUT = 120.0
 
 
 class Strategy(StrEnum):
@@ -80,6 +81,16 @@ def ask(
     as_json: bool = typer.Option(
         False, "--json", help="Print the whole answer payload as JSON (implies --no-stream)."
     ),
+    timeout: float = typer.Option(
+        DEFAULT_ASK_TIMEOUT,
+        "--timeout",
+        min=1.0,
+        help=(
+            "Seconds to wait for the server. The default is longer than the agentic "
+            "strategy's 30 s search limit plus the answer, so its own budget stop "
+            "arrives before this client gives up."
+        ),
+    ),
 ) -> None:
     """Ask a question and print the cited answer.
 
@@ -132,7 +143,7 @@ def ask(
     if collection is not None:
         params["collection_id"] = collection
 
-    client = Client(url, token=token, api_key=api_key)
+    client = Client(url, token=token, api_key=api_key, timeout=timeout)
     try:
         _ask(client, question, params, as_json=as_json, no_stream=no_stream)
     except NotFoundError as exc:

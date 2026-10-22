@@ -64,7 +64,7 @@ DENIED_CORPUS = {
     ],
 }
 IDENTIFIER_QUESTION = f"What does {SECRET_CODE} mean?"
-AGGREGATION_QUESTION = "How many days of annual leave do employees accrue?"
+AGGREGATION_QUESTION = "How many teams does the company have in total?"
 # Longer than the plain limit and firing no rule, so the classifier decides.
 OPEN_QUESTION = (
     "could you explain what people here generally get in terms of annual leave "

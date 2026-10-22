@@ -383,7 +383,7 @@ class _OfflineLLM:
 @pytest.mark.parametrize(
     ("question", "skipped"),
     [
-        ("How many days of unused annual leave carry forward?", "agentic"),
+        ("How many offices does the company have?", "agentic"),
         ("Who does Ravi Sharma report to?", "graph"),
         (UNDECIDED, None),
     ],

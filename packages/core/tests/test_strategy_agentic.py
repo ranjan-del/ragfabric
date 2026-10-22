@@ -191,3 +191,26 @@ def test_agentic_is_registered_by_the_default_registry(tmp_path):
     assert isinstance(strategy, AgenticRAGStrategy)
     # fetch_document joined the default registry when the concrete tools landed.
     assert sorted(strategy.tools) == ["fetch_document", "lexical_search", "semantic_search"]
+
+
+def test_a_budget_stop_is_reported_on_the_result_with_the_evidence_gathered():
+    """Hitting the wall clock cap is a typed stop with the best evidence so far, not an error."""
+    tool = SlowTool("semantic_search", delay_s=0.02, chunks=[chunk(1, text="10 days of leave")])
+    llm = RecordingLLM(plan_json(("q", "semantic_search")), assessed("q", False, "more"))
+    strategy = AgenticRAGStrategy(llm=llm, tools={"semantic_search": tool}, max_latency_ms=1)
+
+    result = strategy.retrieve("q", restricted_ctx(document_ids={1}))
+
+    assert result.stop_reason == "budget"
+    assert "max_latency_ms of 1" in result.stop_detail
+    assert [c.chunk_id for c in result.chunks] == [1]
+
+
+def test_a_resolved_run_reports_resolved():
+    tool = FakeTool("semantic_search", chunks=[chunk(1)])
+    llm = RecordingLLM(plan_json(("q", "semantic_search")), assessed("q", True))
+    strategy = AgenticRAGStrategy(llm=llm, tools={"semantic_search": tool})
+
+    result = strategy.retrieve("q", restricted_ctx(document_ids={1}))
+
+    assert result.stop_reason == "resolved"
