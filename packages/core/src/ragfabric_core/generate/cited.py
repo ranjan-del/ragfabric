@@ -27,6 +27,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from ragfabric_core.generate import llm as extractive
+from ragfabric_core.generate.attribution import assert_number_attribution, repair_attribution
 from ragfabric_core.generate.contract import (
     NO_EVIDENCE,
     CitationViolation,
@@ -75,6 +76,8 @@ class CitedAnswer(BaseModel):
     latency_ms: int = 0
     generator: Literal["llm", "extractive"] = "llm"
     retried: bool = False
+    # Markers moved to the passage that holds the cited number, code or quote (no model call).
+    repaired_citations: list[str] = Field(default_factory=list)
 
 
 def build_prompt(query: str, chunks: list[RetrievedChunk]) -> str:
@@ -161,20 +164,25 @@ def generate_cited_answer(
         input_tokens += completion.input_tokens
         output_tokens += completion.output_tokens
         last_model = completion.model
+        # A number, code or quote cited to the wrong passage is moved to the passage that holds
+        # it, deterministically; only an ambiguous one costs the model a retry.
+        attribution = repair_attribution(completion.text, chunks)
+        text = attribution.text
         try:
-            assert_citation_contract(completion.text, chunks)
+            assert_citation_contract(text, chunks)
+            assert_number_attribution(text, chunks)
         except CitationViolation as exc:
             violation = exc.reason
             if attempt == 2:
                 break
             messages = [
                 *messages,
-                Message(role="assistant", content=completion.text),
+                Message(role="assistant", content=text),
                 Message(role="user", content=repair_prompt(violation)),
             ]
             continue
         return CitedAnswer(
-            text=completion.text,
+            text=text,
             model=completion.model,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
@@ -183,6 +191,7 @@ def generate_cited_answer(
             # True only when this is the second attempt, i.e. a second call
             # was actually issued after the first was rejected.
             retried=attempt == 2,
+            repaired_citations=attribution.repairs,
         )
 
     if not extractive_fallback:
@@ -440,7 +449,7 @@ def apply_agentic_contract(
     empty string. Every claim having been refused is a real outcome and saying
     so is the honest form of it.
     """
-    kept, dropped = drop_unsupported_claims(text, chunks)
+    kept, dropped = drop_unsupported_claims(repair_attribution(text, chunks).text, chunks)
     if not kept:
         kept = NO_EVIDENCE_ANSWER
     reports = dated_sub_questions(sub_question_evidence, chunks)
