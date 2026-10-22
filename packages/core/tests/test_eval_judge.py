@@ -19,10 +19,14 @@ class Recording(ScriptedLLMProvider):
         super().__init__(responses=responses, model="judge-model")
         self.temperatures = []
         self.models = []
+        self.schemas = []
+        self.prompts = []
 
     def complete(self, messages, *, model=None, max_tokens=1024, temperature=0.0, json_schema=None):
         self.temperatures.append(temperature)
         self.models.append(model)
+        self.schemas.append(json_schema)
+        self.prompts.append(messages[-1].content)
         return super().complete(
             messages, model=model, max_tokens=max_tokens, temperature=temperature
         )
@@ -32,8 +36,13 @@ def _reply(score, reason="because"):
     return json.dumps({"score": score, "reason": reason})
 
 
+def _claims(*verdicts, reason=None):
+    body = {"claims": [{"claim": f"claim {i}", "supported": v} for i, v in enumerate(verdicts)]}
+    return json.dumps(body)
+
+
 def test_the_llm_judge_scores_each_rubric_once():
-    llm = Recording([_reply(0.8), _reply(1.0), _reply(0.5)])
+    llm = Recording([_reply(0.8), _claims(True), _reply(0.5)])
     judge = LLMJudge(llm, model="judge-model")
     s = judge.score("How many days?", "10 days.", "Ten days [1].", CTX)
     assert (s.correctness, s.faithfulness, s.context_relevance) == (0.8, 1.0, 0.5)
@@ -44,14 +53,14 @@ def test_the_llm_judge_scores_each_rubric_once():
 
 
 def test_a_reply_that_is_not_json_is_unmeasured():
-    llm = Recording(["not json", "```json\n" + _reply(1.0) + "\n```", _reply(0.5)])
+    llm = Recording(["not json", "```json\n" + _claims(True) + "\n```", _reply(0.5)])
     s = LLMJudge(llm, model=None).score("q", "e", "a [1].", CTX)
     assert s.correctness is None and "not JSON" in s.reasons["correctness"]
     assert s.faithfulness == 1.0
 
 
 def test_a_score_out_of_range_is_unmeasured():
-    llm = Recording([_reply(1.4), _reply(-0.1), _reply("high")])
+    llm = Recording([_reply(1.4), _claims(), _reply("high")])
     s = LLMJudge(llm, model=None).score("q", "e", "a [1].", CTX)
     assert (s.correctness, s.faithfulness, s.context_relevance) == (None, None, None)
 
@@ -98,3 +107,70 @@ def test_auto_picks_lexical_offline_and_llm_otherwise():
 def test_an_llm_judge_cannot_run_offline():
     with pytest.raises(ValueError, match="offline"):
         build_judge("llm", OfflineLLMProvider(), None)
+
+
+# Faithfulness is the share of claims the judge marks supported, computed here. The v1 judge
+# emitted the number itself, before its reason, and gave 0 to answers that were supported
+# (measured: 10 of 73 hand-labelled answers; see tests/fixtures/faithfulness_labels.json).
+
+
+def _faithfulness(reply):
+    llm = Recording([reply])
+    judge = LLMJudge(llm, model=None, metrics=("faithfulness",))
+    s = judge.score("q", "e", "Ten days [1].", CTX)
+    return s, llm
+
+
+def test_faithfulness_is_the_share_of_supported_claims():
+    s, llm = _faithfulness(_claims(True, True, False, True))
+    assert s.faithfulness == 0.75
+    assert llm.calls == 1
+
+
+def test_every_claim_supported_is_one_never_zero():
+    s, _ = _faithfulness(_claims(True))
+    assert s.faithfulness == 1.0
+
+
+def test_no_claim_supported_is_zero_only_when_the_judge_said_so():
+    s, _ = _faithfulness(_claims(False, False))
+    assert s.faithfulness == 0.0
+
+
+def test_the_faithfulness_request_asks_for_verdicts_not_a_number():
+    _, llm = _faithfulness(_claims(True))
+    schema = llm.schemas[0]
+    assert "score" not in schema["properties"]
+    item = schema["properties"]["claims"]["items"]
+    assert list(item["properties"]) == ["claim", "supported"]
+    assert item["properties"]["supported"] == {"type": "boolean"}
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        json.dumps({"claims": []}),
+        json.dumps({"claims": [{"claim": "a", "supported": "yes"}]}),
+        json.dumps({"claims": [{"claim": "a"}]}),
+        json.dumps({"claims": "none"}),
+        json.dumps({"score": 0, "reason": "supported"}),
+        "not json",
+    ],
+)
+def test_a_faithfulness_reply_that_is_not_verdicts_is_unmeasured(reply):
+    s, _ = _faithfulness(reply)
+    assert s.faithfulness is None
+    assert s.reasons["faithfulness"]
+
+
+def test_the_unsupported_claims_are_the_stored_reason():
+    s, _ = _faithfulness(_claims(True, False))
+    assert "claim 1" in s.reasons["faithfulness"]
+    assert "claim 0" not in s.reasons["faithfulness"]
+
+
+def test_citation_markers_and_refusals_are_not_judged_as_claims():
+    llm = Recording([])
+    judge = LLMJudge(llm, model=None, metrics=("faithfulness",))
+    s = judge.score("q", "e", "I could not find an answer to that in the documents provided.", CTX)
+    assert s.faithfulness is None and llm.calls == 0
