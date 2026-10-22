@@ -111,10 +111,13 @@ def write_sections(
     """
     raw = _read_raw(path)
 
+    # Merge into the section rather than replace it: the update carries provider, model
+    # and base_url only, and replacing the whole section silently dropped every other key
+    # in it (llm.num_ctx), resetting a tuned value to its default on an unrelated save.
     if llm is not None:
-        raw["llm"] = llm
+        raw["llm"] = {**(raw.get("llm") or {}), **llm}
     if embeddings is not None:
-        raw["embeddings"] = embeddings
+        raw["embeddings"] = {**(raw.get("embeddings") or {}), **embeddings}
 
     # Validate the whole document, not just the section that moved, so a
     # write cannot produce a file the loader would reject on next boot.
