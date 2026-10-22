@@ -57,6 +57,12 @@ A request is charged once however many times it identifies its caller. Over the 
 is 429 with `{"detail": "Rate limit exceeded"}`, `Retry-After` (seconds to the next window),
 `X-RateLimit-Limit` and `X-RateLimit-Remaining`.
 
+A key's limit is set when it is created: `rate_limit_per_minute` on `POST /api/admin/keys` (a whole
+number from 1 to 100000; left out, the key takes the default). The console's New key form has the
+field, and the Keys list shows each key's limit. `GET /api/admin/keys/defaults` (admin only) returns
+the default a new key gets. There is no endpoint to change a key's limit afterwards: create a new key
+and revoke the old one.
+
 Trade-offs to know:
 
 - **With `cache.kind: memory`, each process counts on its own.** Two API processes double every
