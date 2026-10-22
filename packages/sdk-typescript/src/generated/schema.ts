@@ -60,6 +60,11 @@ export interface ApiKeyCreated {
   strategies: string[];
 }
 
+/** What a new key gets when its request names no value. */
+export interface ApiKeyDefaults {
+  rate_limit_per_minute: number;
+}
+
 export interface ApiKeyOut {
   collection_ids: number[];
   created_at: string;
@@ -698,6 +703,15 @@ export interface paths {
       query: Record<string, never>;
       body: ApiKeyCreate;
       response: ApiKeyCreated;
+    };
+  };
+  '/api/admin/keys/defaults': {
+    /** Key Defaults */
+    get: {
+      path: Record<string, never>;
+      query: Record<string, never>;
+      body: never;
+      response: ApiKeyDefaults;
     };
   };
   '/api/admin/keys/{key_id}': {

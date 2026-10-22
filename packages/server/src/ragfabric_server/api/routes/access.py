@@ -17,10 +17,12 @@ from ragfabric_core.models.access import (
 )
 from ragfabric_core.models.document import Collection, Document
 from ragfabric_core.models.user import User
+from ragfabric_core.runtime import get_config
 from ragfabric_server.deps import require_role
 from ragfabric_server.schemas.access import (
     ApiKeyCreate,
     ApiKeyCreated,
+    ApiKeyDefaults,
     ApiKeyOut,
     GrantCreate,
     GrantOut,
@@ -208,6 +210,12 @@ def create_key(payload: ApiKeyCreate, db: Session = Depends(get_db)) -> ApiKeyCr
 @router.get("/keys", response_model=list[ApiKeyOut])
 def list_keys(db: Session = Depends(get_db)) -> list[ApiKey]:
     return db.query(ApiKey).order_by(ApiKey.id).all()
+
+
+@router.get("/keys/defaults", response_model=ApiKeyDefaults)
+def key_defaults() -> ApiKeyDefaults:
+    """The limit a key gets when its creation request names none (``limits.rate_limit_per_minute``)."""
+    return ApiKeyDefaults(rate_limit_per_minute=get_config().limits.rate_limit_per_minute)
 
 
 @router.delete("/keys/{key_id}", status_code=status.HTTP_200_OK)

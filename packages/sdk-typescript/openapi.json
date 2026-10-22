@@ -338,6 +338,20 @@
         "title": "ApiKeyCreated",
         "type": "object"
       },
+      "ApiKeyDefaults": {
+        "description": "What a new key gets when its request names no value.",
+        "properties": {
+          "rate_limit_per_minute": {
+            "title": "Rate Limit Per Minute",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rate_limit_per_minute"
+        ],
+        "title": "ApiKeyDefaults",
+        "type": "object"
+      },
       "ApiKeyOut": {
         "properties": {
           "collection_ids": {
@@ -3519,6 +3533,33 @@
           }
         ],
         "summary": "Create Key",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/admin/keys/defaults": {
+      "get": {
+        "description": "The limit a key gets when its creation request names none (``limits.rate_limit_per_minute``).",
+        "operationId": "key_defaults_api_admin_keys_defaults_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyDefaults"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Key Defaults",
         "tags": [
           "access"
         ]
