@@ -32,6 +32,21 @@ ragfabric ask "your question about the sample documents"
 | First answer | Starts a temporary server, asks a sample question the way `ragfabric ask` does, prints the cited answer and stops the server |
 | Key | Only when quickstart wrote `.env` (mode 0600): creates an API key and stores `RAGFABRIC_API_KEY` and `RAGFABRIC_URL` there. When `.env` was kept, no key is written and it prints the command that creates one |
 
+Two choices are deliberate, not defects:
+
+- **Model.** When Ollama has `llama3.2:3b` it is chosen, even if a larger model such as
+  `llama3.1:8b` is installed, because the first run should be quick on a laptop. If it is not
+  installed, the first chat model Ollama lists is used. Quickstart never picks by size. To use a
+  larger model, set `llm.model` in `ragfabric.yaml` (for example `llama3.1:8b`) and run
+  `ragfabric doctor`; changing the chat model does not need a reindex.
+- **Existing PostgreSQL.** Quickstart creates SQLite unless `--docker` is given, and it reads
+  `DATABASE_URL` only from the `.env` in its directory, never from the shell. A kept `.env` that
+  names a database outside the directory is migrated only after you answer yes at the prompt, and
+  `--yes` never answers yes to it, so a script cannot migrate a shared database by accident. To
+  target your own PostgreSQL, put `DATABASE_URL`, `JWT_SECRET` and `FIRST_ADMIN_EMAIL` in `.env`,
+  run `ragfabric quickstart` without `--yes` and answer yes; or skip quickstart and run
+  `ragfabric db upgrade` yourself.
+
 Options: `--dir PATH`, `--docker`, `--force`, `--yes`, and `--model-check/--no-model-check` (the
 Ollama probe, on by default). A rerun continues where the last one stopped. No model is downloaded
 for you. Quickstart prints the `ollama pull` command only when Ollama is running but a model is

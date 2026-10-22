@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import EmailStr, TypeAdapter, ValidationError
 
 from ragfabric_core.config import get_settings
 from ragfabric_core.db.session import SessionLocal, init_db
@@ -51,6 +52,14 @@ def _seed_admin() -> None:
         return
     with SessionLocal() as db:
         email = settings.first_admin_email.lower()
+        try:
+            TypeAdapter(EmailStr).validate_python(email)
+        except ValidationError:
+            logger.warning(
+                "FIRST_ADMIN_EMAIL %r is not a valid email address; the admin is seeded "
+                "anyway, but fix it so the address can be used everywhere.",
+                email,
+            )
         if db.query(User).filter(User.email == email).first() is not None:
             return
         db.add(
