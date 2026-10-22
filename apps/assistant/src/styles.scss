@@ -363,6 +363,9 @@ mark {
 
 /* Data table */
 .table-wrap {
+  /* Containing block for the absolutely positioned .sr-only cells, so they are
+     clipped with the table instead of widening the page. */
+  position: relative;
   overflow-x: auto;
   border-radius: var(--radius);
   border: 1px solid var(--border);

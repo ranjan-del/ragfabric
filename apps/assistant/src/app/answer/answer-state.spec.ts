@@ -78,4 +78,34 @@ describe('AnswerState', () => {
     expect(state.error()).toBeNull();
     expect(state.superseded()).toBeNull();
   });
+
+  function finish(text: string, retrieval: Partial<AskEvent & { event: 'retrieval' }>['data'] | null = null): AnswerState {
+    const state = new AnswerState();
+    state.start();
+    state.apply(retrieval ? { event: 'retrieval', data: retrieval } : RETRIEVAL);
+    state.apply({ event: 'token', data: { text } });
+    state.apply({ event: 'done', data: { run_id: 1, latency_ms: 5, usage: {} } });
+    return state;
+  }
+
+  it('test_an_uncited_could_not_find_answer_is_a_refusal_with_the_graph_reason', () => {
+    const state = finish('I could not find an answer to that in the documents provided.', {
+      ...(RETRIEVAL as { data: object }).data,
+      strategy: 'graph',
+      subgraph: { nodes: [], edges: [], truncated: false, empty_reason: 'no_entity_matched' },
+    } as never);
+    expect(state.refused()).toBeTrue();
+    expect(state.refusalReason()).toBe('No entity in the question matched the knowledge graph.');
+  });
+
+  it('test_a_cited_answer_is_not_a_refusal', () => {
+    const state = finish('Aisha leads it [1]. I could not find her deputy.');
+    expect(state.refused()).toBeFalse();
+    expect(state.refusalReason()).toBeNull();
+  });
+
+  it('test_a_refusal_with_no_reason_from_the_api_shows_none', () => {
+    expect(finish('I could not find an answer to that.').refusalReason()).toBeNull();
+  });
 });
+

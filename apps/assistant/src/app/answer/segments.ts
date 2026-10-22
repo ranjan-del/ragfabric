@@ -84,3 +84,51 @@ export function snippetSegments(
   }
   return out;
 }
+
+export interface ExpandedSnippet {
+  text: string;
+  highlights: Highlight[];
+  support: Span | null;
+}
+
+const ELLIPSIS = '...';
+
+/** Whether the server cut this snippet out of a longer chunk (it marks each cut with "..."). */
+export function isTruncated(snippet: string): boolean {
+  return snippet.startsWith(ELLIPSIS) || snippet.endsWith(ELLIPSIS);
+}
+
+/**
+ * Widen a cut snippet using the original file's text.
+ *
+ * The server's offsets are relative to the snippet it sent, so the snippet is
+ * located in `full` and every offset moves by the same amount. Returns null
+ * when the snippet is not in the file (a converted format, or a changed file),
+ * so the caller can say so instead of showing text that is not the source.
+ */
+export function expandSnippet(
+  snippet: string,
+  full: string,
+  highlights: readonly Highlight[] = [],
+  support: Span | null | undefined = null,
+  radius = 600,
+): ExpandedSnippet | null {
+  const lead = snippet.startsWith(ELLIPSIS) ? ELLIPSIS.length : 0;
+  const trail = snippet.endsWith(ELLIPSIS) ? ELLIPSIS.length : 0;
+  const body = snippet.slice(lead, snippet.length - trail);
+  const at = body === '' ? -1 : full.indexOf(body);
+  if (at < 0) {
+    return null;
+  }
+  const from = Math.max(0, at - radius);
+  const to = Math.min(full.length, at + body.length + radius);
+  const before = from > 0 ? ELLIPSIS : '';
+  const after = to < full.length ? ELLIPSIS : '';
+  // snippet offset -> expanded offset
+  const shift = before.length + (at - from) - lead;
+  return {
+    text: before + full.slice(from, to) + after,
+    highlights: highlights.map((h) => ({ ...h, start: h.start + shift, end: h.end + shift })),
+    support: support ? { ...support, start: support.start + shift, end: support.end + shift } : null,
+  };
+}

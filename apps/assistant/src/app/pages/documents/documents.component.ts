@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
 import { DocumentService } from '../../services/document.service';
+import { describeError } from '../../services/http-error';
 import { CollectionService } from '../../services/collection.service';
 import { Collection, DocumentItem } from '../../models';
 
@@ -14,7 +15,7 @@ import { Collection, DocumentItem } from '../../models';
     styleUrl: './documents.component.scss'
 })
 export class DocumentsComponent implements OnInit {
-  readonly accept = '.pdf,.docx,.pptx,.txt,.csv';
+  readonly accept = '.pdf,.docx,.pptx,.txt,.csv,.md';
   documents = signal<DocumentItem[]>([]);
   collections = signal<Collection[]>([]);
   uploadCollection: number | null = null;
@@ -22,7 +23,8 @@ export class DocumentsComponent implements OnInit {
   loading = signal(true);
   uploading = signal(false);
   dragging = signal(false);
-  error = signal<string | null>(null);
+  /** One line per rejected file, with the server's own reason. */
+  errors = signal<string[]>([]);
 
   constructor(
     private docs: DocumentService,
@@ -73,7 +75,7 @@ export class DocumentsComponent implements OnInit {
   }
 
   private uploadFiles(files: File[]): void {
-    this.error.set(null);
+    this.errors.set([]);
     let remaining = files.length;
     this.uploading.set(true);
     for (const file of files) {
@@ -87,10 +89,10 @@ export class DocumentsComponent implements OnInit {
         },
         error: (err) => {
           remaining -= 1;
-          this.error.set(
-            (err as { error?: { detail?: string } })?.error?.detail ||
-              `Failed to upload ${file.name}.`
-          );
+          this.errors.update((list) => [
+            ...list,
+            `${file.name}: ${describeError(err, 'the upload failed.')}`,
+          ]);
           if (remaining === 0) {
             this.uploading.set(false);
             this.refresh();

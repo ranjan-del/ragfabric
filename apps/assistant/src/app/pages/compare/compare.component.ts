@@ -86,6 +86,9 @@ import { RunService } from '../../services/run.service';
             </div>
             @if (col.answer.status() !== 'idle') {
               <app-answer-view [state]="col.answer" (cite)="viewing.set($event)" />
+              @if (col.answer.refusalReason(); as why) {
+                <p class="muted small" data-test="refusal-reason">Why: {{ why }}</p>
+              }
             } @else {
               <p class="muted">Waiting for its turn.</p>
             }
