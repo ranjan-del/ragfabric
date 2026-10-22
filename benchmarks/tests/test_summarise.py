@@ -143,3 +143,27 @@ def test_filling_twice_gives_the_same_page():
     once = _filled(rows)
     again = fill_markdown(once, rows=lambda b: rows.get(b, []), leak=lambda f: None)
     assert once == again
+
+
+def test_a_batch_with_external_answers_always_lists_who_answered():
+    from summarise import _batch_block
+
+    external = _run(
+        meta={
+            "commit": "abc1234",
+            "answered_by": "hosted model, alias A",
+            "answer_source": "external answers file",
+            "prompt_file_sha256": "f" * 64,
+            "export_date": "2026-10-22",
+        }
+    )
+    external.strategy = "external:hosted-model-alias-a"
+    rows = [run_row(_run()), run_row(external)]
+    text = _batch_block({"columns": "target,hit,run"}, rows)
+    assert "written outside RagFabric" in text
+    assert (
+        "| external:hosted-model-alias-a | hosted model, alias A | external answers file |" in text
+    )
+    assert "ffffffffffff | 2026-10-22 |" in text
+    plain = _batch_block({"columns": "target,hit,run"}, rows[:1])
+    assert "outside RagFabric" not in plain

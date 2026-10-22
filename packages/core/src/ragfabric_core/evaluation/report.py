@@ -13,6 +13,15 @@ from ragfabric_core.models.evaluation import EvaluationResult, EvaluationRun
 
 NA = "n/a"
 
+
+def _external(run: EvaluationRun) -> dict | None:
+    """Provenance of a run whose answers were written outside RagFabric, else ``None``."""
+    meta = run.summary.get("meta") or {}
+    if meta.get("answer_source") is None:
+        return None
+    return meta
+
+
 CATEGORY_METRICS = (
     ("hit", "Hit rate"),
     ("reciprocal_rank", "MRR"),
@@ -78,6 +87,43 @@ def render_report(
     ]
     out += [f"| {k} | {v} |" for k, v in rows_meta]
     out.append("")
+    outside = [(run, _external(run)) for run, _ in ran if _external(run)]
+    if outside:
+        out.append("## Answers from outside RagFabric")
+        out.append("")
+        out.append(
+            "> **The runs below were not answered by a RagFabric API call.** Someone else's model "
+            "wrote the answers from the exported passages, and RagFabric only scored them. They "
+            "are not a controlled run: read them with the label and date shown, never as a "
+            "model tested through its API. The retrieved passages and the scoring code are the "
+            "same as for the other runs."
+        )
+        out.append("")
+        out.append(
+            "| Target | Answered by | Answer source | Prompt file (SHA-256) | Export date | "
+            "Reported model |"
+        )
+        out.append("|---|---|---|---|---|---|")
+        for run, ext in outside:
+            reported = ", ".join(ext.get("reported_models") or []) or NA
+            digest = (ext.get("prompt_file_sha256") or "")[:12]
+            out.append(
+                f"| {run.strategy} | {ext.get('answered_by') or NA} | "
+                f"{ext.get('answer_source')} | {f'`{digest}`' if digest else NA} | "
+                f"{ext.get('export_date') or NA} | {reported} |"
+            )
+        out.append("")
+        problems = [
+            (run, (run.summary.get("meta") or {}).get("import_errors", {}).get("counts") or {})
+            for run, _ in outside
+        ]
+        for run, counts in problems:
+            shown = {k: v for k, v in counts.items() if v}
+            if shown:
+                text = ", ".join(f"{k} {v}" for k, v in shown.items())
+                out.append(f"- `{run.strategy}` import errors, none scored as zero: {text}.")
+        if any(c for _, c in problems if any(c.values())):
+            out.append("")
     out.append("## Overall")
     out.append("")
     out.append(
@@ -91,7 +137,7 @@ def render_report(
         m = s.get("metrics", {})
         lat = s.get("latency_ms", {})
         out.append(
-            f"| {run.strategy} | {s.get('questions', 0)} | {s.get('errors', 0)} | "
+            f"| {run.strategy}{' (external answers)' if _external(run) else ''} | {s.get('questions', 0)} | {s.get('errors', 0)} | "
             f"{count_refusals(rows)} | "
             f"{_num(m.get('hit'))} | {_num(m.get('reciprocal_rank'))} | "
             f"{_num(m.get('precision'))} | {_num(m.get('recall'))} | "

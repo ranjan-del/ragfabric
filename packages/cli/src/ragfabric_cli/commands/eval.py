@@ -26,6 +26,15 @@ from ragfabric_core.evaluation.dataset import (
     shipped_questions_path,
 )
 from ragfabric_core.evaluation.datasets import DATASETS, import_dataset
+from ragfabric_core.evaluation.external import (
+    ERROR_KINDS,
+    ExportError,
+    PromptFileError,
+    build_import_judge,
+    export_header,
+    export_prompts,
+    import_answers,
+)
 from ragfabric_core.evaluation.report import render_report
 from ragfabric_core.evaluation.runner import run_batch
 from ragfabric_core.evaluation.session import prepare
@@ -320,6 +329,171 @@ def run(
         typer.echo(f"report written to {report}")
 
 
+@eval_app.command("export-prompts")
+def export_prompts_command(
+    out: Path = typer.Option(..., "--out", help="The JSONL file to write."),
+    questions: Path | None = typer.Option(None, "--questions", help="Default: the shipped set."),
+    collection: str | None = typer.Option(None, "--collection"),
+    strategy: str = typer.Option("traditional", "--strategy", help="traditional or vectorless."),
+    top_k: int | None = typer.Option(
+        None, "--top-k", min=1, help="Default: evaluation.top_k (5 unless configured)."
+    ),
+) -> None:
+    """Retrieve only and write each question's passages and exact prompt messages.
+
+    Nothing is generated or judged and no model is called. Give the file to a model that
+    answers outside RagFabric, then score its answers with `eval import-answers`.
+
+    \b
+    Examples:
+      ragfabric eval export-prompts --out prompts.jsonl
+      ragfabric eval export-prompts --questions ./bench/mh-100/questions.json \\
+        --collection mh-100 --strategy vectorless --top-k 5 --out mh-prompts.jsonl
+    """
+    if strategy not in ("traditional", "vectorless"):
+        _fail(f"unknown strategy {strategy!r}: expected traditional or vectorless")
+    path = questions or shipped_questions_path()
+    try:
+        qs = load_questions(path)
+        cfg = get_config().model_copy(deep=True)
+        if top_k is not None:
+            cfg.evaluation.top_k = top_k
+        factory = get_session_factory()
+        prepared = prepare(cfg, factory, specs=[strategy], collection=collection, judge="lexical")
+        shipped_corpus = questions is None and prepared.collection == cfg.evaluation.collection
+        header = export_header(
+            corpus=content_hash(shipped_corpus_paths()) if shipped_corpus else "own corpus",
+            collection=prepared.collection,
+            top_k=cfg.evaluation.top_k,
+            strategy=strategy,
+            commit=_commit(),
+            ragfabric_version=__version__,
+            question_set=qs.name,
+            questions_hash=content_hash([path]),
+        )
+        count = export_prompts(
+            qs,
+            prepared.targets[0],
+            out,
+            header=header,
+            on_question=lambda qid, n: typer.echo(f"  {qid}: {n} passages"),
+        )
+    except (ValueError, ExportError, OSError) as exc:
+        _fail(str(exc))
+    typer.echo(
+        f"exported {count} questions ({strategy}, top_k {header['top_k']}, "
+        f"collection {header['collection']}) to {out}"
+    )
+    typer.echo(
+        f"next: have a model answer them, then ragfabric eval import-answers --prompts {out}"
+    )
+
+
+@eval_app.command("import-answers")
+def import_answers_command(
+    prompts: Path = typer.Option(..., "--prompts", help="The file `export-prompts` wrote."),
+    answers: Path = typer.Option(..., "--answers", help="JSONL: one id and answer per line."),
+    label: str = typer.Option(
+        ..., "--label", help='Who answered, free text: "hosted model, alias A".'
+    ),
+    batch: str = typer.Option(..., "--batch", help="Batch to store the run in."),
+    judge: str | None = typer.Option(None, "--judge", help="auto, llm or lexical."),
+    judge_metric: list[str] = typer.Option(None, "--judge-metric"),
+    report: Path | None = typer.Option(None, "--report", help="Write the batch report here."),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Score answers written outside RagFabric on the exported passages and store them.
+
+    The run is stored as `external:<slug of label>` with who answered, the prompt file hash
+    and the export date. Missing, duplicate, unknown and unreadable answers are counted errors,
+    never skipped and never scored as zero; the command exits 1 if there are any.
+
+    \b
+    Examples:
+      ragfabric eval import-answers --prompts prompts.jsonl --answers answers.jsonl \\
+        --label "hosted model, alias A" --batch ext-2026-10 --judge lexical
+    """
+    if judge is not None and judge not in ("auto", "llm", "lexical"):
+        _fail(f"unknown judge {judge!r}: expected auto, llm or lexical")
+    factory = get_session_factory()
+    try:
+        chosen = build_import_judge(
+            get_config(), judge, tuple(judge_metric) if judge_metric else None
+        )
+
+        def progress(target: str, row) -> None:
+            if as_json:
+                return
+            error = row.details.get("error")
+            typer.echo(
+                f"  {row.question_id}: "
+                + (
+                    f"error {error}"
+                    if error
+                    else f"hit {_fmt(row.hit)} correctness {_fmt(row.correctness)} "
+                    f"citation {_fmt(row.citation_correct)}"
+                )
+            )
+
+        result = import_answers(
+            prompts,
+            answers,
+            chosen,
+            factory,
+            label=label,
+            batch=batch,
+            commit=_commit(),
+            ragfabric_version=__version__,
+            embedding_model=get_config().embeddings.model,
+            on_result=progress,
+        )
+    except (ValueError, PromptFileError, OSError) as exc:
+        _fail(str(exc))
+    with factory() as db:
+        runs = batch_runs(db, batch)
+        if report is not None:
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(
+                render_report(runs, agreement=batch_router_agreement(runs)), encoding="utf-8"
+            )
+        stored = next(r for r, _ in runs if r.id == result.run_id)
+        summary = stored.summary
+    failed = sum(result.error_counts.values())
+    if as_json:
+        typer.echo(
+            json.dumps(
+                {
+                    "batch": batch,
+                    "run_id": result.run_id,
+                    "target": result.target,
+                    "error_counts": result.error_counts,
+                    "errors": result.errors,
+                    "metrics": summary.get("metrics"),
+                }
+            )
+        )
+    else:
+        m = summary["metrics"]
+        typer.echo("")
+        typer.echo(
+            f"{result.target:<32} hit {_fmt(m['hit'])}  mrr {_fmt(m['reciprocal_rank'])}  "
+            f"correctness {_fmt(m['correctness'])}  citation {_fmt(m['citation_correct'])}  "
+            f"refusals {summary['refusals']}"
+        )
+        typer.echo(f"answered by: {label} (answers from an external file, not a RagFabric API run)")
+        typer.echo(
+            "import errors: " + ", ".join(f"{k} {result.error_counts[k]}" for k in ERROR_KINDS)
+        )
+        for e in result.errors:
+            where = f"line {e['line']}" if e["line"] else "no line"
+            typer.echo(f"  {e['kind']} ({where}, id {e['id'] or '-'}): {e['detail']}", err=True)
+        typer.echo(f"stored as run {result.run_id} (batch {batch})")
+        if report is not None:
+            typer.echo(f"report written to {report}")
+    if failed:
+        raise typer.Exit(code=1)
+
+
 @eval_app.command("list")
 def list_command(
     limit: int = typer.Option(20, "--limit", min=1),
@@ -370,6 +544,12 @@ def show(run_id: int, as_json: bool = typer.Option(False, "--json")) -> None:
         return
     s = data["summary"]
     typer.echo(f"run {data['id']} {data['target']} (batch {data['batch']}): {s.get('status')}")
+    meta = s.get("meta") or {}
+    if meta.get("answer_source"):
+        typer.echo(
+            f"answered by: {meta.get('answered_by')} ({meta['answer_source']}; prompt file "
+            f"{(meta.get('prompt_file_sha256') or '')[:12]}, exported {meta.get('export_date')})"
+        )
     if s.get("skipped"):
         typer.echo(f"skipped: {s['skipped']}")
     for r in data["results"]:

@@ -69,6 +69,10 @@ def run_row(run) -> dict:
         "commit": (s.get("meta") or {}).get("commit"),
         "date": _date(getattr(run, "started_at", None)),
         "run": run.id,
+        "answered_by": (s.get("meta") or {}).get("answered_by"),
+        "answer_source": (s.get("meta") or {}).get("answer_source"),
+        "prompt_hash": ((s.get("meta") or {}).get("prompt_file_sha256") or "")[:12] or None,
+        "export_date": (s.get("meta") or {}).get("export_date"),
         "by_category": s.get("by_category") or {},
     }
 
@@ -123,7 +127,25 @@ def _batch_block(attrs: dict, rows: list[dict]) -> str:
     for target in _ordered(_split(attrs.get("targets", "")), by_target):
         row = by_target.get(target)
         out.append([target if c == "target" else _batch_cell(row, c) for c in columns])
-    return _table(columns, out)
+    table = _table(columns, out)
+    outside = [r for r in rows if r.get("answer_source")]
+    if not outside:
+        return table
+    # Answers written outside RagFabric never appear without who wrote them: this table is added
+    # to every batch block that holds such a run, whatever columns the page asked for.
+    provenance = _table(
+        ["target", "answered_by", "answer_source", "prompt_hash", "export_date"],
+        [
+            [_cell(r.get(c)) for c in ("target", "answered_by", "answer_source", "prompt_hash")]
+            + [_cell(r.get("export_date"))]
+            for r in outside
+        ],
+    )
+    note = (
+        "Answers below were written outside RagFabric and scored by it. They are not a "
+        "controlled run and not a model tested through its API:"
+    )
+    return f"{table}\n\n{note}\n\n{provenance}"
 
 
 def _batch_cell(row: dict | None, column: str) -> str:
