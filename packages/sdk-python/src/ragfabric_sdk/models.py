@@ -190,6 +190,8 @@ class Answer(BaseModel):
 
     question: str
     answer: str
+    # False when a server older than this field does not send it.
+    refused: bool = False
     confidence: float
     citations: list[Citation]
     highlights: list[Highlight]

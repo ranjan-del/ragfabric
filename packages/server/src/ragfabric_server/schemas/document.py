@@ -62,3 +62,27 @@ class CollectionUpdate(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = None
+
+
+class ChunkPiece(BaseModel):
+    chunk_id: int
+    chunk_index: int
+    page: int | None = None
+    text: str
+
+
+class ChunkContext(BaseModel):
+    """One cited chunk with the stored text on either side of it.
+
+    ``before`` and ``after`` are in document order, with the characters a neighbour
+    shares with the cited chunk (the ingestion overlap) removed, so
+    ``before + chunk + after`` read in order is continuous text.
+    """
+
+    chunk_id: int
+    document_id: int
+    filename: str
+    section: str | None = None
+    chunk: ChunkPiece
+    before: list[ChunkPiece] = []
+    after: list[ChunkPiece] = []

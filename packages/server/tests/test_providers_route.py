@@ -172,3 +172,32 @@ def test_an_unknown_test_target_is_a_422(client, admin_headers):
         ).status_code
         == 422
     )
+
+
+def test_saving_a_model_keeps_the_other_keys_of_the_section(client, admin_headers, config_guard):
+    """A save that changes the model must not reset llm.num_ctx to its default.
+
+    Found in the console: saving a new model removed num_ctx from the file, so a tuned
+    context window silently went back to 8192.
+    """
+    import yaml
+
+    from ragfabric_core.config_file import load_config
+
+    raw = yaml.safe_load(config_guard.read_text(encoding="utf-8")) or {}
+    raw["llm"] = {**(raw.get("llm") or {}), "num_ctx": 4096}
+    config_guard.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+    from ragfabric_core import runtime
+
+    runtime.reset_config()
+
+    res = client.put(
+        "/api/admin/providers",
+        json={"llm": {"provider": "offline", "model": "scripted", "base_url": None}},
+        headers=admin_headers,
+    )
+
+    assert res.status_code == 200, res.text
+    assert "llm.num_ctx" not in res.json()["changed"]
+    assert load_config(config_guard).llm.num_ctx == 4096
+    assert yaml.safe_load(config_guard.read_text(encoding="utf-8"))["llm"]["num_ctx"] == 4096

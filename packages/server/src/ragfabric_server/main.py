@@ -33,6 +33,7 @@ from ragfabric_server.api.routes import (
     analytics,
     ask,
     auth,
+    chunks,
     collections,
     documents,
     evaluation,
@@ -129,6 +130,7 @@ app.add_middleware(RequestContextMiddleware)
 # Register API routers. See MEMORY.md "Dashboard" / "Admin" sections.
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(documents.router, prefix="/api/documents", tags=["documents"])
+app.include_router(chunks.router, prefix="/api/chunks", tags=["chunks"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
 app.include_router(collections.router, prefix="/api/collections", tags=["collections"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["analytics"])

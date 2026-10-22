@@ -32,6 +32,11 @@ class ModelPrice(BaseModel):
     source: str
     note: str | None = None
 
+    @property
+    def is_free(self) -> bool:
+        """True when no rate is above zero: local or test models, which have no token price."""
+        return not any((self.input, self.output, self.embedding))
+
 
 class PricingTable(BaseModel):
     currency: str = "USD"
@@ -113,11 +118,21 @@ def run_cost(
     output_tokens: int,
     table: PricingTable | None = None,
 ) -> float | None:
-    """Estimated USD for one answer, or ``None`` when the model is not priced (ADR 0004).
+    """Estimated USD for one answer, or ``None`` when the model has no price (ADR 0004).
+
+    A model with no table entry and a model whose entry is zero everywhere (local
+    inference, the offline double) both give ``None``: there is no per token price
+    to estimate from, and ``$0.00000`` would read as a measured, known-free bill.
+    ``estimate_cost`` still reports such a model as ``known``, which is what the
+    agent's cost cap relies on; only what is recorded and shown changes.
 
     Written onto ``retrieval_runs`` at the time of the run (design decision
     D11), so a later price or model change never rewrites history.
     """
     if not model:
         return None
-    return estimate_cost(table or default_table(), provider, model, input_tokens, output_tokens).usd
+    table = table or default_table()
+    price = table.lookup(provider, model)
+    if price is None or price.is_free:
+        return None
+    return estimate_cost(table, provider, model, input_tokens, output_tokens).usd

@@ -179,7 +179,7 @@ def test_ask_records_the_model_and_its_priced_cost_on_the_run(client, admin_toke
 
     run_res = client.get(f"/api/runs/{run_id}", headers={"Authorization": f"Bearer {admin_token}"})
     assert run_res.status_code == 200
-    assert run_res.json()["estimated_cost_usd"] == 0.0
+    assert run_res.json()["estimated_cost_usd"] is None
     from ragfabric_core.db.session import SessionLocal
     from ragfabric_core.models.runs import RetrievalRun
 
@@ -199,7 +199,7 @@ def test_query_records_the_model_and_cost(client, admin_token, ingested_doc):
 
     with SessionLocal() as db:
         run = db.query(RetrievalRun).order_by(RetrievalRun.id.desc()).first()
-        assert run.llm_model and run.estimated_cost_usd == 0.0
+        assert run.llm_model and run.estimated_cost_usd is None
 
 
 def test_ask_without_streaming_returns_the_same_shape_as_query(client, admin_token, ingested_doc):

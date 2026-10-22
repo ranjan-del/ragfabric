@@ -78,8 +78,16 @@ class CitedAnswer(BaseModel):
 
 
 def build_prompt(query: str, chunks: list[RetrievedChunk]) -> str:
+    """Passages first, the question last.
+
+    A small model that reads the question first and then five passages loses the
+    question by the end and takes the cheap exit, the no-evidence sentence, even
+    when the top passage states the answer (eval q-002, "hotel limit per night",
+    llama3.1:8b: refused with the right passage ranked first, answered once the
+    same passages were followed by the question).
+    """
     passages = "\n\n".join(f"[{i}] {c.text}" for i, c in enumerate(chunks, start=1))
-    return f"Question: {query}\n\nPassages:\n{passages}"
+    return f"Passages:\n{passages}\n\nQuestion: {query}"
 
 
 def repair_prompt(violation: str) -> str:
