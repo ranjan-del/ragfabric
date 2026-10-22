@@ -645,6 +645,95 @@
         "title": "Body_upload_document_api_documents_upload_post",
         "type": "object"
       },
+      "ChunkContext": {
+        "description": "One cited chunk with the stored text on either side of it.\n\n``before`` and ``after`` are in document order, with the characters a neighbour\nshares with the cited chunk (the ingestion overlap) removed, so\n``before + chunk + after`` read in order is continuous text.",
+        "properties": {
+          "after": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ChunkPiece"
+            },
+            "title": "After",
+            "type": "array"
+          },
+          "before": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ChunkPiece"
+            },
+            "title": "Before",
+            "type": "array"
+          },
+          "chunk": {
+            "$ref": "#/components/schemas/ChunkPiece"
+          },
+          "chunk_id": {
+            "title": "Chunk Id",
+            "type": "integer"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "integer"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "document_id",
+          "filename",
+          "chunk"
+        ],
+        "title": "ChunkContext",
+        "type": "object"
+      },
+      "ChunkPiece": {
+        "properties": {
+          "chunk_id": {
+            "title": "Chunk Id",
+            "type": "integer"
+          },
+          "chunk_index": {
+            "title": "Chunk Index",
+            "type": "integer"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chunk_id",
+          "chunk_index",
+          "text"
+        ],
+        "title": "ChunkPiece",
+        "type": "object"
+      },
       "Citation": {
         "properties": {
           "chunk_id": {
@@ -4102,6 +4191,68 @@
         "summary": "Register",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/chunks/{chunk_id}/context": {
+      "get": {
+        "description": "The cited chunk with up to ``neighbours`` chunks of the same document on each side.",
+        "operationId": "get_chunk_context_api_chunks__chunk_id__context_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "chunk_id",
+            "required": true,
+            "schema": {
+              "title": "Chunk Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Chunks to return on each side.",
+            "in": "query",
+            "name": "neighbours",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "Chunks to return on each side.",
+              "maximum": 5,
+              "minimum": 0,
+              "title": "Neighbours",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChunkContext"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Chunk Context",
+        "tags": [
+          "chunks"
         ]
       }
     },

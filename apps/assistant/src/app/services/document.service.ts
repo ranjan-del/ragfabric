@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { requests } from '@ragfabric/sdk';
+import { ChunkContext, requests } from '@ragfabric/sdk';
 import { Observable } from 'rxjs';
 
 import { SdkHttp } from '../sdk/sdk-http.service';
@@ -20,6 +20,11 @@ export class DocumentService {
   /** The original file, for the source viewer's download. */
   download(id: number): Observable<Blob> {
     return this.sdk.send(requests.documents.download(id));
+  }
+
+  /** The cited chunk with the stored text around it, for formats the browser cannot read back. */
+  chunkContext(chunkId: number, neighbours = 1): Observable<ChunkContext> {
+    return this.sdk.send(requests.chunks.context(chunkId, neighbours));
   }
 
   delete(id: number): Observable<unknown> {
