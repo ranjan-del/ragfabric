@@ -16,7 +16,10 @@ class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    email: EmailStr
+    # Output only: a stored address is never re-validated. The bootstrap admin
+    # comes from FIRST_ADMIN_EMAIL unchecked, and one odd row must not turn the
+    # whole users list into a 500.
+    email: str
     role: str
     is_active: bool
     created_at: datetime

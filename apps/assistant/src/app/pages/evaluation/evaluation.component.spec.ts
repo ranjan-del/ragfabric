@@ -122,6 +122,15 @@ describe('EvaluationComponent', () => {
     expect(text('[data-test="dashboard-error"]')).toContain('no evaluation API yet');
   });
 
+  it('test_every_select_has_an_accessible_name', () => {
+    load();
+    const selects = all('select');
+    expect(selects.length).toBe(3);
+    for (const select of selects) {
+      expect(select.getAttribute('aria-label')).toBeTruthy();
+    }
+  });
+
   it('test_no_batches_yet_points_at_the_command', () => {
     load([]);
     expect(text('[data-test="no-batches"]')).toContain('make eval');

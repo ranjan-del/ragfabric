@@ -121,7 +121,7 @@ import { waterfall } from './waterfall';
 
       <section class="card block" aria-label="Sources">
         <h2>Sources</h2>
-        <table class="sources">
+        <div class="scroll"><table class="sources">
           <thead><tr><th>Rank</th><th>Document</th><th>Chunk</th><th>Page</th><th>Score</th><th>Cited</th></tr></thead>
           <tbody>
             @for (s of r.sources ?? []; track s.rank) {
@@ -131,7 +131,7 @@ import { waterfall } from './waterfall';
               </tr>
             }
           </tbody>
-        </table>
+        </table></div>
       </section>
 
       @if (r.answer) {
@@ -146,8 +146,10 @@ import { waterfall } from './waterfall';
     }
   `,
   styles: `
-    :host { display: grid; gap: var(--space-4); }
-    .block { padding: var(--space-4); display: grid; gap: var(--space-3); }
+    :host { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+    .block { padding: var(--space-4); display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; }
+    .scroll { overflow-x: auto; max-width: 100%; }
+    .attrs, .span-label { overflow-wrap: anywhere; }
     h2 { margin: 0; font-size: 1rem; }
     .question { font-size: 1.05rem; margin: 0; }
     .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: var(--space-2); margin: 0; }

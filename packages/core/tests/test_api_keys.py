@@ -78,23 +78,25 @@ def test_verify_api_key_coalesces_last_used_at_writes(tmp_path, monkeypatch):
     key, plain = create_api_key(db, name="ci", user_id=user.id)
     db.commit()
 
-    t0 = datetime(2026, 1, 1, tzinfo=UTC).replace(tzinfo=None)
+    t0 = datetime(2026, 1, 1, tzinfo=UTC)
     monkeypatch.setattr(api_keys_module, "_now", lambda: t0)
     found = verify_api_key(db, plain)
-    assert found.last_used_at == t0  # first use always writes
+    assert found.last_used_at.replace(tzinfo=UTC) == t0  # first use always writes
 
     # A second call a moment later, well inside the coalescing window, must
     # not move last_used_at forward.
     t1 = t0 + timedelta(seconds=LAST_USED_AT_COALESCE_SECONDS - 1)
     monkeypatch.setattr(api_keys_module, "_now", lambda: t1)
     found = verify_api_key(db, plain)
-    assert found.last_used_at == t0, "a call inside the coalescing window rewrote last_used_at"
+    assert found.last_used_at.replace(tzinfo=UTC) == t0, (
+        "a call inside the coalescing window rewrote last_used_at"
+    )
 
     # Once the window has fully elapsed, the next call writes again.
     t2 = t0 + timedelta(seconds=LAST_USED_AT_COALESCE_SECONDS)
     monkeypatch.setattr(api_keys_module, "_now", lambda: t2)
     found = verify_api_key(db, plain)
-    assert found.last_used_at == t2
+    assert found.last_used_at.replace(tzinfo=UTC) == t2
 
 
 def test_rate_limit_counts_per_minute():

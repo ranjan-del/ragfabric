@@ -23,7 +23,13 @@
               "src/tailwind.css",
               "src/styles.scss"
             ],
-            "assets": []
+            "assets": [
+              {
+                "glob": "favicon.svg",
+                "input": "src",
+                "output": "/"
+              }
+            ]
           },
           "configurations": {
             "production": {
