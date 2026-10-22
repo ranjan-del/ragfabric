@@ -111,6 +111,12 @@ Phase 9 (assistant UI and TypeScript SDK) and Phase 10 (hardening, connectors, d
   manual dispatch.
 - `docs/learning/hardening-first-run.md`: the first real run of the production stack, including what
   went wrong.
+- `GET /api/chunks/{id}/context` returns a cited chunk with the text around it, read from the stored
+  chunks with the same access check as every other read (a caller without access gets 404). The
+  source viewer uses it so PDF, DOCX and PPTX citations can show more context, not only the 240
+  character snippet. (#79)
+- `refused` on the ask response, on `/api/search/query` and on the streamed `done` event, set by the
+  code that decides a refusal, so clients no longer guess a refusal from the answer text. (#79)
 
 ### Fixed
 
@@ -151,7 +157,28 @@ Phase 9 (assistant UI and TypeScript SDK) and Phase 10 (hardening, connectors, d
   Console groups no longer scroll sideways at 390 pixels, the Compare "cheapest" and "fastest"
   badges ignore unpriced, refused and failed runs and a refusal shows its reason, the Evaluation
   selects are labelled, and the accepted file types and embedding model are described correctly.
-  Citations to PDF, DOCX and PPTX files still show only the 240 character snippet. (#75)
+  (#75)
+- A model with no token price records and returns no cost (shown as n/a) instead of $0. (#78)
+- A small model no longer refuses a question the passages answer because of where the question sits
+  in the prompt. The question used to come first, followed by five numbered passages, and
+  `llama3.1:8b` lost it and took the refusal sentence. The passages now come first and the question
+  last. On the 24 shipped questions with `llama3.1:8b` (one run each, 22 October 2026, lexical
+  judge) refusals fell from 6 to 2 on traditional and on auto, and correctness rose from about 0.53
+  to 0.71. (#80)
+- Dark mode: filled buttons, badges and error alerts meet text contrast (they were about 3:1 and
+  2.9:1); a test measures every text colour pair. (#81)
+- Saving a provider in the console keeps the other keys of its section. Changing only `llm.model` used
+  to delete `llm.num_ctx` from `ragfabric.yaml`. (#82)
+- Graph retrieval: extraction keeps an edge's end when the model names it only inside a relationship
+  (for example the chief technology officer), a question's names are matched the way people write
+  them (articles, word containment, acronyms, a looser type) without widening access, a walk that
+  found no edge is repeated once without the implied relation types, and the graph prompt uses the
+  same refusal rule as the traditional prompt. On the 24 shipped questions graph refusals fell from
+  17 to 14 and hit rate rose from 0.58 to 0.67 in one run on a shared model, which is within noise.
+  The graph strategy is still weak on this corpus (correctness 0.28). (#83)
+- Large documents index on Ollama: embeddings are sent in batches of 64 inputs. Ollama's embedding
+  runner fails on a request of about 288 inputs or more, so nine of the ten FinanceBench filings
+  (444 to 1,718 chunks) failed to ingest; all ten now do. (#84)
 
 ### Changed
 
