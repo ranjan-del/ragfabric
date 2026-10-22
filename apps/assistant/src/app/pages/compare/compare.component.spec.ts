@@ -135,4 +135,39 @@ describe('CompareComponent', () => {
     expect(text('[data-test="column-traditional"] [data-test="answer"]')).toBe('Partial');
     expect(text('[data-test="column-vectorless"]')).toContain('Waiting for its turn');
   });
+
+  it('test_only_the_graph_column_shows_a_walked_path_and_edge_chips', () => {
+    setup(false);
+    compare(true);
+    const graph = {
+      nodes: [
+        { id: 1, name: 'Anjali Rao', entity_type: 'person', depth: 0 },
+        { id: 2, name: 'Rohan Iyer', entity_type: 'person', depth: 1 },
+      ],
+      edges: [
+        { id: 11, source_id: 1, target_id: 2, relation_type: 'REPORTS_TO', walked_as: 'REPORTS_TO', reversed: false, confidence: null, source_chunk_ids: [] },
+      ],
+      truncated: false,
+    };
+    const graphWire = sse([
+      ['retrieval', { chunks: 0, strategy: 'graph', trace: [], sub_questions: [], subgraph: graph, router: null, fallback_from: null }],
+      ['token', { text: 'Anjali reports to Rohan [E 1].' }],
+      ['citations', { citations: [] }],
+      ['done', { run_id: 4, latency_ms: 30, usage: {} }],
+    ]);
+    const reqs = ['traditional', 'vectorless', 'agentic', 'graph'].map((s) => next(s));
+    finish(reqs[0], 1, 10, null);
+    finish(reqs[1], 2, 20, null);
+    finish(reqs[2], 3, 30, null);
+    reqs[3].flush(graphWire);
+    http.expectOne('/api/runs/4').flush({ id: 4, estimated_cost_usd: null });
+    fixture.detectChanges();
+
+    expect(text('[data-test="column-graph"] [data-test="edge-marker"]')).toBe('[E 1]');
+    expect(text('[data-test="column-graph"] [data-test="graph-path"]')).toContain('1 relationship');
+    expect(text('[data-test="column-graph"] [data-test="edge-source"]')).toBe('none you may read');
+    for (const other of ['traditional', 'vectorless', 'agentic']) {
+      expect(fixture.nativeElement.querySelector(`[data-test="column-${other}"] [data-test="graph-path"]`)).toBeNull();
+    }
+  });
 });

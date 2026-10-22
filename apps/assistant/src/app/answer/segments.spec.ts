@@ -2,6 +2,7 @@
 
 import { Citation } from '@ragfabric/sdk';
 
+import { walkedEdges } from './graph';
 import { answerSegments, expandSnippet, isTruncated, snippetSegments } from './segments';
 
 const C1: Citation = { marker: '[1]', snippet: 'a', used: true };
@@ -72,5 +73,43 @@ describe('expandSnippet', () => {
 
   it('test_a_whole_chunk_is_not_truncated', () => {
     expect(isTruncated('A short passage.')).toBeFalse();
+  });
+});
+
+describe('answerSegments with graph edges', () => {
+  const graph = {
+    nodes: [
+      { id: 1, name: 'Anjali Rao', entity_type: 'person', depth: 0 },
+      { id: 2, name: 'Rohan Iyer', entity_type: 'person', depth: 1 },
+    ],
+    edges: [
+      { id: 9, source_id: 1, target_id: 2, relation_type: 'REPORTS_TO', walked_as: 'REPORTS_TO', reversed: false, source_chunk_ids: [4] },
+    ],
+    truncated: false,
+  };
+  const edges = walkedEdges(graph);
+
+  it('test_an_edge_marker_becomes_an_edge_segment_beside_passage_markers', () => {
+    const parts = answerSegments('Anjali reports to Rohan [E 1] [1].', [C1], edges);
+
+    expect(parts.map((p) => p.kind)).toEqual(['text', 'edge', 'text', 'marker', 'text']);
+    const edge = parts[1];
+    expect(edge.kind === 'edge' && edge.edge.from).toBe('Anjali Rao');
+    expect(edge.kind === 'edge' && edge.marker).toBe('[E 1]');
+  });
+
+  it('test_the_server_spellings_E1_and_lowercase_e_with_a_space_are_read_the_same', () => {
+    const parts = answerSegments('a [E1] b [e 1] c', [], edges);
+    expect(parts.filter((p) => p.kind === 'edge').length).toBe(2);
+  });
+
+  it('test_an_edge_marker_outside_the_walked_graph_stays_plain_text', () => {
+    expect(answerSegments('a [E 7] b', [], edges)).toEqual([{ kind: 'text', text: 'a [E 7] b' }]);
+    expect(answerSegments('a [E 1] b', [], [])).toEqual([{ kind: 'text', text: 'a [E 1] b' }]);
+  });
+
+  it('test_a_plain_number_marker_is_never_taken_for_an_edge', () => {
+    const parts = answerSegments('see [1]', [C1], edges);
+    expect(parts.map((p) => p.kind)).toEqual(['text', 'marker']);
   });
 });

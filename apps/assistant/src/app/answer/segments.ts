@@ -1,24 +1,37 @@
 import { Citation, Highlight, Span } from '@ragfabric/sdk';
 
+import { WalkedEdge } from './graph';
+
 export type AnswerSegment =
   | { kind: 'text'; text: string }
-  | { kind: 'marker'; marker: string; citation: Citation };
+  | { kind: 'marker'; marker: string; citation: Citation }
+  | { kind: 'edge'; marker: string; edge: WalkedEdge };
+
+/** `[3]` passage markers and `[E 3]` edge markers. The server reads `[E3]` and `[e 3]` the same way. */
+const MARKER = /\[(?:(\d+)|E\s*(\d+))\]/gi;
 
 /**
  * Split an answer into plain text and citation markers.
  *
  * A marker is clickable only when the server sent a citation with that
- * marker; anything else that looks like `[n]` stays text, so a click never
- * opens a source the answer does not have.
+ * marker, or (for `[E k]`) the walked sub graph has a k-th edge; anything else
+ * that looks like a marker stays text, so a click never opens a source or an
+ * edge the answer does not have.
  */
-export function answerSegments(text: string, citations: readonly Citation[]): AnswerSegment[] {
+export function answerSegments(
+  text: string,
+  citations: readonly Citation[],
+  edges: readonly WalkedEdge[] = [],
+): AnswerSegment[] {
   const byMarker = new Map(citations.map((c) => [c.marker, c]));
+  const byK = new Map(edges.map((e) => [e.k, e]));
   const out: AnswerSegment[] = [];
   let plain = '';
   let last = 0;
-  for (const match of text.matchAll(/\[\d+\]/g)) {
-    const citation = byMarker.get(match[0]);
-    if (citation === undefined) {
+  for (const match of text.matchAll(MARKER)) {
+    const citation = match[1] === undefined ? undefined : byMarker.get(match[0]);
+    const edge = match[2] === undefined ? undefined : byK.get(Number(match[2]));
+    if (citation === undefined && edge === undefined) {
       continue;
     }
     plain += text.slice(last, match.index);
@@ -26,7 +39,11 @@ export function answerSegments(text: string, citations: readonly Citation[]): An
       out.push({ kind: 'text', text: plain });
       plain = '';
     }
-    out.push({ kind: 'marker', marker: match[0], citation });
+    if (citation !== undefined) {
+      out.push({ kind: 'marker', marker: match[0], citation });
+    } else if (edge !== undefined) {
+      out.push({ kind: 'edge', marker: match[0], edge });
+    }
     last = (match.index ?? 0) + match[0].length;
   }
   plain += text.slice(last);
