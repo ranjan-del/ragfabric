@@ -6,6 +6,7 @@ import { AdminService } from '../../../services/admin.service';
 import { CollectionService } from '../../../services/collection.service';
 import { describeError } from '../../../services/http-error';
 import { ApiKeyItem, Collection, User } from '../../../models';
+import { parseRateLimit } from './rate-limit';
 import {
   BadgeComponent,
   ButtonComponent,
@@ -50,6 +51,10 @@ import {
     SelectComponent,
     TableComponent,
   ],
+  styles: `
+    .key-scopes { min-width: 8rem; max-width: 12rem; white-space: normal; }
+    .key-rate { white-space: nowrap; }
+  `,
   template: `
     <section class="page-head spread">
       <div>
@@ -75,6 +80,7 @@ import {
         <th scope="col">Name</th>
         <th scope="col">Prefix</th>
         <th scope="col">Scopes</th>
+        <th scope="col" title="Requests per minute">Rate limit</th>
         <th scope="col">Created</th>
         <th scope="col">Last used</th>
         <th scope="col">Expires</th>
@@ -86,9 +92,10 @@ import {
           <tr class="key-row">
             <td>{{ key.name }}</td>
             <td><code>{{ key.key_prefix }}</code></td>
-            <td>
+            <td class="key-scopes">
               <span class="muted">{{ scopeSummary(key) }}</span>
             </td>
+            <td class="key-rate">{{ key.rate_limit_per_minute.toLocaleString('en-GB') }} / min</td>
             <td>{{ key.created_at | date: 'mediumDate' }}</td>
             <td>
               {{ key.last_used_at ? (key.last_used_at | date: 'medium') : 'Never' }}
@@ -135,6 +142,18 @@ import {
           [value]="newCollection()"
           (valueChange)="newCollection.set($event)"
         />
+        <ui-input
+          class="key-rate-field"
+          [label]="'Rate limit (requests per minute)'"
+          [inputmode]="'numeric'"
+          [hint]="rateLimitHint()"
+          [error]="rateLimitError()"
+          [(value)]="newRateLimit"
+        />
+        <p class="field-hint key-rate-note">
+          A key's limit is set when it is created. The API cannot change it afterwards: to use a
+          different limit, create a new key and revoke this one.
+        </p>
         <ui-input
           [label]="'Expires on'"
           [type]="'date'"
@@ -234,6 +253,22 @@ export class KeysComponent implements OnInit {
   readonly newUser = signal('');
   readonly newCollection = signal('');
   readonly newExpiry = signal('');
+  readonly newRateLimit = signal('');
+  /** What the server gives a key that names no limit; null until it has said, or if it could not. */
+  readonly defaultRateLimit = signal<number | null>(null);
+  /** Shown once Create has been tried, so a half typed number is not scolded. */
+  private readonly rateLimitChecked = signal(false);
+
+  readonly rateLimitHint = computed(() => {
+    const fallback = this.defaultRateLimit();
+    return fallback === null
+      ? 'Leave empty to use the server default.'
+      : `Leave empty for the default of ${fallback.toLocaleString('en-GB')} per minute.`;
+  });
+  readonly rateLimitError = computed(() => {
+    const parsed = parseRateLimit(this.newRateLimit());
+    return this.rateLimitChecked() && !parsed.ok ? parsed.error : '';
+  });
 
   /**
    * The plaintext key, held in memory only, for the life of the panel.
@@ -264,6 +299,11 @@ export class KeysComponent implements OnInit {
     this.load();
     this.admin.listUsers().subscribe({ next: (users) => this.users.set(users) });
     this.collectionsApi.list().subscribe({ next: (list) => this.collections.set(list) });
+    this.access.keyDefaults().subscribe({
+      next: (defaults) => this.defaultRateLimit.set(defaults.rate_limit_per_minute),
+      // An older server has no defaults endpoint: the hint then says "the server default", no number.
+      error: () => this.defaultRateLimit.set(null),
+    });
   }
 
   load(): void {
@@ -287,7 +327,7 @@ export class KeysComponent implements OnInit {
         ? 'all collections'
         : key.collection_ids.map((id) => this.collectionName(id)).join(', ');
     const strategies = key.strategies.length === 0 ? 'all strategies' : key.strategies.join(', ');
-    return `${collections} / ${strategies} / ${key.rate_limit_per_minute} per minute`;
+    return `${collections} / ${strategies}`;
   }
 
   collectionName(id: number): string {
@@ -300,12 +340,19 @@ export class KeysComponent implements OnInit {
     this.newUser.set('');
     this.newCollection.set('');
     this.newExpiry.set('');
+    this.newRateLimit.set('');
+    this.rateLimitChecked.set(false);
     this.createOpen.set(true);
   }
 
   create(): void {
     if (this.newName().trim() === '' || !this.newUser()) {
       this.formError.set('A key needs a name and an account to act as.');
+      return;
+    }
+    this.rateLimitChecked.set(true);
+    const limit = parseRateLimit(this.newRateLimit());
+    if (!limit.ok) {
       return;
     }
     const collectionIds = this.newCollection() ? [Number(this.newCollection())] : [];
@@ -316,6 +363,8 @@ export class KeysComponent implements OnInit {
         collection_ids: collectionIds,
         strategies: [],
         expires_at: this.newExpiry() ? `${this.newExpiry()}T00:00:00` : null,
+        // Empty is left out so the server applies its own default.
+        ...(limit.value === null ? {} : { rate_limit_per_minute: limit.value }),
       })
       .subscribe({
         next: (created) => {

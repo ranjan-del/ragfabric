@@ -240,6 +240,9 @@ export const requests = {
     },
     keys: {
       list: (): ApiRequest<Response<'/api/admin/keys', 'get'>> => get('/api/admin/keys'),
+      /** The limit a new key gets when its request names none. */
+      defaults: (): ApiRequest<Response<'/api/admin/keys/defaults', 'get'>> =>
+        get('/api/admin/keys/defaults'),
       /** The plaintext key is in this response and in no other, ever. */
       create: (body: ApiKeyCreate): ApiRequest<Response<'/api/admin/keys', 'post'>> =>
         send('POST', '/api/admin/keys', body),

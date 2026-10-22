@@ -45,6 +45,7 @@ export type Grant = S.GrantOut;
 export type ApiKeyCreate = S.ApiKeyCreate;
 export type ApiKeyItem = S.ApiKeyOut;
 export type ApiKeyCreated = S.ApiKeyCreated;
+export type ApiKeyDefaults = S.ApiKeyDefaults;
 export type Override = S.OverrideOut;
 export type OverrideCreate = S.OverrideCreate;
 export type AdminUserCreate = S.AdminUserCreate;

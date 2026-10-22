@@ -26,6 +26,7 @@ let nextId = 0;
         [attr.type]="type()"
         [attr.placeholder]="placeholder() || null"
         [attr.autocomplete]="autocomplete()"
+        [attr.inputmode]="inputmode()"
         [attr.aria-invalid]="error() ? 'true' : null"
         [attr.aria-describedby]="describedBy()"
         [attr.required]="required() ? '' : null"
@@ -56,6 +57,8 @@ export class InputComponent {
   readonly required = input(false);
   readonly disabled = input(false);
   readonly autocomplete = input<string | null>(null);
+  /** A keyboard hint for touch devices, e.g. "numeric". Does not restrict what can be typed. */
+  readonly inputmode = input<string | null>(null);
   readonly value = model('');
 
   readonly describedBy = computed(() => {

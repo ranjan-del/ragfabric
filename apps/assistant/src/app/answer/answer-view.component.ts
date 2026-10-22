@@ -1,7 +1,10 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
 import { Citation } from '@ragfabric/sdk';
 
 import { AnswerState } from './answer-state';
+import { EdgeViewerComponent } from './edge-viewer.component';
+import { WalkedEdge, walkedEdges } from './graph';
+import { GraphPathComponent } from './graph-path.component';
 import { answerSegments } from './segments';
 
 /**
@@ -13,6 +16,7 @@ import { answerSegments } from './segments';
 @Component({
   selector: 'app-answer-view',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [GraphPathComponent, EdgeViewerComponent],
   template: `
     @let s = state();
     @if (s.superseded(); as sup) {
@@ -36,12 +40,20 @@ import { answerSegments } from './segments';
     }
     <p class="answer-text" data-test="answer" aria-live="polite">
       @for (part of segments(); track $index) {
-        @if (part.kind === 'text') {<span>{{ part.text }}</span>} @else {
+        @if (part.kind === 'text') {<span>{{ part.text }}</span>} @else if (part.kind === 'marker') {
           <button
             type="button"
             class="marker"
             [attr.aria-label]="'Open source ' + part.marker"
             (click)="cite.emit(part.citation)"
+          >{{ part.marker }}</button>
+        } @else if (part.kind === 'edge') {
+          <button
+            type="button"
+            class="marker edge-marker"
+            data-test="edge-marker"
+            [attr.aria-label]="'Open relationship E ' + part.edge.k"
+            (click)="viewingEdge.set(part.edge)"
           >{{ part.marker }}</button>
         }
       }
@@ -50,6 +62,10 @@ import { answerSegments } from './segments';
     @if (s.status() === 'failed') {
       <p class="alert alert-error" role="alert" data-test="error">{{ s.error() }}</p>
     }
+    @if (subgraph(); as g) {
+      <app-graph-path [graph]="g" [citations]="s.citations()" (openEdge)="viewingEdge.set($event)" />
+    }
+    <app-edge-viewer [edge]="viewingEdge()" [citations]="s.citations()" (closed)="viewingEdge.set(null)" />
     @if (s.citations().length > 0) {
       <div class="chips" aria-label="Sources cited">
         @for (c of cited(); track c.marker) {
@@ -96,7 +112,12 @@ export class AnswerViewComponent {
   readonly state = input.required<AnswerState>();
   readonly cite = output<Citation>();
 
-  readonly segments = computed(() => answerSegments(this.state().text(), this.state().citations()));
+  readonly viewingEdge = signal<WalkedEdge | null>(null);
+  /** The walked sub graph the retrieval event reported; null for a strategy that walks none. */
+  readonly subgraph = computed(() => this.state().retrieval()?.subgraph ?? null);
+  readonly segments = computed(() =>
+    answerSegments(this.state().text(), this.state().citations(), walkedEdges(this.subgraph())),
+  );
   /** The sources the answer cites, then (folded away) the ones only retrieved. */
   readonly cited = computed(() => this.state().citations().filter((c) => c.used));
   readonly uncited = computed(() => this.state().citations().filter((c) => !c.used));

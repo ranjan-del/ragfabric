@@ -18,6 +18,8 @@ One question, one streamed answer, and why that strategy answered it.
 | Router card | The strategy that answered; whether a rule or the classifier chose it; the classifier's confidence as reported (uncalibrated), or "rule based, no confidence measured"; the reasoning; query type, complexity, expected cost and latency. A fallback is always called out: the router chose one strategy, it found nothing, traditional answered |
 | Answer | Streams token by token. If the server corrects it (a `superseded` event: the streamed text failed the citation contract), the text is replaced by the recorded answer and a notice says why, with any removed claims |
 | Citations | Every `[n]` in the answer and every source chip is a button. Cited sources come first; sources retrieved but not cited are marked |
+| Graph path | On a graph answer, a collapsed "Graph path" under the answer lists the entities walked (with their type and hop) and each relationship in the order the answer's `[E k]` markers number them, with its relation, the extraction confidence (or "not measured") and a short source reference (file and page). When the graph found nothing, the reason the API gives is shown in plain words: no graph coverage, no entity matched, or no walkable edges |
+| Edge chips | Every `[E k]` in a graph answer is a button, like `[n]`. It opens the relationship as walked and the chunk or chunks that back it, as the graph citation contract (ADR 0012) requires of a relationship claim. A chunk outside the passages the answer was written from is read with the chunk context endpoint and labelled as such. A marker the walk does not have stays plain text |
 | Source viewer | File, page, score (or "not measured" for graph traversal), the passage with your question's words highlighted and the quoted sentence underlined, and a download of the original |
 | After the answer | Latency, LLM, retrieval and embedding calls, tokens, and a link to the trace |
 
@@ -28,7 +30,7 @@ ordinary `/api/ask` with the strategy named, so each is recorded as its own run.
 
 | Column field | Source | Notes |
 |---|---|---|
-| Answer and sources | The stream | Same rendering as Ask |
+| Answer and sources | The stream | Same rendering as Ask, including the graph path and edge chips in the graph column |
 | Latency, calls, tokens | The `done` event | Measured by the server |
 | Cost (estimate) | `GET /api/runs/{id}` | `n/a` until the server prices the run's model (Phase 8 writes the estimate) |
 | Benchmark score (latest batch) | `GET /api/eval/runs` | Mean correctness of that strategy in the latest evaluation batch. **Not a score for this question**: an ad hoc question has no expected answer. Admins only, because the evaluation API is admin only |
