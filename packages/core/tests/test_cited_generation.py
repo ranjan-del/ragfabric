@@ -169,3 +169,27 @@ def test_a_scripted_provider_with_responses_still_takes_the_llm_path():
         "how much leave", chunks("Employees receive 24 days of annual leave."), llm
     )
     assert out.generator == "llm" and llm.calls == 1
+
+
+def test_the_question_comes_after_the_passages_so_a_small_model_still_sees_it():
+    """q-002 regression: with the question first, llama3.1:8b refused with the answer in [1].
+
+    Reproduced with the same five passages in both orders: question first refused,
+    question last answered. The passages must come first and the prompt must end
+    with the question.
+    """
+    from ragfabric_core.generate.cited import build_prompt
+
+    question = "What is the hotel limit per night for business travel?"
+    prompt = build_prompt(
+        question, chunks("The hotel limit is 180 US dollars per night.", "Other.")
+    )
+    assert prompt.endswith(f"Question: {question}")
+    assert (
+        prompt.index("[1] The hotel limit") < prompt.index("[2] Other.") < prompt.index("Question:")
+    )
+    assert prompt.count(question) == 1
+
+    llm = ScriptedLLM("The hotel limit is 180 US dollars per night [1].")
+    generate_cited_answer(question, chunks("The hotel limit is 180 US dollars per night."), llm)
+    assert llm.prompts[0].rstrip().endswith(question)
