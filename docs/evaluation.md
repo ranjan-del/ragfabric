@@ -239,6 +239,104 @@ its cost (comparison, complex reasoning), where Graph is the only one that gets 
 how often the router would have chosen as well as the best fixed strategy. Twenty four questions means
 one question moves a category mean by a third: read the shape, not the decimals.
 
+## Scoring answers from outside RagFabric
+
+A model that RagFabric does not call, for example a hosted model run as a subagent inside a coding
+session with no API key, can still be benchmarked. RagFabric retrieves, the outside model answers the
+exact prompts a local model would get, and RagFabric scores the answers with the same metrics and the
+same judge. No code in RagFabric calls a hosted model API for this.
+
+```bash
+# 1. Retrieve only. No generation, no judge, no model call.
+ragfabric eval export-prompts --questions ./bench/mh-100/questions.json \
+  --collection mh-100 --strategy traditional --top-k 5 --out prompts.jsonl
+
+# 2. Give prompts.jsonl to the answering model, in batches (see benchmarks/external/ANSWER_INSTRUCTIONS.md),
+#    and save its output as answers.jsonl.
+
+# 3. Score the answers and store them.
+ragfabric eval import-answers --prompts prompts.jsonl --answers answers.jsonl \
+  --label "hosted model, alias A" --batch ext-2026-10 --judge lexical
+ragfabric eval report ext-2026-10
+```
+
+`--strategy` is `traditional` (default) or `vectorless`; `--top-k` defaults to `evaluation.top_k`.
+Without `--questions` the shipped 24 questions are used. `--judge` and `--judge-metric` work as in
+`eval run`; use the same judge as the local runs you compare with.
+
+### File formats
+
+`prompts.jsonl` starts with one header line, then one line per question:
+
+```json
+{"type": "header", "format": "ragfabric-external-prompts-v1", "corpus": "own corpus", "collection": "mh-100", "top_k": 5, "strategy": "traditional", "exported_at": "2026-10-22", "commit": "abc1234", "ragfabric_version": "0.5.0", "question_set": "mh-100", "questions_hash": "0123456789ab"}
+{"type": "question", "id": "q-001", "question": "...", "passages": [{"number": 1, "chunk_id": 41, "document": "leave-policy-2026.md", "text": "...", "score": 0.82}], "messages": [{"role": "system", "content": "..."}, {"role": "user", "content": "Passages:\n[1] ...\n\nQuestion: ..."}], "ground_truth": {"expected_answer": "...", "expected_sources": [{"document": "leave-policy-2026.md", "evidence": "10 days"}], "question_type": "simple_factual", "difficulty": "easy"}, "retrieval": {"strategy_used": "traditional", "retrieval_calls": 1, "embedding_calls": 1}}
+```
+
+`messages` is built by the same function the generator uses (`build_prompt` and the system prompt),
+so an outside model sees exactly what a local model sees. `passages` and `ground_truth` are what
+import needs to score hit rate, recall, precision and MRR without retrieving again. The file holds the
+question set's expected answers, so give an answering model the `messages` only, never the whole line.
+
+`answers.jsonl` has one line per question:
+
+```json
+{"id": "q-001", "answer": "Casual leave is 10 days [1].", "model": "alias A as reported", "input_tokens": 812, "output_tokens": 41}
+```
+
+`id` and `answer` are required. `model`, `input_tokens` and `output_tokens` are optional; when they
+are absent they are stored as null, never zero, and the summary adds up only the values reported.
+Blank lines are ignored; every other line must be a record.
+
+### What import checks
+
+Import runs `run_batch`, the code a normal run uses: retrieval metrics from the exported passages,
+citation correctness (which `[n]` markers resolve to the exported passages and whether long or numeric
+quoted spans appear in a cited passage), refusal detection by the same function that counts
+refusals, and the configured judge for correctness, faithfulness and context relevance. The run is
+stored in `evaluation_runs` and `evaluation_results` under `--batch` as the target
+`external:<slug of the label>`. Re-importing the same label into the same batch is refused.
+
+Each problem below is counted and named, stored on the run (`summary.meta.import_errors`), printed
+by the command, shown in the report, and makes the command exit 1. A question with a problem gets an
+error row with null scores; nothing is skipped silently and nothing is scored as zero.
+
+| Error | Meaning |
+|---|---|
+| `unreadable_line` | The line is not a JSON object |
+| `invalid_record` | `id` or `answer` missing, empty or the wrong type, or a token count that is not a non-negative integer |
+| `unknown_id` | The id is not in the prompts file |
+| `duplicate_id` | The id was answered more than once; none of its answers is used |
+| `missing_answer` | A question in the prompts file has no usable answer |
+
+A prompts file that cannot be read (no header, a bad line, a repeated question id) stops the import
+before anything is stored.
+
+### Provenance
+
+Every stored external run carries, in its metadata: `answered_by` (the label), `answer_source`
+(`external answers file`), `prompt_file_sha256`, `export_date` and the export commit, plus any
+`reported_models`. `eval report` prints an "Answers from outside RagFabric" table with these fields
+above the numbers and marks the target `(external answers)`; `eval show` prints them; and the batch
+tables on the benchmark pages (`benchmarks/summarise.py`) add the same table to any batch that holds
+an external run, whatever columns the page asked for. An external run therefore cannot be read as a
+RagFabric API run. Quote it with its label and date, for example "answers written by hosted model,
+alias A, on 22 October 2026, scored by RagFabric", never as "tested on <model> via the API".
+
+### Limits
+
+- An answer written by a coding-session subagent is not a controlled run. The answerer has tools and
+  may read source files or search, whatever it was told.
+- The answerer is a coding agent, not a plain model call: its system prompt, hidden instructions and
+  sampling settings are not those of a direct API request.
+- The model version is whatever the alias resolved to on the day. It is recorded only as the label
+  and any model name the answerer reported, and it can change between batches.
+- Sample sizes are small. Ten to twenty questions per call and a few dozen per run mean one question
+  moves a mean by several points; read the shape, not the decimals.
+- The same judge scores local and external answers, so judge bias applies to both, and the lexical
+  judge measures word overlap only.
+- The instruction text and the batch size are part of the experiment. Keep the raw outputs.
+
 ## Configuration
 
 ```yaml

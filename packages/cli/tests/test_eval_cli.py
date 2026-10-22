@@ -267,3 +267,91 @@ def test_the_recorded_commit_can_be_given_for_a_source_export(monkeypatch):
 
     monkeypatch.setenv("RAGFABRIC_EVAL_COMMIT", "abc1234")
     assert eval_cmd._commit() == "abc1234"
+
+
+def _answers(path, ids_to_text):
+    path.write_text("\n".join(json.dumps({"id": k, "answer": v}) for k, v in ids_to_text.items()))
+    return path
+
+
+def test_export_prompts_then_import_answers_end_to_end(env):
+    assert runner.invoke(app, ["eval", "corpus"]).exit_code == 0
+    prompts = env / "prompts.jsonl"
+    exported = runner.invoke(app, ["eval", "export-prompts", "--out", str(prompts), "--top-k", "3"])
+    assert exported.exit_code == 0, exported.output
+    assert "exported 24 questions (traditional, top_k 3" in exported.output
+    header, *records = [json.loads(x) for x in prompts.read_text().splitlines()]
+    assert header["top_k"] == 3 and header["strategy"] == "traditional"
+    assert len(records) == 24 and all(len(r["passages"]) <= 3 for r in records)
+    assert all(r["messages"][0]["role"] == "system" for r in records)
+
+    first = records[0]
+    answers = _answers(
+        env / "answers.jsonl", {first["id"]: f"{first['passages'][0]['text'][:60]} [1]"}
+    )
+    report = env / "report.md"
+    result = runner.invoke(
+        app,
+        [
+            "eval", "import-answers", "--prompts", str(prompts), "--answers", str(answers),
+            "--label", "hosted model, alias A", "--batch", "ext", "--judge", "lexical",
+            "--report", str(report),
+        ],
+    )  # fmt: skip
+    # 23 questions have no answer: counted, stored as errors, and the exit code says so.
+    assert result.exit_code == 1, result.output
+    assert "missing_answer 23" in result.output
+    assert "answered by: hosted model, alias A" in result.output
+    text = report.read_text()
+    assert "## Answers from outside RagFabric" in text and "external:hosted-model-alias-a" in text
+
+    runs = json.loads(runner.invoke(app, ["eval", "list", "--json"]).output)
+    (stored,) = runs
+    assert stored["target"] == "external:hosted-model-alias-a"
+    assert stored["summary"]["meta"]["answer_source"] == "external answers file"
+    shown = runner.invoke(app, ["eval", "show", str(stored["id"])])
+    assert "answered by: hosted model, alias A (external answers file" in shown.output
+
+    again = runner.invoke(
+        app,
+        ["eval", "import-answers", "--prompts", str(prompts), "--answers", str(answers),
+         "--label", "hosted model, alias A", "--batch", "ext"],
+    )  # fmt: skip
+    assert again.exit_code == 1 and "already has a run" in again.output
+
+
+def test_import_answers_with_every_answer_exits_zero_and_json(env):
+    assert runner.invoke(app, ["eval", "corpus"]).exit_code == 0
+    prompts = env / "prompts.jsonl"
+    assert (
+        runner.invoke(
+            app,
+            ["eval", "export-prompts", "--out", str(prompts), "--strategy", "vectorless"],
+        ).exit_code
+        == 0
+    )
+    records = [json.loads(x) for x in prompts.read_text().splitlines()][1:]
+    answers = _answers(
+        env / "a.jsonl", {r["id"]: f"{r['passages'][0]['text'][:50]} [1]" for r in records}
+    )
+    result = runner.invoke(
+        app,
+        ["eval", "import-answers", "--prompts", str(prompts), "--answers", str(answers),
+         "--label", "x", "--batch", "b", "--judge", "lexical", "--json"],
+    )  # fmt: skip
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["target"] == "external:x" and not any(data["error_counts"].values())
+
+
+def test_export_and_import_fail_clearly(env):
+    missing = runner.invoke(app, ["eval", "export-prompts", "--out", str(env / "p.jsonl")])
+    assert missing.exit_code == 1 and "ragfabric eval corpus" in missing.output
+    bad = runner.invoke(app, ["eval", "export-prompts", "--out", "x", "--strategy", "graph"])
+    assert bad.exit_code == 1 and "traditional or vectorless" in bad.output
+    nofile = runner.invoke(
+        app,
+        ["eval", "import-answers", "--prompts", str(env / "none.jsonl"), "--answers",
+         str(env / "a.jsonl"), "--label", "x", "--batch", "b", "--judge", "lexical"],
+    )  # fmt: skip
+    assert nofile.exit_code == 1 and "prompts file not found" in nofile.output
