@@ -95,6 +95,7 @@ once in the recursive term.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Collection, Iterable, Sequence
 
 from sqlalchemy import Integer, and_, case, cast, func, literal_column, or_, select
@@ -229,6 +230,62 @@ def source_chunk_access_stats(
     return int(before), int(after)
 
 
+# Words a mention is made of that never identify anything alone: a question's
+# function words, and the nouns for kinds of thing ("team", "policy") and for
+# amounts ("limit", "days"). A fuzzy match needs at least one word outside both.
+_FILLER = frozenset(
+    "the a an our their this that these those its his her my your of to for per in on at by is "
+    "are was were be does do did who whom whose what which how why when where it and or with "
+    "from as".split()
+)
+_GENERIC = frozenset(
+    "person people team teams project projects product products policy policies document "
+    "documents organisation organization company error errors code codes limit rule rules "
+    "manager managers lead employee employees user users customer customers price prices "
+    "leave day days year years allowance budget cost".split()
+)
+_ACRONYM = re.compile(r"[A-Z]{2,6}")
+_SKIPPED_IN_INITIALS = frozenset({"of", "the", "and", "for", "a", "an"})
+_MIN_FUZZY_CHARS = 3
+
+
+def _identifying(tokens: Sequence[str]) -> bool:
+    """Whether ``tokens`` hold a word that can single an entity out."""
+    return len(" ".join(tokens)) >= _MIN_FUZZY_CHARS and any(
+        token not in _FILLER and token not in _GENERIC for token in tokens
+    )
+
+
+def _within(haystack: Sequence[str], needle: Sequence[str]) -> bool:
+    """Whether ``needle`` is a run of consecutive words of ``haystack``."""
+    size = len(needle)
+    return size > 0 and any(
+        list(haystack[start : start + size]) == list(needle)
+        for start in range(len(haystack) - size + 1)
+    )
+
+
+def _without_leading_determiners(tokens: Sequence[str]) -> list[str]:
+    start = 0
+    while start < len(tokens) and tokens[start] in _FILLER:
+        start += 1
+    return list(tokens[start:])
+
+
+def _written_acronym(name: str) -> str | None:
+    """``"CTO"`` from ``"the CTO"``: one capitalised word of two to six letters, else ``None``."""
+    words = name.split()
+    while words and words[0].casefold() in _FILLER:
+        words.pop(0)
+    if len(words) == 1 and _ACRONYM.fullmatch(words[0].strip(".,;:!?\"'()")):
+        return words[0].strip(".,;:!?\"'()").casefold()
+    return None
+
+
+def _initials(tokens: Sequence[str]) -> str:
+    return "".join(t[0] for t in tokens if t not in _SKIPPED_IN_INITIALS and t[:1].isalnum())
+
+
 def match_entities(
     db: Session,
     mentions: Sequence[EntityMention],
@@ -247,15 +304,28 @@ def match_entities(
     ``collection_ids`` (ruling R25), the same one the walk uses, so an entity
     whose every source chunk is denied never matches.
 
+    A question is written by a person and its mentions by a small model, so the
+    exact rule alone refused plainly answerable questions ("no entity matched"
+    on 10 of the 24 shipped questions). Each mention that matched nothing
+    exactly is therefore tried again, one step at a time, stopping at the first
+    step that finds something, so an exact match is never diluted by a looser
+    one: (1) the same name under any type, because the model often types a
+    mention wrongly; (2) with leading articles dropped ("the Platform Team");
+    (3) by words: an admitted spelling that sits inside the mention ("error
+    BW-7731" holds "BW-7731") or the mention inside the spelling ("Asha" in
+    "Asha Rao"), either needing a word that names something rather than a kind
+    of thing; (4) a written acronym ("CTO") against the initials of a
+    spelling ("chief technology officer"). All four read only admitted
+    spellings, so none can confirm what a denied chunk says.
+
     The comparison runs in Python over the admitted rows the SQL returns,
     because ``normalise`` (NFKC, casefold, Unicode punctuation) has no
-    portable SQL equivalent. When every mention carries a type the SQL is
-    narrowed to those types first. The cost is one pass over the distinct
-    admitted spellings, the same deferral R14 made for aliases, until Phase 8
+    portable SQL equivalent. The cost is one pass over the distinct admitted
+    spellings per mention, the same deferral R14 made for aliases, until Phase 8
     measures it.
     """
-    wanted = [(normalise(m.name), m.entity_type) for m in mentions]
-    wanted = [(name, entity_type) for name, entity_type in wanted if name]
+    wanted = [(normalise(m.name), m.entity_type, m.name) for m in mentions]
+    wanted = [(name, entity_type, raw) for name, entity_type, raw in wanted if name]
     if not wanted:
         return []
 
@@ -268,18 +338,47 @@ def match_entities(
     clause = access_clause(access, Chunk.document_id, Chunk.collection_id, collection_ids)
     if clause is not None:
         query = query.where(clause)
-    if all(entity_type is not None for _, entity_type in wanted):
-        query = query.where(
-            Entity.entity_type.in_(sorted({entity_type.value for _, entity_type in wanted}))
-        )
+
+    rows = [
+        (entity_id, entity_type, normalise(surface_name))
+        for entity_id, entity_type, surface_name in db.execute(query)
+    ]
+    spoken = [
+        (entity_id, entity_type, spelling, spelling.split())
+        for entity_id, entity_type, spelling in rows
+    ]
 
     matched: set[int] = set()
-    for entity_id, entity_type, surface_name in db.execute(query):
-        spelling = normalise(surface_name)
-        for name, want_type in wanted:
-            if spelling == name and (want_type is None or want_type.value == entity_type):
-                matched.add(entity_id)
-                break
+    for name, want_type, raw in wanted:
+        found = {
+            entity_id
+            for entity_id, entity_type, spelling, _ in spoken
+            if spelling == name and (want_type is None or want_type.value == entity_type)
+        }
+        if not found:
+            found = {entity_id for entity_id, _, spelling, _ in spoken if spelling == name}
+        if not found:
+            core = _without_leading_determiners(name.split())
+            found = (
+                {entity_id for entity_id, _, spelling, _ in spoken if spelling == " ".join(core)}
+                if _identifying(core)
+                else set()
+            )
+            if not found and _identifying(core):
+                found = {
+                    entity_id
+                    for entity_id, _, _, tokens in spoken
+                    if (_identifying(tokens) and _within(core, tokens)) or _within(tokens, core)
+                }
+        if not found:
+            acronym = _written_acronym(raw)
+            if acronym is not None:
+                found = {
+                    entity_id
+                    for entity_id, _, _, tokens in spoken
+                    if len(tokens) >= 2 and _initials(tokens) == acronym
+                }
+        matched |= found
     return sorted(matched)
 
 

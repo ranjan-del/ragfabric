@@ -334,6 +334,25 @@ class GraphRAGStrategy:
             # from, so that call is not counted as a round trip past matching.
             if matched_ids:
                 retrieval_calls += 1
+            hint_dropped = False
+            if matched_ids and parsed.implied_relation_types and not subgraph.edges:
+                # The implied relation types are the model's guess about the question
+                # and they narrow the walk. A multi-hop question guesses the type of
+                # its last hop ("reports to") while the first hop is another type
+                # ("is the technical lead of"), so the narrowed walk found nothing.
+                # Only when it found no edge at all is it repeated without the hint.
+                subgraph = traverse(
+                    db,
+                    matched_ids,
+                    ctx.access_filter,
+                    max_hops=self._max_hops,
+                    node_budget=self._node_budget,
+                    relation_types=None,
+                    collection_ids=ctx.collection_ids,
+                )
+                retrieval_calls += 1
+                hint_dropped = True
+            attributes = {"relation_hint_dropped": True} if hint_dropped else {}
             span(
                 "traverse",
                 mark,
@@ -341,6 +360,7 @@ class GraphRAGStrategy:
                 edges=len(subgraph.edges),
                 truncated=subgraph.truncated,
                 empty_reason=subgraph.empty_reason.value if subgraph.empty_reason else None,
+                **attributes,
             )
 
             entity_chunks: dict[int, list[int]] = {}

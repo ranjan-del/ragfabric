@@ -51,10 +51,56 @@ def test_one_unlisted_endpoint_no_longer_loses_the_people(db):  # noqa: F811
     assert report.contract_violation is False
     names = {e.normalized_name for e in db.execute(select(Entity)).scalars()}
     assert {"ravi sharma", "asha rao", "platform team"} <= names
-    assert report.relationships_stored == 1
-    assert report.relationships_discarded == 3
-    (edge,) = db.execute(select(Relationship)).scalars().all()
-    assert edge.relation_type == "REPORTS_TO"
+    # Both reporting lines are kept; the self edge and the invented LEADS are not.
+    assert report.relationships_stored == 2
+    assert report.relationships_discarded == 2
+    assert {e.relation_type for e in db.execute(select(Relationship)).scalars()} == {"REPORTS_TO"}
+
+
+def test_an_unlisted_reports_to_endpoint_is_adopted_as_a_person(db):  # noqa: F811
+    """D3: the model names "the chief technology officer" as the target of an edge but
+    does not list it under entities. The officer used to vanish with the edge; the edge
+    only makes sense with a person at the end of it, so the endpoint is adopted."""
+    chunk = _make_chunk(db, text=TEAM)
+    report = extract_chunk(db, chunk, _provider(REPLY), floor=FLOOR, model="m")
+    officer = db.execute(
+        select(Entity).where(Entity.normalized_name == "chief technology officer")
+    ).scalar_one()
+    assert officer.entity_type == "person"
+    assert report.entities_adopted == 1
+    assert report.entities_stored == 4  # three listed plus the adopted officer
+    ravi = db.execute(select(Entity).where(Entity.normalized_name == "ravi sharma")).scalar_one()
+    edge = db.execute(
+        select(Relationship).where(Relationship.source_entity_id == ravi.id)
+    ).scalar_one()
+    assert edge.target_entity_id == officer.id
+
+
+def test_an_unlisted_endpoint_of_a_relation_with_no_clear_type_is_still_discarded(db):  # noqa: F811
+    """OWNS and MENTIONS could end at anything, so inventing a type would store junk."""
+    reply = {
+        "entities": [_person("Ravi Sharma")],
+        "relationships": [_rel("Ravi Sharma", "the team roadmap and hiring", "OWNS")],
+    }
+    reply["relationships"].append(_rel("Ravi Sharma", "BW-7731", "AUTHORED"))
+    chunk = _make_chunk(db, text=TEAM)
+    report = extract_chunk(db, chunk, _provider(reply), floor=FLOOR, model="m")
+    assert (report.entities_adopted, report.relationships_stored) == (0, 0)
+    assert report.relationships_discarded == 2
+    assert db.execute(select(Entity)).scalars().all()[0].normalized_name == "ravi sharma"
+    assert len(db.execute(select(Entity)).scalars().all()) == 1
+
+
+def test_an_adopted_endpoint_that_looks_like_a_sentence_is_discarded(db):  # noqa: F811
+    reply = {
+        "entities": [_person("Ravi Sharma")],
+        "relationships": [
+            _rel("Ravi Sharma", "the person who handles all of the escalations in 2026")
+        ],
+    }
+    chunk = _make_chunk(db, text=TEAM)
+    report = extract_chunk(db, chunk, _provider(reply), floor=FLOOR, model="m")
+    assert (report.entities_adopted, report.relationships_stored) == (0, 0)
 
 
 def test_salvage_keeps_valid_entities_and_drops_invalid_ones():
@@ -66,9 +112,9 @@ def test_salvage_keeps_valid_entities_and_drops_invalid_ones():
         ],
         "relationships": [],
     }
-    parsed, dropped_entities, dropped_relationships = salvage_extraction(json.dumps(reply))
+    parsed, dropped_entities, dropped_relationships, adopted = salvage_extraction(json.dumps(reply))
     assert [e.name for e in parsed.entities] == ["Ravi Sharma"]
-    assert (dropped_entities, dropped_relationships) == (2, 0)
+    assert (dropped_entities, dropped_relationships, adopted) == (2, 0, 0)
 
 
 def test_a_name_under_two_types_keeps_both_entities_but_no_edge_through_it():
@@ -76,7 +122,7 @@ def test_a_name_under_two_types_keeps_both_entities_but_no_edge_through_it():
         "entities": [_person("Mercury"), _person("Mercury", "product"), _person("Asha Rao")],
         "relationships": [_rel("Asha Rao", "Mercury", "WORKS_ON")],
     }
-    parsed, _, dropped_relationships = salvage_extraction(json.dumps(reply))
+    parsed, _, dropped_relationships, _ = salvage_extraction(json.dumps(reply))
     assert len(parsed.entities) == 3 and parsed.relationships == []
     assert dropped_relationships == 1
 

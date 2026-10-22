@@ -142,3 +142,15 @@ def test_the_system_prompt_lets_a_model_choose_between_conflicting_versions():
     assert "different documents, years or versions" in SYSTEM_PROMPT
     assert "Only if no passage answers" in SYSTEM_PROMPT
     assert SYSTEM_PROMPT.endswith(NO_EVIDENCE_ANSWER)
+
+
+def test_the_graph_system_prompt_carries_the_same_refusal_rule():
+    """The graph prompt kept the old unconditional refusal when the traditional one was
+    fixed, so graph still refused questions whose retrieved passages answer them. It now
+    says the same thing the other prompt says."""
+    from ragfabric_core.generate.cited import GRAPH_SYSTEM_PROMPT, NO_EVIDENCE_ANSWER
+
+    assert "different documents, years or versions" in GRAPH_SYSTEM_PROMPT
+    assert "Answer whenever any passage contains the information asked for" in GRAPH_SYSTEM_PROMPT
+    assert "Only if no passage answers" in GRAPH_SYSTEM_PROMPT
+    assert GRAPH_SYSTEM_PROMPT.endswith(NO_EVIDENCE_ANSWER)

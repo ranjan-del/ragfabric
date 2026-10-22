@@ -605,9 +605,13 @@ def test_a_mention_matches_by_normalised_surface_name_and_type(graph):
         graph.db, [EntityMention(name="platform team", entity_type=EntityType.TEAM)], ALL
     ) == [team]
     assert match_entities(graph.db, [EntityMention(name="plat team")], ALL) == [team]
+    # A wrongly typed mention still finds a name that matches exactly (D3).
+    assert match_entities(
+        graph.db, [EntityMention(name="plat team", entity_type=EntityType.PERSON)], ALL
+    ) == [team]
     assert (
         match_entities(
-            graph.db, [EntityMention(name="plat team", entity_type=EntityType.PERSON)], ALL
+            graph.db, [EntityMention(name="plat crew", entity_type=EntityType.PERSON)], ALL
         )
         == []
     )
@@ -617,8 +621,8 @@ def test_a_mention_matches_by_normalised_surface_name_and_type(graph):
 def test_an_alias_no_source_spells_is_not_matched(graph):
     """R40: aliases are resolution's record of merged spellings, possibly from denied
     chunks, so a question never matches one; only a source's own spelling counts."""
-    graph.entity("platform team", EntityType.TEAM, aliases=["PT"])
-    assert match_entities(graph.db, [EntityMention(name="PT")], ALL) == []
+    graph.entity("platform team", EntityType.TEAM, aliases=["Tooling Crew"])
+    assert match_entities(graph.db, [EntityMention(name="Tooling Crew")], ALL) == []
     assert match_entities(graph.db, [EntityMention(name="platform team")], ALL) == [
         graph.ids["platform team"]
     ]
@@ -629,18 +633,18 @@ def test_a_spelling_only_a_denied_chunk_uses_does_not_match(graph):
         "platform team",
         EntityType.TEAM,
         chunks=(graph.open_chunk, graph.secret_chunk),
-        spellings={graph.secret_chunk: "PT"},
+        spellings={graph.secret_chunk: "Tooling Crew"},
     )
     entity = graph.ids["platform team"]
-    assert match_entities(graph.db, [EntityMention(name="PT")], ALL) == [entity]
-    assert match_entities(graph.db, [EntityMention(name="PT")], graph.restricted) == []
+    assert match_entities(graph.db, [EntityMention(name="Tooling Crew")], ALL) == [entity]
+    assert match_entities(graph.db, [EntityMention(name="Tooling Crew")], graph.restricted) == []
     assert match_entities(graph.db, [EntityMention(name="platform team")], graph.restricted) == [
         entity
     ]
 
 
 def test_a_malformed_aliases_value_does_not_break_matching(graph):
-    graph.entity("platform team", EntityType.TEAM, aliases=["PT"])
+    graph.entity("platform team", EntityType.TEAM, aliases=["Tooling Crew"])
     graph.entity("broken object", EntityType.TEAM, aliases={"not": "a list"})
     graph.entity("broken scalar", EntityType.TEAM, aliases="PT")
     graph.entity("mixed", EntityType.TEAM, aliases=[7, None, "Mixed Up"])
@@ -650,6 +654,85 @@ def test_a_malformed_aliases_value_does_not_break_matching(graph):
         graph.ids["platform team"]
     ]
     assert match_entities(graph.db, [EntityMention(name="mixed")], ALL) == [graph.ids["mixed"]]
+
+
+# D3: a question names things the way a person writes them, not the way a chunk spells them.
+
+
+def _names(graph, mentions, access=ALL):
+    ids = match_entities(graph.db, mentions, access)
+    names = {value: key for key, value in graph.ids.items()}
+    return sorted(names[i] for i in ids)
+
+
+def test_a_leading_article_is_not_part_of_the_name(graph):
+    graph.entity("Platform Team", EntityType.TEAM)
+    assert _names(graph, [EntityMention(name="the Platform Team")]) == ["Platform Team"]
+
+
+def test_the_type_a_question_guesses_does_not_hide_an_exact_name(graph):
+    """The model often types a mention wrongly ("2025 leave policy" as a policy). A name
+    that matches exactly under another type is still the entity; a name that matches
+    under the stated type is not widened to other types."""
+    graph.entity("2025 leave policy", EntityType.DOCUMENT)
+    assert _names(
+        graph, [EntityMention(name="2025 leave policy", entity_type=EntityType.POLICY)]
+    ) == ["2025 leave policy"]
+    project = graph.entity("Atlas", EntityType.PROJECT)
+    graph.entity("Atlas", EntityType.PRODUCT)
+    assert match_entities(
+        graph.db, [EntityMention(name="atlas", entity_type=EntityType.PROJECT)], ALL
+    ) == [project]
+
+
+def test_an_entity_named_inside_the_mention_matches(graph):
+    graph.entity("BW-7731", EntityType.PRODUCT)
+    graph.entity("casual leave", EntityType.POLICY)
+    assert _names(graph, [EntityMention(name="error BW-7731")]) == ["BW-7731"]
+    assert _names(graph, [EntityMention(name="casual leave allowance")]) == ["casual leave"]
+
+
+def test_a_partial_name_matches_the_full_name(graph):
+    graph.entity("Asha Rao")
+    graph.entity("Ravi Sharma")
+    graph.entity("Anjali Sharma")
+    assert _names(graph, [EntityMention(name="Asha")]) == ["Asha Rao"]
+    assert _names(graph, [EntityMention(name="Sharma")]) == ["Anjali Sharma", "Ravi Sharma"]
+
+
+def test_words_that_name_no_one_never_match_by_containment(graph):
+    graph.entity("Data Platform team", EntityType.TEAM)
+    graph.entity("price", EntityType.PRODUCT)
+    mentions = [
+        EntityMention(name=word) for word in ("team", "the team", "it", "to", "who", "limit")
+    ]
+    assert _names(graph, mentions) == []
+
+
+def test_an_exact_name_is_not_widened_by_containment(graph):
+    graph.entity("Ada")
+    graph.entity("Ada Lovelace")
+    assert _names(graph, [EntityMention(name="ada")]) == ["Ada"]
+
+
+def test_an_acronym_matches_the_title_it_abbreviates(graph):
+    graph.entity("chief technology officer")
+    graph.entity("Platform Team", EntityType.TEAM)
+    assert _names(graph, [EntityMention(name="CTO")]) == ["chief technology officer"]
+    assert _names(graph, [EntityMention(name="the CTO")]) == ["chief technology officer"]
+    assert _names(graph, [EntityMention(name="cto")]) == []  # only a written acronym counts
+    assert _names(graph, [EntityMention(name="PT")]) == ["Platform Team"]
+
+
+def test_a_partial_or_acronym_match_never_uses_a_denied_spelling(graph):
+    graph.entity(
+        "Asha Rao",
+        chunks=(graph.secret_chunk,),
+    )
+    graph.entity("chief technology officer", chunks=(graph.secret_chunk,))
+    for name in ("Asha", "CTO", "error Asha Rao"):
+        assert _names(graph, [EntityMention(name=name)], graph.restricted) == []
+        assert _names(graph, [EntityMention(name=name)])  # visible without the restriction
 
 
 def test_a_node_is_named_by_its_best_admitted_source(graph):
@@ -858,3 +941,9 @@ def test_source_chunk_access_stats_counts_each_sourcing_chunk_once(graph):
         1,
         0,
     )
+
+
+def test_dropping_an_article_does_not_turn_a_kind_of_thing_into_a_name(graph):
+    graph.entity("manager")
+    assert _names(graph, [EntityMention(name="the manager")]) == []
+    assert _names(graph, [EntityMention(name="manager")]) == ["manager"]

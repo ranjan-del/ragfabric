@@ -167,6 +167,11 @@ class ExtractionReport:
     whose response violated the contract (their savepoint rolled back, so
     they changed nothing). Only these chunks can have introduced or moved an
     entity, which is what lets the ingest handler resolve just them (R36).
+
+    ``entities_adopted`` counts entities the model named only as the end of a
+    relationship and never listed; they are stored, and counted in
+    ``entities_stored``, when the relation fixes their type (see
+    ``contracts.salvage_extraction``).
     """
 
     entities_stored: int = 0
@@ -176,6 +181,7 @@ class ExtractionReport:
     contract_violation: bool = False
     chunks_skipped: int = 0
     extracted_chunk_ids: tuple[int, ...] = ()
+    entities_adopted: int = 0
 
     def __add__(self, other: ExtractionReport) -> ExtractionReport:
         if not isinstance(other, ExtractionReport):
@@ -188,6 +194,7 @@ class ExtractionReport:
             contract_violation=self.contract_violation or other.contract_violation,
             chunks_skipped=self.chunks_skipped + other.chunks_skipped,
             extracted_chunk_ids=self.extracted_chunk_ids + other.extracted_chunk_ids,
+            entities_adopted=self.entities_adopted + other.entities_adopted,
         )
 
 
@@ -307,7 +314,7 @@ def _extract_and_store(
         return ExtractionReport(contract_violation=True)
     # Items that broke the contract on their own are dropped and counted with
     # the below-floor ones; the rest of the reply is kept (fix wave, Phase 11).
-    parsed, invalid_entities, invalid_relationships = salvaged
+    parsed, invalid_entities, invalid_relationships, adopted = salvaged
 
     kept_entities = [
         entity
@@ -349,6 +356,7 @@ def _extract_and_store(
         relationships_stored=relationships_stored,
         entities_discarded=entities_discarded,
         relationships_discarded=relationships_discarded,
+        entities_adopted=adopted,
     )
 
 

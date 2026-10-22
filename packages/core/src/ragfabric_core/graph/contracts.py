@@ -217,21 +217,48 @@ def parse_extraction(text: str) -> ExtractionResponse | ContractViolation:
     return parse_contract(text, "extraction", ExtractionResponse)
 
 
+# The entity type an unlisted relationship endpoint must have, by relation and role.
+# Only relations whose end can be nothing else are here: a model that writes "reports
+# to the chief technology officer" has named a person, so the person is adopted. OWNS,
+# MENTIONS, BELONGS_TO and RELATED_TO could end at anything, so an unlisted end of those
+# is still dropped rather than stored under a guessed type. AUTHORED is left out too:
+# llama3.1:8b used it for "a product authored an error code", so adopting its far end
+# would have stored a document for every code in a runbook.
+_ENDPOINT_TYPES: dict[tuple[RelationType, str], EntityType] = {
+    (RelationType.REPORTS_TO, "source"): EntityType.PERSON,
+    (RelationType.REPORTS_TO, "target"): EntityType.PERSON,
+    (RelationType.MEMBER_OF, "source"): EntityType.PERSON,
+    (RelationType.MEMBER_OF, "target"): EntityType.TEAM,
+    (RelationType.WORKS_ON, "source"): EntityType.PERSON,
+    (RelationType.WORKS_ON, "target"): EntityType.PROJECT,
+    (RelationType.LOCATED_IN, "target"): EntityType.LOCATION,
+}
+
+# A name longer than this is a phrase from the sentence, not a name.
+_MAX_ADOPTED_WORDS = 6
+
+
 def salvage_extraction(
     text: str,
-) -> tuple[ExtractionResponse, int, int] | ContractViolation:
-    """Keep every valid item of an extraction reply; return it with the dropped counts.
+) -> tuple[ExtractionResponse, int, int, int] | ContractViolation:
+    """Keep every valid item of an extraction reply; return it with the counts.
 
     ``parse_extraction`` is all or nothing: one relationship naming an entity
     the reply never listed rejects the whole reply, and with it every entity
     the model did report. Small models do that often (an edge to "the chief
     technology officer" next to two correctly listed people), so the writer
-    uses this instead. Each entity and relationship is validated on its own; a
-    relationship is also dropped when an endpoint is unlisted, listed under
-    two types, or the same as the other endpoint. Only a reply that is not a
-    JSON object, or has no ``entities`` list, is a violation.
+    uses this instead. Each entity and relationship is validated on its own.
 
-    Returns ``(response, entities_dropped, relationships_dropped)``.
+    An endpoint the reply never listed is **adopted** as an entity when the
+    relation fixes what it must be (``_ENDPOINT_TYPES``: the end of REPORTS_TO is
+    a person) and the name is short enough to be a name; the entity takes the
+    confidence of the relationship that named it. Without that, the officer
+    vanished with the edge and a question about the officer could never match.
+    A relationship is dropped when an endpoint is unlisted and cannot be
+    adopted, listed under two types, or the same as the other endpoint. Only a
+    reply that is not a JSON object, or has no ``entities`` list, is a violation.
+
+    Returns ``(response, entities_dropped, relationships_dropped, entities_adopted)``.
     """
     payload, error = load_json_object(text)
     if payload is None:
@@ -251,12 +278,34 @@ def salvage_extraction(
     types_by_name: dict[str, set[EntityType]] = {}
     for entity in entities:
         types_by_name.setdefault(normalise(entity.name), set()).add(entity.entity_type)
-    relationships: list[ExtractedRelationship] = []
+
+    valid: list[ExtractedRelationship] = []
     for item in raw_relationships:
         try:
-            rel = ExtractedRelationship.model_validate(item)
+            valid.append(ExtractedRelationship.model_validate(item))
         except ValidationError:
             continue
+
+    adoptions: dict[str, tuple[str, set[EntityType], float]] = {}
+    for rel in valid:
+        for role, endpoint in (("source", rel.source), ("target", rel.target)):
+            key = normalise(endpoint)
+            kind = _ENDPOINT_TYPES.get((rel.relation_type, role))
+            if key in types_by_name or kind is None or len(key.split()) > _MAX_ADOPTED_WORDS:
+                continue
+            spelling, kinds, confidence = adoptions.get(key, (endpoint.strip(), set(), 1.0))
+            adoptions[key] = (spelling, kinds | {kind}, min(confidence, rel.confidence))
+    adopted = 0
+    for key, (spelling, kinds, confidence) in adoptions.items():
+        if len(kinds) != 1:
+            continue  # two relations disagree about what it is; guessing would be worse
+        (kind,) = kinds
+        entities.append(ExtractedEntity(name=spelling, entity_type=kind, confidence=confidence))
+        types_by_name[key] = {kind}
+        adopted += 1
+
+    relationships: list[ExtractedRelationship] = []
+    for rel in valid:
         source, target = normalise(rel.source), normalise(rel.target)
         if source == target:
             continue
@@ -266,8 +315,9 @@ def salvage_extraction(
     response = ExtractionResponse.model_construct(entities=entities, relationships=relationships)
     return (
         response,
-        len(raw_entities) - len(entities),
+        len(raw_entities) - (len(entities) - adopted),
         len(raw_relationships) - len(relationships),
+        adopted,
     )
 
 
