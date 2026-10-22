@@ -23,7 +23,7 @@ from ragfabric_core.evaluation.target import ContextItem
 from ragfabric_core.generate.contract import NO_EVIDENCE
 from ragfabric_core.providers.base import LLMProvider, Message, ProviderError, is_offline
 
-PROMPT_VERSION = "judge-v1"
+PROMPT_VERSION = "judge-v2"
 LEXICAL_VERSION = "lexical-v1"
 
 _SYSTEM = (
@@ -37,10 +37,14 @@ RUBRICS = {
         "in the expected answer is stated correctly; 0 means none is, or the answer contradicts "
         "it. Ignore wording, citation markers like [1], and extra correct detail."
     ),
+    # Faithfulness is not scored by the model. A small model asked for one number gave 0 to
+    # answers its own reason text agreed with (judge-v1, 10 of 73 hand-labelled supported
+    # answers), so it is asked for a yes or no per claim and the share is computed in code.
     "faithfulness": (
-        "Score the share of claims in the ANSWER that the CONTEXT supports. 1 means every claim "
-        "is supported by the context; 0 means none is. Judge only against the context, not "
-        "against what you know."
+        "Split the ANSWER into its factual claims. Ignore citation markers like [1] and any "
+        "statement that something could not be found. For each claim say whether the CONTEXT "
+        "states it or directly implies it. Judge only against the context, not against what "
+        "you know."
     ),
     "context_relevance": (
         "Score the share of the numbered CONTEXT passages that contain information needed to "
@@ -53,6 +57,29 @@ _SCHEMA = {
     "properties": {"score": {"type": "number"}, "reason": {"type": "string"}},
     "required": ["score", "reason"],
     # Strict structured output (OpenAI) refuses a schema that allows extra keys.
+    "additionalProperties": False,
+}
+
+_CLAIMS_SYSTEM = (
+    "You are a strict evaluator of answers produced by a retrieval system. "
+    'Reply with one JSON object only: {"claims": [{"claim": "<the claim>", '
+    '"supported": true or false}]}.'
+)
+
+_CLAIMS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "claims": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"claim": {"type": "string"}, "supported": {"type": "boolean"}},
+                "required": ["claim", "supported"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["claims"],
     "additionalProperties": False,
 }
 
@@ -115,6 +142,31 @@ def _parse(text: str) -> tuple[float | None, str]:
     return float(score), reason
 
 
+def _parse_claims(text: str) -> tuple[float | None, str]:
+    """Share of claims marked supported, and the unsupported ones as the reason."""
+    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
+    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+    try:
+        data = json.loads(match.group(0) if match else cleaned)
+    except (json.JSONDecodeError, AttributeError):
+        return None, f"judge reply was not JSON: {text[:80]!r}"
+    claims = data.get("claims") if isinstance(data, dict) else None
+    if not isinstance(claims, list) or not claims:
+        return None, f"judge reply listed no claims: {text[:80]!r}"
+    verdicts = []
+    for item in claims:
+        supported = item.get("supported") if isinstance(item, dict) else None
+        if not isinstance(supported, bool):
+            return None, f"judge verdict was not true or false: {str(item)[:80]!r}"
+        verdicts.append((str(item.get("claim", "")), supported))
+    held = sum(1 for _, ok in verdicts if ok)
+    unsupported = [claim for claim, ok in verdicts if not ok]
+    reason = f"{held} of {len(verdicts)} claims supported" + (
+        f"; not supported: {'; '.join(unsupported)}" if unsupported else ""
+    )
+    return held / len(verdicts), reason
+
+
 class LLMJudge:
     kind: Literal["llm"] = "llm"
     prompt_version = PROMPT_VERSION
@@ -126,14 +178,20 @@ class LLMJudge:
         self.model = model
         self.metrics = _check_metrics(metrics)
 
-    def _ask(self, rubric: str, body: str, scores: JudgeScores, key: str) -> float | None:
+    def _ask(
+        self, rubric: str, body: str, scores: JudgeScores, key: str, *, claims: bool = False
+    ) -> float | None:
         messages = [
-            Message(role="system", content=_SYSTEM),
+            Message(role="system", content=_CLAIMS_SYSTEM if claims else _SYSTEM),
             Message(role="user", content=f"{rubric}\n\n{body}"),
         ]
         try:
             completion = self.llm.complete(
-                messages, model=self.model, max_tokens=200, temperature=0.0, json_schema=_SCHEMA
+                messages,
+                model=self.model,
+                max_tokens=1000 if claims else 200,
+                temperature=0.0,
+                json_schema=_CLAIMS_SCHEMA if claims else _SCHEMA,
             )
         except ProviderError as exc:
             scores.calls += 1
@@ -142,7 +200,7 @@ class LLMJudge:
         scores.calls += 1
         scores.input_tokens += completion.input_tokens
         scores.output_tokens += completion.output_tokens
-        value, reason = _parse(completion.text)
+        value, reason = (_parse_claims if claims else _parse)(completion.text)
         scores.reasons[key] = reason
         return value
 
@@ -165,6 +223,7 @@ class LLMJudge:
                     f"CONTEXT:\n{block}\n\nANSWER: {answer}",
                     scores,
                     "faithfulness",
+                    claims=True,
                 )
             if "context_relevance" in self.metrics:
                 scores.context_relevance = self._ask(

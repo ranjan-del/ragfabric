@@ -1,0 +1,1222 @@
+{
+ "description": "Hand-labelled faithfulness cases over the shipped synthetic corpus. faithful is true when every claim in the answer is stated by, or follows by correct arithmetic from, the passages. Answers were produced by the eval harness (traditional and vectorless targets with llama3.1:8b, traditional with llama3.2:3b and qwen2.5:1.5b) on 22 October 2026; judge_v1_score is what the v1 judge (llama3.1:8b) returned.",
+ "passages": {
+  "p01": {
+   "document": "leave-policy-2026.md",
+   "text": "# Brightwater Analytics Leave Policy 2026\n\nThis policy replaces the 2025 leave policy and applies from 1 January 2026.\n\n## Annual leave\n\nEvery full-time employee receives 20 days of annual leave per calendar year. From 2026, carry forward of unused annual leave is capped at 5 days; anything above 5 days lapses on 31 December.\n\n## Casual leave\n\nEmployees receive 10 days of casual leave per year. Casual leave cannot be carried forward and lapses on 31 December.\n\n## Sick leave\n\nEmployees receive 12 days of paid sick leave per year. A medical certificate is required for sick leave longer than 3 co"
+  },
+  "p02": {
+   "document": "leave-policy-2025.md",
+   "text": "# Brightwater Analytics Leave Policy 2025\n\nThis policy applies to all Brightwater Analytics employees from 1 January 2025 to 31 December 2025.\n\n## Annual leave\n\nEvery full-time employee receives 18 days of annual leave per calendar year. Unused annual leave may be carried forward into the next year with no upper limit.\n\n## Casual leave\n\nEmployees receive 8 days of casual leave per year. Casual leave cannot be carried forward and lapses on 31 December.\n\n## Sick leave\n\nEmployees receive 10 days of paid sick leave per year. A medical certificate is required for sick leave longer than 2 consecutiv"
+  },
+  "p03": {
+   "document": "leave-policy-2026.md",
+   "text": "eave per year. A medical certificate is required for sick leave longer than 3 consecutive days.\n\n## Parental leave\n\nNew in 2026: parents receive 16 weeks of paid parental leave, which can be taken within the first year after a birth or adoption.\n\n## Approval\n\nLeave requests are approved by the employee's direct manager. Requests longer than 5 working days also need approval from the People Operations team."
+  },
+  "p04": {
+   "document": "leave-policy-2025.md",
+   "text": "year. A medical certificate is required for sick leave longer than 2 consecutive days.\n\n## Approval\n\nLeave requests are approved by the employee's direct manager. Requests longer than 5 working days also need approval from the People Operations team."
+  },
+  "p05": {
+   "document": "travel-and-expenses.md",
+   "text": "# Travel and Expenses Policy\n\nThis policy applies to all business travel from 1 January 2026.\n\n## Limits\n\nThe daily meal limit is 60 US dollars when travelling within the country and 90 US dollars when travelling abroad.\nThe hotel limit is 180 US dollars per night.\n\n## Approval\n\nAny trip longer than 5 days needs approval from the employee's director in addition to their direct manager.\n\n## Claims\n\nExpense claims must be submitted within 30 days of the end of the trip. Claims submitted later are paid only with approval from the Chief Financial Officer."
+  },
+  "p06": {
+   "document": "project-atlas.md",
+   "text": "luster.\n\n## Risks\n\nThe main risk is double running cost while both warehouses are live, estimated at 18,000 US dollars per month."
+  },
+  "p07": {
+   "document": "project-beacon.md",
+   "text": "# Project Beacon\n\nProject Beacon builds the demand forecasting service sold to customers as the Forecast Pro product.\n\n## Ownership\n\nProject Beacon is owned by the Applied Machine Learning team. Kenji Watanabe is the project sponsor and Sofia Haddad is the technical lead.\n\n## Budget and schedule\n\nThe approved budget for Project Beacon is 260,000 US dollars. The first release is planned for November 2026.\n\n## Dependencies\n\nProject Beacon cannot launch until Project Atlas is complete, because the forecasting models train on the new columnar warehouse.\n\n## Risks\n\nModel accuracy on small retailers"
+  },
+  "p08": {
+   "document": "project-atlas.md",
+   "text": "# Project Atlas\n\nProject Atlas is the migration of Brightwater's customer reporting warehouse to a new columnar store.\n\n## Ownership\n\nProject Atlas is owned by the Data Platform team. Aisha Bello is the project sponsor and Lucas Moreau is the technical lead.\n\n## Budget and schedule\n\nThe approved budget for Project Atlas is 420,000 US dollars. The migration started in February 2026 and is due to finish in September 2026.\n\n## Dependencies\n\nProject Atlas depends on the IT Operations team provisioning the new storage cluster.\n\n## Risks\n\nThe main risk is double running cost while both warehouses ar"
+  },
+  "p09": {
+   "document": "product-catalogue.md",
+   "text": "# Product Catalogue 2026\n\nAll prices are per customer per month, in US dollars, before tax.\n\n| Code | Product | Price |\n|---|---|---|\n| BWA-100 | Insight Basic, standard dashboards for up to 5 users | 49 |\n| BWA-200 | Insight Team, dashboards and scheduled reports for up to 25 users | 199 |\n| BWA-300 | Insight Enterprise, unlimited users with single sign-on | 899 |\n| BWA-410 | Forecast Pro, demand forecasting add-on | 350 |\n\nForecast Pro (BWA-410) can only be bought together with Insight Team or Insight Enterprise.\n\nCustomers who pay annually in advance receive a 15 percent discount on the mon"
+  },
+  "p10": {
+   "document": "org-chart.md",
+   "text": "Lucas Moreau is a senior engineer in the Data Platform team and reports to Aisha Bello.\nSofia Haddad is a machine learning engineer in the Applied Machine Learning team and reports to Kenji Watanabe.\n\n## Operations\n\nGrace Mensah leads the IT Operations team and reports to Daniel Reyes.\nIvan Petrov is an IT support engineer in the IT Operations team and reports to Grace Mensah."
+  },
+  "p11": {
+   "document": "it-runbook.md",
+   "text": "# IT Operations Runbook\n\nThis runbook lists the error codes raised by Brightwater's internal platform and how to resolve them. Escalate anything not listed here to the IT Operations team lead.\n\n## Error codes\n\nBW-7731: The nightly warehouse export timed out. Rerun the export job with the --resume flag; if it fails twice, page the Data Platform on-call engineer.\n\nBW-7732: The export job could not authenticate to the storage cluster. Rotate the service credential in the secrets vault and rerun the job.\n\nBW-4410: A user's laptop failed disk encryption checks. Reimage the laptop within 2 working d"
+  },
+  "p12": {
+   "document": "org-chart.md",
+   "text": "# Brightwater Analytics Organisation Chart\n\nBrightwater Analytics is led by Chief Executive Officer Maya Okafor.\n\n## Leadership\n\nDaniel Reyes is the Chief Technology Officer and reports to Maya Okafor.\nPriya Nair is the Head of People Operations and reports to Maya Okafor.\nTomas Lindqvist is the Chief Financial Officer and reports to Maya Okafor.\n\n## Engineering\n\nAisha Bello leads the Data Platform team and reports to Daniel Reyes.\nKenji Watanabe leads the Applied Machine Learning team and reports to Daniel Reyes.\nLucas Moreau is a senior engineer in the Data Platform team and reports to Aisha"
+  },
+  "p13": {
+   "document": "it-runbook.md",
+   "text": "er's laptop failed disk encryption checks. Reimage the laptop within 2 working days; the user must not connect to the VPN until it is fixed.\n\nBW-5120: The VPN rejected a certificate that has expired. Issue a new device certificate from the IT portal; certificates are valid for 365 days.\n\n## On-call\n\nThe IT Operations on-call rotation changes every Monday at 09:00. Ivan Petrov maintains the rota."
+  },
+  "p14": {
+   "document": "product-catalogue.md",
+   "text": "Customers who pay annually in advance receive a 15 percent discount on the monthly price."
+  },
+  "p15": {
+   "document": "project-beacon.md",
+   "text": "rain on the new columnar warehouse.\n\n## Risks\n\nModel accuracy on small retailers is below target and needs more training data."
+  }
+ },
+ "cases": [
+  {
+   "id": "traditional/q-001",
+   "answered_by": "llama3.1:8b",
+   "question": "How many days of casual leave does an employee get in 2026?",
+   "answer": "[1] states that employees receive 10 days of casual leave per year in 2026.",
+   "passages": [
+    "p01",
+    "p02",
+    "p03",
+    "p04",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "C1 states 10 days of casual leave in the 2026 policy.",
+   "judge_v1_score": 0.0
+  },
+  {
+   "id": "traditional/q-002",
+   "answered_by": "llama3.1:8b",
+   "question": "What is the hotel limit per night for business travel?",
+   "answer": "[1] The hotel limit is 180 US dollars per night.",
+   "passages": [
+    "p05",
+    "p02",
+    "p01",
+    "p04",
+    "p06"
+   ],
+   "faithful": true,
+   "reason": "C5 states the 180 dollar hotel limit.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "traditional/q-003",
+   "answered_by": "llama3.1:8b",
+   "question": "What is the approved budget for Project Beacon?",
+   "answer": "[1] The approved budget for Project Beacon is 260,000 US dollars.",
+   "passages": [
+    "p07",
+    "p08",
+    "p09",
+    "p06",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "C7 states the 260,000 budget.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "traditional/q-004",
+   "answered_by": "llama3.1:8b",
+   "question": "Which team owns Project Atlas, and which team must provision its storage cluster?",
+   "answer": "Project Atlas is owned by the Data Platform team [1]. The IT Operations team must provision the new storage cluster for Project Atlas [1].",
+   "passages": [
+    "p08",
+    "p07",
+    "p10",
+    "p11",
+    "p12"
+   ],
+   "faithful": true,
+   "reason": "C8 states the owner team and the storage cluster dependency.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "traditional/q-005",
+   "answered_by": "llama3.1:8b",
+   "question": "Who maintains the IT on-call rota, and which team does that person belong to?",
+   "answer": "Ivan Petrov maintains the rota, and he belongs to the IT Operations team [2].",
+   "passages": [
+    "p10",
+    "p13",
+    "p11",
+    "p12",
+    "p02"
+   ],
+   "faithful": true,
+   "reason": "C13 names Ivan Petrov as rota maintainer, C10 puts him in IT Operations.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "traditional/q-006",
+   "answered_by": "llama3.1:8b",
+   "question": "What is the combined approved budget of Project Atlas and Project Beacon?",
+   "answer": "The approved budget for Project Atlas is 420,000 US dollars [2]. The approved budget for Project Beacon is 260,000 US dollars [1]. The combined approved budget is 680,000 US dollars.",
+   "passages": [
+    "p07",
+    "p08",
+    "p09",
+    "p06",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "Both budgets are in C8 and C7 and 420,000 + 260,000 = 680,000.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "traditional/q-007",
+   "answered_by": "llama3.1:8b",
+   "question": "Who does the technical lead of Project Atlas report to?",
+   "answer": "Aisha Bello is the project sponsor and Lucas Moreau is the technical lead of Project Atlas [1]. Lucas Moreau is a senior engineer in the Data Platform team and reports to Aisha Bello [2].",
+   "passages": [
+    "p08",
+    "p10",
+    "p07",
+    "p12",
+    "p11"
+   ],
+   "faithful": true,
+   "reason": "C8 names the lead and sponsor, C10 says the lead reports to Aisha Bello.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "traditional/q-008",
+   "answered_by": "llama3.1:8b",
+   "question": "Who is the manager of the person who leads the team that owns Project Beacon?",
+   "answer": "[3] states that Sofia Haddad is a machine learning engineer in the Applied Machine Learning team and reports to Kenji Watanabe. [4] states that Kenji Watanabe leads the Applied Machine Learning team and reports to Daniel Reyes. Therefore, Daniel Reyes is the manager of the person who leads the team that owns Project Beacon.",
+   "passages": [
+    "p07",
+    "p08",
+    "p10",
+    "p12",
+    "p11"
+   ],
+   "faithful": true,
+   "reason": "C10 and C12 give the reporting chain to Daniel Reyes.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "traditional/q-009",
+   "answered_by": "llama3.1:8b",
+   "question": "Which product is delayed if Project Atlas slips, and what is that product's code?",
+   "answer": "[2] states that Project Beacon cannot launch until Project Atlas is complete, because the forecasting models train on the new columnar warehouse. \n\nTherefore, if Project Atlas slips, Project Beacon will be delayed. Project Beacon's code is not mentioned in the passage, but its product is Forecast Pro, which has the code BWA-410.",
+   "passages": [
+    "p08",
+    "p07",
+    "p11",
+    "p09",
+    "p13"
+   ],
+   "faithful": true,
+   "reason": "C7 says Beacon waits for Atlas and is Forecast Pro, C9 gives BWA-410.",
+   "judge_v1_score": 0.5
+  },
+  {
+   "id": "traditional/q-010",
+   "answered_by": "llama3.1:8b",
+   "question": "How did the casual leave allowance change between the 2025 and 2026 leave policies?",
+   "answer": "According to [1], from 2026, employees receive 10 days of casual leave per year, whereas [2] states that in 2025, employees received 8 days of casual leave per year. This means that the casual leave allowance increased by 2 days between the two policies.",
+   "passages": [
+    "p01",
+    "p02",
+    "p03",
+    "p05",
+    "p04"
+   ],
+   "faithful": true,
+   "reason": "C1 says 10 and C2 says 8 days of casual leave, so a rise of 2 days.",
+   "judge_v1_score": 0.5
+  },
+  {
+   "id": "traditional/q-011",
+   "answered_by": "llama3.1:8b",
+   "question": "How did the rule for carrying forward unused annual leave change from 2025 to 2026?",
+   "answer": "In 2025, unused annual leave could be carried forward into the next year with no upper limit [2]. In 2026, carry forward of unused annual leave is capped at 5 days [1].",
+   "passages": [
+    "p01",
+    "p02",
+    "p03",
+    "p04",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "C2 has no upper limit, C1 caps at 5 days.",
+   "judge_v1_score": 0.5
+  },
+  {
+   "id": "traditional/q-012",
+   "answered_by": "llama3.1:8b",
+   "question": "Compare the medical certificate rule for sick leave in 2025 and 2026.",
+   "answer": "In 2025, a medical certificate is required for sick leave longer than 2 consecutive days [4]. In 2026, a medical certificate is required for sick leave longer than 3 consecutive days [2] and [3].",
+   "passages": [
+    "p04",
+    "p03",
+    "p01",
+    "p02",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "C4 says 2 days for 2025 and C3 says 3 days for 2026.",
+   "judge_v1_score": 0.5
+  },
+  {
+   "id": "traditional/q-013",
+   "answered_by": "llama3.1:8b",
+   "question": "Who does Aisha Bello report to?",
+   "answer": "Aisha Bello reports to Daniel Reyes [2].",
+   "passages": [
+    "p10",
+    "p12",
+    "p08",
+    "p02",
+    "p11"
+   ],
+   "faithful": true,
+   "reason": "C12 says Aisha Bello reports to Daniel Reyes.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "traditional/q-014",
+   "answered_by": "llama3.1:8b",
+   "question": "Which people report directly to Maya Okafor?",
+   "answer": "Daniel Reyes [1], Priya Nair [1], and Tomas Lindqvist [1] report directly to Maya Okafor.",
+   "passages": [
+    "p12",
+    "p10",
+    "p08",
+    "p02",
+    "p11"
+   ],
+   "faithful": true,
+   "reason": "C12 lists the three direct reports of Maya Okafor.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "traditional/q-015",
+   "answered_by": "llama3.1:8b",
+   "question": "Which team does Sofia Haddad work in, and who leads it?",
+   "answer": "Sofia Haddad works in the Applied Machine Learning team [1]. Kenji Watanabe leads the Applied Machine Learning team [2].",
+   "passages": [
+    "p10",
+    "p12",
+    "p08",
+    "p02",
+    "p07"
+   ],
+   "faithful": true,
+   "reason": "C10 gives the team, C12 says Kenji Watanabe leads it.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "traditional/q-016",
+   "answered_by": "llama3.1:8b",
+   "question": "What does error BW-7731 mean and how is it fixed?",
+   "answer": "[1] Error code BW-7731 means \"The nightly warehouse export timed out.\" It is fixed by \"Rerun the export job with the --resume flag; if it fails twice, page the Data Platform on-call engineer.\"",
+   "passages": [
+    "p11",
+    "p09",
+    "p13",
+    "p02",
+    "p01"
+   ],
+   "faithful": true,
+   "reason": "C11 gives the meaning and the fix verbatim.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "traditional/q-017",
+   "answered_by": "llama3.1:8b",
+   "question": "What is error BW-7732?",
+   "answer": "The export job could not authenticate to the storage cluster. Rotate the service credential in the secrets vault and rerun the job. [1]",
+   "passages": [
+    "p11",
+    "p09",
+    "p13",
+    "p02",
+    "p08"
+   ],
+   "faithful": true,
+   "reason": "C11 gives the meaning and the fix.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "traditional/q-018",
+   "answered_by": "llama3.1:8b",
+   "question": "What is product BWA-200 and what does it cost?",
+   "answer": "[1] Product BWA-200 is Insight Team, dashboards and scheduled reports for up to 25 users, and it costs 199 US dollars per customer per month, before tax.",
+   "passages": [
+    "p09",
+    "p08",
+    "p07",
+    "p05",
+    "p06"
+   ],
+   "faithful": true,
+   "reason": "C9 gives product, users and price 199.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "traditional/q-020",
+   "answered_by": "llama3.1:8b",
+   "question": "What needs extra approval?",
+   "answer": "Requests longer than 5 working days [1], [2], any trip longer than 5 days [3], and claims submitted later than 30 days [4].",
+   "passages": [
+    "p04",
+    "p03",
+    "p05",
+    "p13",
+    "p09"
+   ],
+   "faithful": true,
+   "reason": "C4, C3 and C5 hold the three approval rules.",
+   "judge_v1_score": 0.5
+  },
+  {
+   "id": "traditional/q-022",
+   "answered_by": "llama3.1:8b",
+   "question": "A customer buys Insight Team with Forecast Pro and pays annually in advance. What is the monthly price after the discount?",
+   "answer": "The monthly price of Insight Team is $199 [2]. The customer pays annually in advance, so they receive a 15 percent discount [1]. To calculate the discount, multiply the monthly price by 0.15: $199 x 0.15 = $29.85. Subtract the discount from the monthly price: $199 - $29.85 = $169.15.",
+   "passages": [
+    "p14",
+    "p09",
+    "p07",
+    "p02",
+    "p15"
+   ],
+   "faithful": true,
+   "reason": "199, the 15 percent discount and the arithmetic 199 x 0.15 = 29.85 are all correct and in context (the answer ignores Forecast Pro but states nothing unsupported).",
+   "judge_v1_score": 0.5
+  },
+  {
+   "id": "traditional/q-023",
+   "answered_by": "llama3.1:8b",
+   "question": "An employee had 9 unused days of annual leave at the end of 2026. How many carry forward into 2027, and how many lapse?",
+   "answer": "According to [1], from 2026, carry forward of unused annual leave is capped at 5 days; anything above 5 days lapses on 31 December. \n\nThe employee had 9 unused days, so 5 days can be carried forward into 2027, and 4 days lapse.",
+   "passages": [
+    "p01",
+    "p02",
+    "p03",
+    "p04",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "C1 caps carry forward at 5 days; 9 - 5 = 4.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "traditional/q-024",
+   "answered_by": "llama3.1:8b",
+   "question": "Project Atlas finishes three months late. How much extra double running cost does that add, and which project's launch is pushed back?",
+   "answer": "The main risk is double running cost while both warehouses are live, estimated at 18,000 US dollars per month [3]. If Project Atlas finishes three months late, that's an extra 3 months of double running cost, which would be 18,000 * 3 = 54,000 US dollars extra.\n\nProject Atlas is due to finish in September 2026 [1]. If it finishes three months late, that would be December 2026. Project Beacon cannot launch until Project Atlas is complete [2], so Project Beacon's launch would be pushed back from November 2026 to December 2026.",
+   "passages": [
+    "p08",
+    "p07",
+    "p06",
+    "p09",
+    "p05"
+   ],
+   "faithful": false,
+   "reason": "The 54,000 sum and Atlas date are supported, but the new December 2026 launch date for Beacon is not in any passage.",
+   "judge_v1_score": 0.5
+  },
+  {
+   "id": "vectorless/q-001",
+   "answered_by": "llama3.1:8b",
+   "question": "How many days of casual leave does an employee get in 2026?",
+   "answer": "[1] states that employees receive 10 days of casual leave per year in 2026.",
+   "passages": [
+    "p01",
+    "p02",
+    "p03",
+    "p04",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "C1 states 10 days of casual leave in 2026.",
+   "judge_v1_score": 0.0
+  },
+  {
+   "id": "vectorless/q-002",
+   "answered_by": "llama3.1:8b",
+   "question": "What is the hotel limit per night for business travel?",
+   "answer": "The hotel limit per night for business travel is 180 US dollars per night [1].",
+   "passages": [
+    "p05",
+    "p02",
+    "p11",
+    "p01",
+    "p06"
+   ],
+   "faithful": true,
+   "reason": "C5 states 180 per night.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "vectorless/q-003",
+   "answered_by": "llama3.1:8b",
+   "question": "What is the approved budget for Project Beacon?",
+   "answer": "[1] The approved budget for Project Beacon is 260,000 US dollars.",
+   "passages": [
+    "p07",
+    "p08",
+    "p04",
+    "p03",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "C7 states 260,000.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "vectorless/q-004",
+   "answered_by": "llama3.1:8b",
+   "question": "Which team owns Project Atlas, and which team must provision its storage cluster?",
+   "answer": "Project Atlas is owned by the Data Platform team [1]. The IT Operations team must provision the new storage cluster for Project Atlas [1].",
+   "passages": [
+    "p08",
+    "p07",
+    "p11",
+    "p13",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "C8 states owner and dependency.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "vectorless/q-005",
+   "answered_by": "llama3.1:8b",
+   "question": "Who maintains the IT on-call rota, and which team does that person belong to?",
+   "answer": "Ivan Petrov maintains the rota, and he belongs to the IT Operations team. [1]",
+   "passages": [
+    "p13",
+    "p11",
+    "p10",
+    "p12",
+    "p08"
+   ],
+   "faithful": true,
+   "reason": "C13 names Ivan Petrov, C10 puts him in IT Operations.",
+   "judge_v1_score": 0.0
+  },
+  {
+   "id": "vectorless/q-006",
+   "answered_by": "llama3.1:8b",
+   "question": "What is the combined approved budget of Project Atlas and Project Beacon?",
+   "answer": "The approved budget for Project Atlas is 420,000 US dollars [2]. The approved budget for Project Beacon is 260,000 US dollars [1]. The combined approved budget is 680,000 US dollars.",
+   "passages": [
+    "p07",
+    "p08",
+    "p04",
+    "p03",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "Budgets in C8 and C7, sum 680,000 is correct.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "vectorless/q-007",
+   "answered_by": "llama3.1:8b",
+   "question": "Who does the technical lead of Project Atlas report to?",
+   "answer": "Lucas Moreau is the technical lead of Project Atlas, and according to passage [3], Lucas Moreau reports to Aisha Bello.",
+   "passages": [
+    "p08",
+    "p07",
+    "p12",
+    "p10",
+    "p09"
+   ],
+   "faithful": true,
+   "reason": "C8 names the lead, C10 and C12 say he reports to Aisha Bello.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "vectorless/q-008",
+   "answered_by": "llama3.1:8b",
+   "question": "Who is the manager of the person who leads the team that owns Project Beacon?",
+   "answer": "[4] states that Daniel Reyes is the Chief Technology Officer and reports to Maya Okafor. [4] also states that Kenji Watanabe leads the Applied Machine Learning team and reports to Daniel Reyes. Therefore, Daniel Reyes is the manager of the person who leads the team that owns Project Beacon.",
+   "passages": [
+    "p07",
+    "p08",
+    "p04",
+    "p12",
+    "p10"
+   ],
+   "faithful": true,
+   "reason": "C12 gives Daniel Reyes as CTO reporting to Maya Okafor and Kenji reporting to Daniel Reyes.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "vectorless/q-009",
+   "answered_by": "llama3.1:8b",
+   "question": "Which product is delayed if Project Atlas slips, and what is that product's code?",
+   "answer": "[1] states that Project Beacon cannot launch until Project Atlas is complete, because the forecasting models train on the new columnar warehouse. This means that if Project Atlas slips, Project Beacon will be delayed. Project Beacon's code is not mentioned in the passage, but it is referred to as the \"Forecast Pro product\".",
+   "passages": [
+    "p07",
+    "p08",
+    "p09",
+    "p11"
+   ],
+   "faithful": true,
+   "reason": "C7 says Beacon waits for Atlas and is the Forecast Pro product.",
+   "judge_v1_score": 0.5
+  },
+  {
+   "id": "vectorless/q-010",
+   "answered_by": "llama3.1:8b",
+   "question": "How did the casual leave allowance change between the 2025 and 2026 leave policies?",
+   "answer": "According to [1], from 2026, employees receive 10 days of casual leave per year, whereas in [2], from 2025, employees received 8 days of casual leave per year.",
+   "passages": [
+    "p01",
+    "p02",
+    "p03",
+    "p05",
+    "p13"
+   ],
+   "faithful": true,
+   "reason": "C1 says 10 days and C2 says 8 days of casual leave.",
+   "judge_v1_score": 0.0
+  },
+  {
+   "id": "vectorless/q-011",
+   "answered_by": "llama3.1:8b",
+   "question": "How did the rule for carrying forward unused annual leave change from 2025 to 2026?",
+   "answer": "In 2025, unused annual leave could be carried forward into the next year with no upper limit [2]. In 2026, carry forward of unused annual leave is capped at 5 days [1].",
+   "passages": [
+    "p01",
+    "p02",
+    "p03",
+    "p13",
+    "p04"
+   ],
+   "faithful": true,
+   "reason": "C2 no upper limit, C1 cap of 5 days.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "vectorless/q-012",
+   "answered_by": "llama3.1:8b",
+   "question": "Compare the medical certificate rule for sick leave in 2025 and 2026.",
+   "answer": "According to [2], in 2025, a medical certificate is required for sick leave longer than 2 consecutive days.\n\nAccording to [1], in 2026, a medical certificate is required for sick leave longer than 3 consecutive days.\n\nSo, the medical certificate rule for sick leave is stricter in 2026 compared to 2025.",
+   "passages": [
+    "p01",
+    "p02",
+    "p03",
+    "p04",
+    "p13"
+   ],
+   "faithful": false,
+   "reason": "The answer says 2026 is stricter, but 3 days is more lenient than 2 days; that claim is wrong.",
+   "judge_v1_score": 0.0
+  },
+  {
+   "id": "vectorless/q-013",
+   "answered_by": "llama3.1:8b",
+   "question": "Who does Aisha Bello report to?",
+   "answer": "Aisha Bello reports to Daniel Reyes [2].",
+   "passages": [
+    "p10",
+    "p12",
+    "p08",
+    "p09"
+   ],
+   "faithful": true,
+   "reason": "C12 says Aisha Bello reports to Daniel Reyes.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "vectorless/q-014",
+   "answered_by": "llama3.1:8b",
+   "question": "Which people report directly to Maya Okafor?",
+   "answer": "Daniel Reyes [1], Priya Nair [1], and Tomas Lindqvist [1] report directly to Maya Okafor.",
+   "passages": [
+    "p12",
+    "p04",
+    "p03",
+    "p10",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "C12 lists the three.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "vectorless/q-015",
+   "answered_by": "llama3.1:8b",
+   "question": "Which team does Sofia Haddad work in, and who leads it?",
+   "answer": "Sofia Haddad works in the Applied Machine Learning team [1]. The team is led by Kenji Watanabe [2].",
+   "passages": [
+    "p10",
+    "p07",
+    "p11",
+    "p04",
+    "p12"
+   ],
+   "faithful": true,
+   "reason": "C10 and C7 give team and lead.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "vectorless/q-016",
+   "answered_by": "llama3.1:8b",
+   "question": "What does error BW-7731 mean and how is it fixed?",
+   "answer": "Error BW-7731 means \"The nightly warehouse export timed out\" [1]. It is fixed by \"Rerun the export job with the --resume flag; if it fails twice, page the Data Platform on-call engineer\" [1].",
+   "passages": [
+    "p11",
+    "p13"
+   ],
+   "faithful": true,
+   "reason": "C11 gives both verbatim.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "vectorless/q-017",
+   "answered_by": "llama3.1:8b",
+   "question": "What is error BW-7732?",
+   "answer": "The export job could not authenticate to the storage cluster. Rotate the service credential in the secrets vault and rerun the job. [1]",
+   "passages": [
+    "p11",
+    "p13"
+   ],
+   "faithful": true,
+   "reason": "C11 gives the meaning and fix.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "vectorless/q-018",
+   "answered_by": "llama3.1:8b",
+   "question": "What is product BWA-200 and what does it cost?",
+   "answer": "[1] Product BWA-200 is Insight Team, dashboards and scheduled reports for up to 25 users, and it costs $199.",
+   "passages": [
+    "p09",
+    "p06",
+    "p08",
+    "p07"
+   ],
+   "faithful": true,
+   "reason": "C9 gives product and 199.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "vectorless/q-020",
+   "answered_by": "llama3.1:8b",
+   "question": "What needs extra approval?",
+   "answer": "Leave requests longer than 5 working days [1], [2] and any trip longer than 5 days [3].",
+   "passages": [
+    "p04",
+    "p03",
+    "p05",
+    "p15",
+    "p08"
+   ],
+   "faithful": true,
+   "reason": "C4, C3 and C5 hold the rules stated.",
+   "judge_v1_score": 0.5
+  },
+  {
+   "id": "vectorless/q-021",
+   "answered_by": "llama3.1:8b",
+   "question": "How long is it valid for?",
+   "answer": "Certificates are valid for 365 days [1].",
+   "passages": [
+    "p13"
+   ],
+   "faithful": true,
+   "reason": "C13 says certificates are valid for 365 days.",
+   "judge_v1_score": 0.0
+  },
+  {
+   "id": "vectorless/q-022",
+   "answered_by": "llama3.1:8b",
+   "question": "A customer buys Insight Team with Forecast Pro and pays annually in advance. What is the monthly price after the discount?",
+   "answer": "The monthly price of Insight Team (BWA-200) is $199 [1]. The customer also buys Forecast Pro (BWA-410) for $350 [1]. The total price is $199 + $350 = $549. The customer pays annually in advance, so they receive a 15 percent discount on the monthly price [2]. \n\n15 percent of $549 is $82.35. Subtracting this from the total price gives a monthly price of $549 - $82.35 = $466.65.",
+   "passages": [
+    "p09",
+    "p14",
+    "p07",
+    "p06",
+    "p08"
+   ],
+   "faithful": true,
+   "reason": "199, 350, 549, 15 percent and 549 x 0.15 = 82.35 and 466.65 are right and in context.",
+   "judge_v1_score": 0.0
+  },
+  {
+   "id": "vectorless/q-023",
+   "answered_by": "llama3.1:8b",
+   "question": "An employee had 9 unused days of annual leave at the end of 2026. How many carry forward into 2027, and how many lapse?",
+   "answer": "According to [1], from 2026, carry forward of unused annual leave is capped at 5 days; anything above 5 days lapses on 31 December. \n\nThe employee had 9 unused days, so 5 days can be carried forward into 2027, and 4 days lapse.",
+   "passages": [
+    "p01",
+    "p02",
+    "p03",
+    "p05",
+    "p04"
+   ],
+   "faithful": true,
+   "reason": "C1 caps at 5 days; 9 - 5 = 4.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "vectorless/q-024",
+   "answered_by": "llama3.1:8b",
+   "question": "Project Atlas finishes three months late. How much extra double running cost does that add, and which project's launch is pushed back?",
+   "answer": "The main risk is double running cost while both warehouses are live, estimated at 18,000 US dollars per month [2]. If Project Atlas finishes three months late, that's an extra 3 months of double running cost, which would be 3 x 18,000 = 54,000 US dollars extra.\n\nProject Beacon cannot launch until Project Atlas is complete, because the forecasting models train on the new columnar warehouse [3]. So, Project Beacon's launch is pushed back.",
+   "passages": [
+    "p08",
+    "p06",
+    "p07",
+    "p09",
+    "p14"
+   ],
+   "faithful": true,
+   "reason": "18,000 x 3 = 54,000 and Beacon waits for Atlas are in context.",
+   "judge_v1_score": 0.5
+  },
+  {
+   "id": "llama3.2:3b/q-001",
+   "answered_by": "llama3.2:3b",
+   "question": "How many days of casual leave does an employee get in 2026?",
+   "answer": "[1] Every full-time employee receives 10 days of casual leave per year.",
+   "passages": [
+    "p01",
+    "p02",
+    "p03",
+    "p04",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "C1 states 10 days of casual leave.",
+   "judge_v1_score": 0.0
+  },
+  {
+   "id": "llama3.2:3b/q-002",
+   "answered_by": "llama3.2:3b",
+   "question": "What is the hotel limit per night for business travel?",
+   "answer": "[1] The hotel limit is 180 US dollars per night.",
+   "passages": [
+    "p05",
+    "p02",
+    "p01",
+    "p04",
+    "p06"
+   ],
+   "faithful": true,
+   "reason": "C5 states 180.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "llama3.2:3b/q-003",
+   "answered_by": "llama3.2:3b",
+   "question": "What is the approved budget for Project Beacon?",
+   "answer": "[1] The approved budget for Project Beacon is 260,000 US dollars.",
+   "passages": [
+    "p07",
+    "p08",
+    "p09",
+    "p06",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "C7 states 260,000.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "llama3.2:3b/q-004",
+   "answered_by": "llama3.2:3b",
+   "question": "Which team owns Project Atlas, and which team must provision its storage cluster?",
+   "answer": "Project Atlas is owned by the Data Platform team, and it depends on the IT Operations team provisioning the new storage cluster. [1]",
+   "passages": [
+    "p08",
+    "p07",
+    "p10",
+    "p11",
+    "p12"
+   ],
+   "faithful": true,
+   "reason": "C8 states owner and dependency.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "llama3.2:3b/q-005",
+   "answered_by": "llama3.2:3b",
+   "question": "Who maintains the IT on-call rota, and which team does that person belong to?",
+   "answer": "Ivan Petrov maintains the IT on-call rota, and he belongs to the IT Operations team. [2]",
+   "passages": [
+    "p10",
+    "p13",
+    "p11",
+    "p12",
+    "p02"
+   ],
+   "faithful": true,
+   "reason": "C13 and C10 give Ivan Petrov and IT Operations.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "llama3.2:3b/q-006",
+   "answered_by": "llama3.2:3b",
+   "question": "What is the combined approved budget of Project Atlas and Project Beacon?",
+   "answer": "The combined approved budget of Project Atlas and Project Beacon is 680,000 US dollars. \n\n[2] # Project Atlas, Budget and schedule: \"The approved budget for Project Atlas is 420,000 US dollars.\"\n[1] # Project Beacon, Budget and schedule: \"The approved budget for Project Beacon is 260,000 US dollars.\"",
+   "passages": [
+    "p07",
+    "p08",
+    "p09",
+    "p06",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "Both budgets in C8 and C7; the sum is right.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "llama3.2:3b/q-007",
+   "answered_by": "llama3.2:3b",
+   "question": "Who does the technical lead of Project Atlas report to?",
+   "answer": "According to passage [1], Lucas Moreau, the technical lead of Project Atlas, reports to Aisha Bello, the project sponsor.",
+   "passages": [
+    "p08",
+    "p10",
+    "p07",
+    "p12",
+    "p11"
+   ],
+   "faithful": true,
+   "reason": "C8 names Aisha Bello as sponsor, C10 says Lucas reports to her.",
+   "judge_v1_score": 0.0
+  },
+  {
+   "id": "llama3.2:3b/q-008",
+   "answered_by": "llama3.2:3b",
+   "question": "Who is the manager of the person who leads the team that owns Project Beacon?",
+   "answer": "[3] Lucas Moreau is a senior engineer in the Data Platform team and reports to Aisha Bello. Sofia Haddad is a machine learning engineer in the Applied Machine Learning team and reports to Kenji Watanabe.",
+   "passages": [
+    "p07",
+    "p08",
+    "p10",
+    "p12",
+    "p11"
+   ],
+   "faithful": true,
+   "reason": "The sentence restates C10 correctly (it does not finish the chain, but states nothing unsupported).",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "llama3.2:3b/q-009",
+   "answered_by": "llama3.2:3b",
+   "question": "Which product is delayed if Project Atlas slips, and what is that product's code?",
+   "answer": "According to passage [2], Project Beacon is delayed if Project Atlas slips, and the product's code is BWA-410.",
+   "passages": [
+    "p08",
+    "p07",
+    "p11",
+    "p09",
+    "p13"
+   ],
+   "faithful": true,
+   "reason": "C7 and C9 give the dependency and BWA-410.",
+   "judge_v1_score": 0.5
+  },
+  {
+   "id": "llama3.2:3b/q-010",
+   "answered_by": "llama3.2:3b",
+   "question": "How did the casual leave allowance change between the 2025 and 2026 leave policies?",
+   "answer": "According to passage [1], the casual leave allowance remained the same at 10 days per year.",
+   "passages": [
+    "p01",
+    "p02",
+    "p03",
+    "p05",
+    "p04"
+   ],
+   "faithful": false,
+   "reason": "The answer says casual leave stayed at 10 days, but C2 says 8 days in 2025.",
+   "judge_v1_score": 0.0
+  },
+  {
+   "id": "llama3.2:3b/q-011",
+   "answered_by": "llama3.2:3b",
+   "question": "How did the rule for carrying forward unused annual leave change from 2025 to 2026?",
+   "answer": "[1] Every full-time employee receives 20 days of annual leave per calendar year. From 2026, carry forward of unused annual leave is capped at 5 days; anything above 5 days lapses on 31 December.",
+   "passages": [
+    "p01",
+    "p02",
+    "p03",
+    "p04",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "Quotes C1 correctly.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "llama3.2:3b/q-012",
+   "answered_by": "llama3.2:3b",
+   "question": "Compare the medical certificate rule for sick leave in 2025 and 2026.",
+   "answer": "According to passage [4], in 2025, a medical certificate is required for sick leave longer than 2 consecutive days.\n\nIn 2026, the rule changes to passage [3], which states that a medical certificate is required for sick leave longer than 3 consecutive days.",
+   "passages": [
+    "p04",
+    "p03",
+    "p01",
+    "p02",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "C4 says 2 days and C3 says 3 days.",
+   "judge_v1_score": 0.5
+  },
+  {
+   "id": "llama3.2:3b/q-013",
+   "answered_by": "llama3.2:3b",
+   "question": "Who does Aisha Bello report to?",
+   "answer": "Aisha Bello reports to Daniel Reyes [1].",
+   "passages": [
+    "p10",
+    "p12",
+    "p08",
+    "p02",
+    "p11"
+   ],
+   "faithful": true,
+   "reason": "C12.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "llama3.2:3b/q-014",
+   "answered_by": "llama3.2:3b",
+   "question": "Which people report directly to Maya Okafor?",
+   "answer": "According to passage [1], the following people report directly to Maya Okafor:\n\n1. Daniel Reyes - Chief Technology Officer\n2. Priya Nair - Head of People Operations\n3. Tomas Lindqvist - Chief Financial Officer",
+   "passages": [
+    "p12",
+    "p10",
+    "p08",
+    "p02",
+    "p11"
+   ],
+   "faithful": true,
+   "reason": "C12 lists the three with titles.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "llama3.2:3b/q-015",
+   "answered_by": "llama3.2:3b",
+   "question": "Which team does Sofia Haddad work in, and who leads it?",
+   "answer": "Sofia Haddad is a machine learning engineer in the Applied Machine Learning team and reports to Kenji Watanabe. [1] [5]",
+   "passages": [
+    "p10",
+    "p12",
+    "p08",
+    "p02",
+    "p07"
+   ],
+   "faithful": true,
+   "reason": "C10 restates it.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "llama3.2:3b/q-016",
+   "answered_by": "llama3.2:3b",
+   "question": "What does error BW-7731 mean and how is it fixed?",
+   "answer": "[1] According to the IT Operations Runbook, error code BW-7731 means \"The nightly warehouse export timed out\". To fix this error, the export job should be rerun with the --resume flag. If the job fails twice, the Data Platform on-call engineer should be escalated.",
+   "passages": [
+    "p11",
+    "p09",
+    "p13",
+    "p02",
+    "p01"
+   ],
+   "faithful": true,
+   "reason": "C11 gives meaning and fix.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "llama3.2:3b/q-017",
+   "answered_by": "llama3.2:3b",
+   "question": "What is error BW-7732?",
+   "answer": "Error BW-7732 is \"The export job could not authenticate to the storage cluster.\" [1]",
+   "passages": [
+    "p11",
+    "p09",
+    "p13",
+    "p02",
+    "p08"
+   ],
+   "faithful": true,
+   "reason": "C11.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "llama3.2:3b/q-018",
+   "answered_by": "llama3.2:3b",
+   "question": "What is product BWA-200 and what does it cost?",
+   "answer": "According to passage [1], product BWA-200 is \"Insight Team, dashboards and scheduled reports for up to 25 users\" and it costs 199 US dollars per customer per month.",
+   "passages": [
+    "p09",
+    "p08",
+    "p07",
+    "p05",
+    "p06"
+   ],
+   "faithful": true,
+   "reason": "C9.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "llama3.2:3b/q-019",
+   "answered_by": "llama3.2:3b",
+   "question": "What is the limit?",
+   "answer": "[1] The daily meal limit is 60 US dollars when travelling within the country and 90 US dollars when travelling abroad. The hotel limit is 180 US dollars per night.",
+   "passages": [
+    "p05",
+    "p02",
+    "p01",
+    "p04",
+    "p03"
+   ],
+   "faithful": true,
+   "reason": "C5 gives the meal and hotel limits.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "llama3.2:3b/q-020",
+   "answered_by": "llama3.2:3b",
+   "question": "What needs extra approval?",
+   "answer": "According to passage [1], leave requests longer than 5 working days also need approval from the People Operations team.\n\nAdditionally, according to passage [3], any trip longer than 5 days needs approval from the employee's director in addition to their direct manager.\n\nAnd according to passage [4], expense claims submitted later than 30 days of the end of the trip are paid only with approval from the Chief Financial Officer.",
+   "passages": [
+    "p04",
+    "p03",
+    "p05",
+    "p13",
+    "p09"
+   ],
+   "faithful": true,
+   "reason": "C4, C5 and C3 hold the three rules.",
+   "judge_v1_score": 0.75
+  },
+  {
+   "id": "llama3.2:3b/q-021",
+   "answered_by": "llama3.2:3b",
+   "question": "How long is it valid for?",
+   "answer": "According to passage [3], the leave policy applies from 1 January 2026.",
+   "passages": [
+    "p04",
+    "p03",
+    "p01",
+    "p02",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "C1 says the policy applies from 1 January 2026 (irrelevant to the question but supported).",
+   "judge_v1_score": 0.0
+  },
+  {
+   "id": "llama3.2:3b/q-022",
+   "answered_by": "llama3.2:3b",
+   "question": "A customer buys Insight Team with Forecast Pro and pays annually in advance. What is the monthly price after the discount?",
+   "answer": "According to passage [2], the monthly price of Insight Team is 199 US dollars. Passage [1] states that customers who pay annually in advance receive a 15 percent discount on the monthly price. \n\nTo calculate the monthly price after the discount, we need to first calculate the annual price of Insight Team, then subtract 15% of that price to get the discounted annual price, and finally divide by 12 to get the monthly price.\n\nThe annual price of Insight Team is 199 * 12 = 2376 US dollars. \n\nThe discounted annual price is 2376 - (2376 * 0.15) = 2376 - 355.4 = 2020.6 US dollars.\n\nThe monthly price after the discount is 2020.6 / 12 = 168.83 US dollars.",
+   "passages": [
+    "p14",
+    "p09",
+    "p07",
+    "p02",
+    "p15"
+   ],
+   "faithful": false,
+   "reason": "2376 x 0.15 is 356.4, not 355.4, so 2020.6 and 168.83 are arithmetic errors.",
+   "judge_v1_score": 0.5
+  },
+  {
+   "id": "llama3.2:3b/q-023",
+   "answered_by": "llama3.2:3b",
+   "question": "An employee had 9 unused days of annual leave at the end of 2026. How many carry forward into 2027, and how many lapse?",
+   "answer": "According to [1], the carry forward of unused annual leave is capped at 5 days. Since the employee had 9 unused days, they can carry forward 5 days into 2027. The remaining 4 days will lapse on 31 December 2026.",
+   "passages": [
+    "p01",
+    "p02",
+    "p03",
+    "p04",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "C1 cap of 5 days; 9 - 5 = 4.",
+   "judge_v1_score": 0.5
+  },
+  {
+   "id": "llama3.2:3b/q-024",
+   "answered_by": "llama3.2:3b",
+   "question": "Project Atlas finishes three months late. How much extra double running cost does that add, and which project's launch is pushed back?",
+   "answer": "According to passage [3], the main risk is double running cost while both warehouses are live, estimated at 18,000 US dollars per month.\n\nProject Beacon's launch is planned for November 2026, but since Project Atlas is three months late, Project Beacon's launch is pushed back.",
+   "passages": [
+    "p08",
+    "p07",
+    "p06",
+    "p09",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "C6 and C7 state the cost and the November 2026 launch and the dependency.",
+   "judge_v1_score": 0.0
+  },
+  {
+   "id": "qwen2.5:1.5b/q-002",
+   "answered_by": "qwen2.5:1.5b",
+   "question": "What is the hotel limit per night for business travel?",
+   "answer": "The hotel limit per night for business travel is 180 US dollars. [1]",
+   "passages": [
+    "p05",
+    "p02",
+    "p01",
+    "p04",
+    "p06"
+   ],
+   "faithful": true,
+   "reason": "C5 states 180.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "qwen2.5:1.5b/q-003",
+   "answered_by": "qwen2.5:1.5b",
+   "question": "What is the approved budget for Project Beacon?",
+   "answer": "The approved budget for Project Beacon is 260,000 US dollars. [1]",
+   "passages": [
+    "p07",
+    "p08",
+    "p09",
+    "p06",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "C7 states 260,000.",
+   "judge_v1_score": 1.0
+  },
+  {
+   "id": "qwen2.5:1.5b/q-012",
+   "answered_by": "qwen2.5:1.5b",
+   "question": "Compare the medical certificate rule for sick leave in 2025 and 2026.",
+   "answer": "[2] A medical certificate is required for sick leave longer than 3 consecutive days.",
+   "passages": [
+    "p04",
+    "p03",
+    "p01",
+    "p02",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "C3 says 3 days for 2026.",
+   "judge_v1_score": 0.5
+  },
+  {
+   "id": "qwen2.5:1.5b/q-023",
+   "answered_by": "qwen2.5:1.5b",
+   "question": "An employee had 9 unused days of annual leave at the end of 2026. How many carry forward into 2027, and how many lapse?",
+   "answer": "Based on the most relevant sources: From 2026, carry forward of unused annual leave is capped at 5 days; anything above 5 days lapses on 31 December. [1] Every full-time employee receives 18 days of annual leave per calendar year. [2] Leave requests are approved by the employee's direct manager. [3]",
+   "passages": [
+    "p01",
+    "p02",
+    "p03",
+    "p04",
+    "p05"
+   ],
+   "faithful": true,
+   "reason": "Each sentence restates C1, C2 or C3 or C4 correctly (extractive fallback).",
+   "judge_v1_score": 0.5
+  }
+ ]
+}
