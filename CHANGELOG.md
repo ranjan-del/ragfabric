@@ -130,6 +130,28 @@ Phase 9 (assistant UI and TypeScript SDK) and Phase 10 (hardening, connectors, d
 - The citation retry shows the model its rejected answer and asks for a repair, and a quote cited to
   the wrong passage names the passage that holds it. Before, the model never saw what it had to
   repair and often replied that it could not find an answer.
+- API key authentication no longer fails with HTTP 500 on every request after the first when the
+  database is PostgreSQL. The key's timestamps are timezone aware columns, and the check compared
+  them with a naive time. SQLite returns naive values and hid the fault from the unit tests, so a
+  PostgreSQL integration test now covers it. (#73)
+- A question is no longer refused when a passage answers it. With policies from two years in the
+  context, the instruction to refuse made the model refuse; the prompt now asks it to use the
+  passage that matches the question and to refuse only when no passage answers. "How many" followed
+  by a unit (days, weeks, times) is a lookup and no longer goes to the agent. On the 24 shipped
+  questions with `llama3.1:8b` (one run, 22 October 2026) refusals fell and correctness rose on
+  every strategy, and faithfulness fell on every strategy, which may be a real cost or judge noise
+  at this sample size. (#76)
+- When the agent stops on its spend cap, the result carries `stop_reason` and `stop_detail`, the
+  answer says so, and `ragfabric ask` waits 120 seconds by default (`--timeout` changes it) instead
+  of giving up at 30 seconds before the server could answer. (#76)
+- The users list no longer returns HTTP 500 when the bootstrap admin has an email address that is
+  not valid; the address is shown as stored and seeding logs a warning. (#74)
+- Assistant: an upload error shows the server's reason for each file, a citation can show more
+  context around the cited passage for text, Markdown and CSV files, Trace, Console users and
+  Console groups no longer scroll sideways at 390 pixels, the Compare "cheapest" and "fastest"
+  badges ignore unpriced, refused and failed runs and a refusal shows its reason, the Evaluation
+  selects are labelled, and the accepted file types and embedding model are described correctly.
+  Citations to PDF, DOCX and PPTX files still show only the 240 character snippet. (#75)
 
 ### Changed
 
