@@ -122,6 +122,16 @@ class StrategyTarget:
             for i, c in enumerate(result.chunks, start=1)
         ]
 
+    def retrieve_result(self, question: str):
+        """The strategy's own result for ``question``, as the evaluation retrieves it.
+
+        Used by ``export-prompts``, which needs the chunk ids ``ContextItem`` leaves out.
+        """
+        return self.strategy.retrieve(question, self._context())
+
+    def document_name(self, document_id: int, metadata: dict) -> str:
+        return self._document_name(document_id, metadata)
+
     def retrieve(self, question: str) -> TargetAnswer:
         """Retrieval only (design D6): no answer is generated, so nothing is judged."""
         started = time.perf_counter()
