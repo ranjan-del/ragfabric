@@ -20,7 +20,7 @@ from ragfabric_core.config_file import RagFabricConfig, RerankerConfig
 from ragfabric_core.evaluation.target import ContextItem, TargetAnswer, TargetSkipped
 from ragfabric_core.generate.dispatch import generate_for_result
 from ragfabric_core.models.document import Document
-from ragfabric_core.pricing import PricingTable, estimate_cost
+from ragfabric_core.pricing import PricingTable, run_cost
 from ragfabric_core.providers.base import LLMProvider, ProviderError, is_offline
 from ragfabric_core.providers.registry import answering_model
 from ragfabric_core.rerank.registry import build_reranker
@@ -153,9 +153,9 @@ class StrategyTarget:
         output_tokens = result.output_tokens + generated.output_tokens
         cost = None
         if self._pricing is not None and self.llm_model:
-            cost = estimate_cost(
-                self._pricing, self.provider, self.llm_model, input_tokens, output_tokens
-            ).usd
+            cost = run_cost(
+                self.provider, self.llm_model, input_tokens, output_tokens, self._pricing
+            )
         return TargetAnswer(
             answer=generated.text,
             contexts=self._contexts(result),
