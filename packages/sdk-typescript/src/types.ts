@@ -33,6 +33,8 @@ export type User = S.UserOut;
 export type Token = S.Token;
 export type DocumentItem = S.DocumentOut;
 export type DocumentList = S.DocumentList;
+export type ChunkContext = S.ChunkContext;
+export type ChunkPiece = S.ChunkPiece;
 export type Collection = S.CollectionOut;
 export type CollectionDetail = S.CollectionDetail;
 export type CollectionCreate = S.CollectionCreate;
@@ -126,7 +128,7 @@ export interface CitationsEvent {
 
 export interface DoneEvent {
   event: 'done';
-  data: { run_id: number; latency_ms: number; usage: Usage };
+  data: { run_id: number; latency_ms: number; usage: Usage; refused?: boolean };
 }
 
 /** An event this SDK does not know, passed through rather than dropped. */

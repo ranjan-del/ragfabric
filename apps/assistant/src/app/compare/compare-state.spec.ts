@@ -123,5 +123,17 @@ describe('CompareState', () => {
     refuse(state, 'traditional', 30);
     expect(state.summary().fastest).toBeNull();
   });
-});
 
+  it('test_the_servers_refused_flag_keeps_a_column_out_of_the_badges', () => {
+    const state = new CompareState();
+    state.begin('q', false);
+    done(state, 'traditional', 900, 0.01);
+    // Fast, with no cost, and worded like an answer: only the flag marks it a refusal.
+    const graph = state.column('graph').answer;
+    graph.start();
+    graph.apply({ event: 'token', data: { text: 'Nothing to report.' } });
+    graph.apply({ event: 'done', data: { run_id: 2, latency_ms: 5, usage: {}, refused: true } });
+    state.column('graph').run.set({ estimated_cost_usd: 0 } as Run);
+    expect(state.summary().fastest).toBe('traditional');
+  });
+});

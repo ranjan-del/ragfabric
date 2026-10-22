@@ -79,12 +79,19 @@ describe('AnswerState', () => {
     expect(state.superseded()).toBeNull();
   });
 
-  function finish(text: string, retrieval: Partial<AskEvent & { event: 'retrieval' }>['data'] | null = null): AnswerState {
+  function finish(
+    text: string,
+    retrieval: Partial<AskEvent & { event: 'retrieval' }>['data'] | null = null,
+    refused?: boolean,
+  ): AnswerState {
     const state = new AnswerState();
     state.start();
     state.apply(retrieval ? { event: 'retrieval', data: retrieval } : RETRIEVAL);
     state.apply({ event: 'token', data: { text } });
-    state.apply({ event: 'done', data: { run_id: 1, latency_ms: 5, usage: {} } });
+    state.apply({
+      event: 'done',
+      data: { run_id: 1, latency_ms: 5, usage: {}, ...(refused === undefined ? {} : { refused }) },
+    });
     return state;
   }
 
@@ -107,5 +114,16 @@ describe('AnswerState', () => {
   it('test_a_refusal_with_no_reason_from_the_api_shows_none', () => {
     expect(finish('I could not find an answer to that.').refusalReason()).toBeNull();
   });
-});
 
+  it('test_the_explicit_refused_flag_decides_and_the_wording_does_not', () => {
+    // Wording that reads like an answer, flagged as a refusal by the server.
+    expect(finish('The policy is silent on that.', null, true).refused()).toBeTrue();
+    // Wording that reads like a refusal, flagged as an answer by the server.
+    expect(finish('I could not find an answer to that in the documents provided.', null, false).refused()).toBeFalse();
+  });
+
+  it('test_a_server_without_the_flag_falls_back_to_the_wording', () => {
+    expect(finish('I could not find an answer to that in the documents provided.').refused()).toBeTrue();
+    expect(finish('Aisha leads it [1].').refused()).toBeFalse();
+  });
+});

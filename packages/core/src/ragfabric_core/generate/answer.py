@@ -34,6 +34,7 @@ import re
 
 from ragfabric_core.config import settings
 from ragfabric_core.generate import llm
+from ragfabric_core.generate.contract import is_refusal
 from ragfabric_core.ingest.embed import content_tokens
 
 _MAX_SNIPPET = 240
@@ -272,13 +273,15 @@ def build_answer(query: str, retrieved: list[dict], answer_text: str | None = No
             was produced.
 
     Returns:
-        ``{question, answer, confidence, citations, highlights, source_document,
-        retrieved}``.
+        ``{question, answer, refused, confidence, citations, highlights,
+        source_document, retrieved}``.
     """
     if not retrieved:
         return {
             "question": query,
             "answer": answer_text if answer_text is not None else llm.extractive_answer(query, []),
+            # Nothing was retrieved, so whatever the wording, nothing backs the answer.
+            "refused": True,
             "confidence": 0.0,
             "citations": [],
             "highlights": [],
@@ -306,6 +309,7 @@ def build_answer(query: str, retrieved: list[dict], answer_text: str | None = No
     return {
         "question": query,
         "answer": answer_text,
+        "refused": is_refusal(answer_text),
         "confidence": _confidence(query, retrieved),
         "citations": _build_citations(query, retrieved, answer_text, support),
         # Spans into the ANSWER string, which the client already has, rather

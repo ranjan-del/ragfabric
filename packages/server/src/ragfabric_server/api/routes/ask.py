@@ -538,6 +538,8 @@ def ask(
             {
                 "run_id": run_id,
                 "latency_ms": total_ms,
+                # The same flag the non streaming response carries.
+                "refused": answer["refused"],
                 # Assembled by hand rather than through _usage: on the
                 # streaming path llm_calls and the token counts were tracked
                 # above across the accepted/superseded branches, and _usage

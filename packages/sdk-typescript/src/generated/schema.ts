@@ -26,6 +26,7 @@ export interface AnswerResponse {
   fallback_from?: string | null;
   highlights: Highlight[];
   question: string;
+  refused?: boolean;
   router?: RouterDecisionOut | null;
   source_document?: SourceDocument | null;
   strategy?: string | null;
@@ -103,6 +104,30 @@ export interface Body_upload_document_api_documents_upload_post {
   chunk_size?: number | null;
   collection_id?: number | null;
   file: Blob;
+}
+
+/**
+ * One cited chunk with the stored text on either side of it.
+ *
+ * ``before`` and ``after`` are in document order, with the characters a neighbour
+ * shares with the cited chunk (the ingestion overlap) removed, so
+ * ``before + chunk + after`` read in order is continuous text.
+ */
+export interface ChunkContext {
+  after?: ChunkPiece[];
+  before?: ChunkPiece[];
+  chunk: ChunkPiece;
+  chunk_id: number;
+  document_id: number;
+  filename: string;
+  section?: string | null;
+}
+
+export interface ChunkPiece {
+  chunk_id: number;
+  chunk_index: number;
+  page?: number | null;
+  text: string;
 }
 
 export interface Citation {
@@ -820,6 +845,15 @@ export interface paths {
       query: Record<string, never>;
       body: UserCreate;
       response: UserOut;
+    };
+  };
+  '/api/chunks/{chunk_id}/context': {
+    /** Get Chunk Context */
+    get: {
+      path: { chunk_id: number };
+      query: { neighbours?: number };
+      body: never;
+      response: ChunkContext;
     };
   };
   '/api/collections': {
