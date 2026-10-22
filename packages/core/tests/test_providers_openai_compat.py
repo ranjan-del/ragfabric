@@ -225,3 +225,46 @@ def test_openai_stream_asks_for_usage_and_fills_it_from_the_last_chunk():
     assert "".join(llm.stream([Message(role="user", content="q")], usage=usage)) == "xy"
     assert chat.calls[0]["stream_options"] == {"include_usage": True}
     assert (usage.input_tokens, usage.output_tokens) == (12, 2)
+
+
+class _FragileServer:
+    """An embeddings endpoint that dies on a long input list, as Ollama's runner does.
+
+    Reproduced 22 October 2026 on the FinanceBench filings: one request with 288 chunk
+    texts made the runner answer 400 "tokenize: EOF" while 272 passed, so 9 of 10 filings
+    failed to index. Each vector carries the text's number so the order can be checked.
+    """
+
+    def __init__(self, limit=256):
+        self.calls = []
+        self.limit = limit
+
+    def create(self, **kwargs):
+        texts = kwargs["input"]
+        self.calls.append(len(texts))
+        if len(texts) > self.limit:
+            raise RuntimeError('Error code: 400 - Post "/tokenize": EOF')
+        data = [SimpleNamespace(embedding=[float(text)], index=i) for i, text in enumerate(texts)]
+        return SimpleNamespace(
+            data=data, usage=SimpleNamespace(prompt_tokens=len(texts)), model=kwargs["model"]
+        )
+
+
+def test_a_long_list_is_sent_in_batches_and_comes_back_in_order():
+    server = _FragileServer()
+    emb = OllamaEmbeddingProvider(client=fake_client(embeddings=server))
+
+    result = emb.embed([str(n) for n in range(700)])
+
+    assert max(server.calls) <= 64 and sum(server.calls) == 700
+    assert [vector[0] for vector in result.vectors] == [float(n) for n in range(700)]
+    assert result.input_tokens == 700
+
+
+def test_a_short_list_is_still_one_request():
+    server = _FragileServer()
+    emb = OpenAIEmbeddingProvider(api_key="k", client=fake_client(embeddings=server))
+
+    emb.embed(["1", "2", "3"])
+
+    assert server.calls == [3]
