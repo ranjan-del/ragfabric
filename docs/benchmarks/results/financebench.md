@@ -11,6 +11,15 @@ evidence is a page), so retrieval metrics are at document level.
 
 Contention (D19): TBD.
 
+Ingest check, 22 October 2026 (`ragfabric eval import financebench --limit 10 --seed 11`, then
+`ragfabric eval corpus`, `llama3.1-8b.yaml`, PostgreSQL, `nomic-embed-text` on Ollama 0.34.0): all 10
+filings reach `ready` with every chunk embedded (10,593 chunks, 7 minutes 32 seconds). Before the fix
+9 of the 10 failed with `indexing failed: ollama: Error code: 400 ... /tokenize: EOF`. Cause: indexing
+sent all of a document's chunks (444 to 1,718 for these filings) in one embeddings request, and
+Ollama's embedding runner dies on a request that long (272 inputs passed, 288 failed, for the Costco
+chunks); the 8-K with 102 chunks was the one that passed. Embeddings requests now carry at most 64
+inputs. No benchmark was run; this records that the filings ingest.
+
 ## All targets
 
 <!-- summarise kind="batch" batch="p11-fb10-l32" targets="traditional,vectorless,traditional+rerank=cross_encoder,auto,agentic,llamaindex,langchain" columns="target,status,questions,errors,hit,mrr,recall,precision,correctness,citation,refusals,fallbacks,p50_ms,p95_ms,llm_model,judge,commit,date,run" -->

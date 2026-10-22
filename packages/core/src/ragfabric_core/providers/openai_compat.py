@@ -304,6 +304,11 @@ class OllamaProvider:
             raise ProviderError(self.name, str(exc)) from exc
 
 
+# Inputs per embeddings request. Well under every hosted limit (OpenAI allows 2048) and
+# under the point where a local Ollama runner was seen to fail.
+EMBED_BATCH_SIZE = 64
+
+
 class OpenAICompatibleEmbeddings:
     def __init__(
         self,
@@ -332,18 +337,29 @@ class OpenAICompatibleEmbeddings:
                 vectors=[], model=self.model, provider=self.name, input_tokens=0, latency_ms=0
             )
         started = time.perf_counter()
-        try:
-            extra = {"dimensions": self.dim} if self.send_dimensions else {}
-            response = self._client.embeddings.create(model=self.model, input=texts, **extra)
-        except Exception as exc:
-            raise ProviderError(self.name, str(exc)) from exc
-        ordered = sorted(response.data, key=lambda item: item.index)
-        usage = getattr(response, "usage", None)
+        vectors: list[list[float]] = []
+        model = None
+        input_tokens = 0
+        # A long list goes out in bounded requests: Ollama's embedding runner dies on a
+        # request with a few hundred inputs ("tokenize: EOF"), which failed 9 of the 10
+        # FinanceBench filings, each of which has over a thousand chunks.
+        for start in range(0, len(texts), EMBED_BATCH_SIZE):
+            batch = texts[start : start + EMBED_BATCH_SIZE]
+            try:
+                extra = {"dimensions": self.dim} if self.send_dimensions else {}
+                response = self._client.embeddings.create(model=self.model, input=batch, **extra)
+            except Exception as exc:
+                raise ProviderError(self.name, str(exc)) from exc
+            ordered = sorted(response.data, key=lambda item: item.index)
+            usage = getattr(response, "usage", None)
+            vectors.extend(list(map(float, item.embedding)) for item in ordered)
+            model = model or getattr(response, "model", None)
+            input_tokens += int(getattr(usage, "prompt_tokens", 0) or 0)
         return EmbeddingResult(
-            vectors=[list(map(float, item.embedding)) for item in ordered],
-            model=getattr(response, "model", None) or self.model,
+            vectors=vectors,
+            model=model or self.model,
             provider=self.name,
-            input_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+            input_tokens=input_tokens,
             latency_ms=int((time.perf_counter() - started) * 1000),
         )
 
