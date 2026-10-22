@@ -54,4 +54,6 @@ test('paths, methods and bodies for the console calls', () => {
   });
   assert.equal(requests.runs.get(12).path, '/api/runs/12');
   assert.equal(requests.documents.download(4).responseType, 'blob');
+  assert.equal(requests.chunks.context(9).path, '/api/chunks/9/context');
+  assert.equal(requests.chunks.context(9, 2).path, '/api/chunks/9/context?neighbours=2');
 });

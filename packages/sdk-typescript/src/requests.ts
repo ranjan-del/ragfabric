@@ -168,6 +168,15 @@ export const requests = {
     delete: (id: number): ApiRequest<unknown> => send('DELETE', `/api/documents/${id}`),
   },
 
+  chunks: {
+    /** One chunk with the stored text of the chunks on either side of it (0 to 5, default 1). */
+    context: (
+      id: number,
+      neighbours?: number,
+    ): ApiRequest<Response<'/api/chunks/{chunk_id}/context', 'get'>> =>
+      get(`/api/chunks/${id}/context`, { neighbours }),
+  },
+
   collections: {
     list: (): ApiRequest<Response<'/api/collections', 'get'>> => get('/api/collections'),
     create: (body: CollectionCreate): ApiRequest<Response<'/api/collections', 'post'>> =>

@@ -7,6 +7,8 @@ import { ModalComponent } from '../ui';
 import { score } from './format';
 import { ExpandedSnippet, expandSnippet, isTruncated, snippetSegments } from './segments';
 
+const TEXT_FORMAT = /\.(txt|md|csv)$/i;
+
 /**
  * The source behind one citation: where it came from, the passage with the
  * query terms and the quoted sentence marked, and the original document.
@@ -36,7 +38,7 @@ import { ExpandedSnippet, expandSnippet, isTruncated, snippetSegments } from './
             </button>
           </p>
         } @else if (expanded()) {
-          <p class="muted legend">Showing the passage with the text around it from the original file.</p>
+          <p class="muted legend">Showing the passage with the text around it.</p>
         }
         <p class="legend muted">
           <span class="support">Underlined</span>: the sentence the answer quoted.
@@ -89,16 +91,16 @@ export class SourceViewerComponent {
     const w = this.wider();
     return w !== null && w.citation === this.citation() ? w.view : null;
   });
-  /** The server cuts the snippet; the original file can be read back for text formats. */
+  /**
+   * The server cuts the snippet. Text formats are widened from the original file; PDF, Word and
+   * PowerPoint cannot be read back as text, so they are widened from the stored chunks instead.
+   */
   readonly canExpand = computed(() => {
     const c = this.citation();
-    return (
-      c !== null &&
-      this.expanded() === null &&
-      isTruncated(c.snippet) &&
-      c.document_id != null &&
-      /\.(txt|md|csv)$/i.test(c.filename ?? '')
-    );
+    if (c === null || this.expanded() !== null || !isTruncated(c.snippet)) {
+      return false;
+    }
+    return (c.document_id != null && TEXT_FORMAT.test(c.filename ?? '')) || (c.chunk_id != null && !TEXT_FORMAT.test(c.filename ?? ''));
   });
   readonly parts = computed(() => {
     const c = this.citation();
@@ -113,7 +115,14 @@ export class SourceViewerComponent {
 
   expand(): void {
     const c = this.citation();
-    if (c?.document_id == null) {
+    if (c === null) {
+      return;
+    }
+    if (!TEXT_FORMAT.test(c.filename ?? '')) {
+      this.expandFromChunks(c);
+      return;
+    }
+    if (c.document_id == null) {
       return;
     }
     this.expanding.set(true);
@@ -131,6 +140,30 @@ export class SourceViewerComponent {
       error: (err: unknown) => {
         this.expanding.set(false);
         this.error.set(describeError(err, 'The document could not be loaded.'));
+      },
+    });
+  }
+
+  private expandFromChunks(c: Citation): void {
+    if (c.chunk_id == null) {
+      return;
+    }
+    this.expanding.set(true);
+    this.error.set(null);
+    this.documents.chunkContext(c.chunk_id).subscribe({
+      next: (context) => {
+        const full = [...(context.before ?? []), context.chunk, ...(context.after ?? [])].map((p) => p.text).join('');
+        const view = expandSnippet(c.snippet, full, c.highlights ?? [], c.supporting_span ?? null, full.length);
+        this.expanding.set(false);
+        if (view === null) {
+          this.error.set('The passage could not be found in the stored text, so no more context is available.');
+        } else {
+          this.wider.set({ citation: c, view });
+        }
+      },
+      error: (err: unknown) => {
+        this.expanding.set(false);
+        this.error.set(describeError(err, 'The surrounding text could not be loaded.'));
       },
     });
   }

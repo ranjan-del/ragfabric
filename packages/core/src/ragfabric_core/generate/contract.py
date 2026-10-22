@@ -69,6 +69,17 @@ class CitationViolation(Exception):
         self.reason = reason
 
 
+def is_refusal(answer: str | None) -> bool:
+    """Whether the answer is the generator's no-evidence admission with nothing cited.
+
+    The one definition: the contract's own sentinel (``NO_EVIDENCE``) and no ``[n]``
+    marker, the same test rule 3 of the contract uses to tell an admission from an
+    uncited claim. The API reports it as ``refused`` so a client never has to guess it
+    from the wording.
+    """
+    return bool(answer) and NO_EVIDENCE in answer.lower() and not cited_markers(answer)
+
+
 def cited_markers(answer: str) -> list[int]:
     """Marker numbers in first appearance order, without duplicates."""
     seen: list[int] = []
