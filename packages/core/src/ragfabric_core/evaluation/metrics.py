@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from ragfabric_core.evaluation.dataset import ExpectedSource
 from ragfabric_core.evaluation.target import ContextItem
+from ragfabric_core.generate.attribution import find_misattributions
 from ragfabric_core.generate.contract import (
     NO_EVIDENCE,
     CitationViolation,
@@ -124,4 +125,14 @@ def citation_correct(answer: str, contexts: list[ContextItem]) -> CitationCheck:
                 correct=False,
                 reason=f"passage {cited} does not support: {sentence.strip()[:80]!r}",
             )
+    misplaced = find_misattributions(answer, chunks)
+    if misplaced:
+        m = misplaced[0]
+        return CitationCheck(
+            correct=False,
+            reason=(
+                f"{m.phrase!r} is cited to passage {list(m.cited)} but appears in passage "
+                f"{list(m.holders)}"
+            ),
+        )
     return CitationCheck(correct=True)

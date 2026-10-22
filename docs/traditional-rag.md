@@ -105,6 +105,13 @@ a mechanical citation contract before it is recorded:
    phrasing that carries no factual risk.
 3. **Grounding**: an answer with evidence available must carry at least one citation.
 
+Before those checks, the generator moves a marker to the right passage when it can tell which that
+is (`generate/attribution.py`). A claim's quotes, codes such as `BWA-410`, and numbers with the word
+after them (`30 days`) must be in a passage it cites. When one is in no cited passage and in exactly
+one other retrieved passage, the marker is moved there with no model call; when two passages hold it
+equally well, the existing repair retry is used instead. A number no passage holds (a computed total)
+and a year are left alone. Paraphrase is still not checked.
+
 The contract does **not**, and cannot, verify that a paraphrase is faithful to its source. That is a
 semantic judgement, not a mechanical one, and asserting it here would be exactly the kind of fabricated
 guarantee ADR 0004 forbids. Phase 8 is where faithfulness gets measured, with a question set and a
