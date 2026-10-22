@@ -135,9 +135,13 @@ A question with no expected sources has no retrieval score (`null`), never 0 or 
 | Context relevance | Judge: share of the retrieved passages needed to answer, 0 to 1 |
 | Citation correctness | Deterministic, see below |
 
-**Two judges.** `evaluation.judge: llm` asks a model three fixed rubric questions at temperature 0 and
-expects `{"score": 0..1, "reason": "..."}`; a reply it cannot read becomes `null` with the reason
-stored, never a guessed score. The prompt version (`judge-v1`) and model are stored with every run.
+**Two judges.** `evaluation.judge: llm` asks a model three fixed rubric questions at temperature 0.
+Correctness and context relevance expect `{"score": 0..1, "reason": "..."}`. Faithfulness does not ask
+for a number: the model lists the answer's claims with a true or false verdict for each, and the share
+supported is computed in code (a small model asked for the number gave 0 to answers its own reason
+called supported, see [Judge agreement](#judge-agreement)). A reply it cannot read becomes `null` with
+the reason stored, never a guessed score. The prompt version (`judge-v2`) and model are stored with
+every run; runs stored before 22 October 2026 used `judge-v1` and their faithfulness is not comparable.
 `lexical` is deterministic word overlap (token F1 for correctness, supported-sentence share for
 faithfulness, passages sharing a word with the expected answer for context relevance); it keeps CI
 and offline runs reproducible and every report names it. `auto` (the default) is `llm` unless the
@@ -149,6 +153,32 @@ contract holds (every `[n]` points at a passage that was in context, every quote
 passage, an answer with evidence carries a marker) **and** every sentence with a marker shares at
 least half of its content words with the passages it cites. A "could not find" answer passes only
 when nothing was retrieved.
+
+### Judge agreement
+
+The faithfulness judge is itself measured. `packages/core/tests/fixtures/faithfulness_labels.json`
+holds 73 answers to the shipped questions, each labelled by hand against the passages the answer was
+given (every claim stated by the passages, or following from them by correct arithmetic), with a
+one-line reason. They come from the eval harness: the traditional and vectorless targets with
+`llama3.1:8b`, and traditional with `llama3.2:3b` and `qwen2.5:1.5b` (answers that refused were left
+out, since the judge is never asked about them). 69 are labelled supported and 4 not. A judge score of
+0.5 or more counts as "supported".
+
+| Judge, `llama3.1:8b`, 22 October 2026, 73 labelled answers | `judge-v1` | `judge-v2` |
+|---|---|---|
+| Agrees with the label | 61 of 73 | 68 of 72 (one reply was cut off and is unmeasured) |
+| Supported answers scored 0 | 10 | 1 |
+| Supported answers scored 1.0 | 44 of 69 | 54 of 68 |
+| Unsupported answers scored below 0.5 | 2 of 4 | 2 of 4 |
+
+`judge-v1` asked for `{"score", "reason"}` with the score first, so the model committed to a number
+before it had written a reason, and gave 0 to answers whose claims the context stated (for example
+"10 days of casual leave in 2026" scored 0 against a passage saying so). It also sometimes scored how
+much of the context the answer covered instead of how much of the answer the context supports.
+`judge-v2` has the model list each claim with a true or false verdict and computes the share in code. Only
+4 answers are labelled unsupported, and the judge misses two of them (an arithmetic slip and an invented
+launch date), so the set measures false zeros well and sensitivity poorly. A reason-first schema with the
+same rubric was tried and agreed with 48 of 73, which is why it was not shipped.
 
 ### System
 
