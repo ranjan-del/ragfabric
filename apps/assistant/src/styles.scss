@@ -22,10 +22,20 @@
   /* State */
   --success: #16a34a;
   --success-soft: #dcfce7;
+  --success-ink: #15803d;
   --warning: #d97706;
   --warning-soft: #fef3c7;
+  --warning-ink: #b45309;
   --danger: #dc2626;
   --danger-soft: #fee2e2;
+  --danger-ink: #991b1b;
+
+  /* Text on a filled button, and the filled hover colours. Named as tokens so dark
+     mode can turn the text dark on its lighter fills instead of leaving white on them. */
+  --on-brand: #ffffff;
+  --brand-hover: #4338ca;
+  --on-danger: #ffffff;
+  --danger-hover: #b91c1c;
 
   --radius: 14px;
   --radius-sm: 9px;
@@ -82,10 +92,17 @@
 
   --success: #4ade80;
   --success-soft: #0f2f1e;
+  --success-ink: #86efac;
   --warning: #fbbf24;
   --warning-soft: #3a2a08;
+  --warning-ink: #fcd34d;
   --danger: #f87171;
   --danger-soft: #3b1315;
+  --danger-ink: #fca5a5;
+  --on-brand: #0b1020;
+  --brand-hover: #a5b4fc;
+  --on-danger: #0b1020;
+  --danger-hover: #ef4444;
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
   --shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.7);
@@ -175,10 +192,10 @@ a {
 .btn-primary {
   background: var(--brand);
   border-color: var(--brand);
-  color: #fff;
+  color: var(--on-brand);
 }
 .btn-primary:hover {
-  background: var(--brand-600);
+  background: var(--brand-hover);
 }
 .btn-ghost {
   background: transparent;
@@ -192,10 +209,10 @@ a {
 .btn-danger {
   background: var(--danger);
   border-color: var(--danger);
-  color: #fff;
+  color: var(--on-danger);
 }
 .btn-danger:hover {
-  background: #b91c1c;
+  background: var(--danger-hover);
 }
 .btn-sm {
   padding: 0.4rem 0.7rem;
@@ -256,17 +273,17 @@ select:focus {
 }
 .badge-success {
   background: var(--success-soft);
-  color: #15803d;
+  color: var(--success-ink);
   border-color: transparent;
 }
 .badge-warning {
   background: var(--warning-soft);
-  color: #b45309;
+  color: var(--warning-ink);
   border-color: transparent;
 }
 .badge-danger {
   background: var(--danger-soft);
-  color: #b91c1c;
+  color: var(--danger-ink);
   border-color: transparent;
 }
 .badge-brand {
@@ -308,7 +325,7 @@ select:focus {
 }
 .alert-error {
   background: var(--danger-soft);
-  color: #991b1b;
+  color: var(--danger-ink);
 }
 .alert-info {
   background: var(--brand-soft);
