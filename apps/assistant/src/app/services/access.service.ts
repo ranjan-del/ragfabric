@@ -3,7 +3,7 @@ import { requests } from '@ragfabric/sdk';
 import { Observable } from 'rxjs';
 
 import { SdkHttp } from '../sdk/sdk-http.service';
-import { ApiKeyCreated, ApiKeyItem, Grant, Group, User } from '../models';
+import { ApiKeyCreated, ApiKeyDefaults, ApiKeyItem, Grant, Group, User } from '../models';
 
 /**
  * Groups, membership, grants and API keys: everything under /api/admin that
@@ -77,8 +77,15 @@ export class AccessService {
     collection_ids: number[];
     strategies: string[];
     expires_at: string | null;
+    /** Requests per minute; leave out to take the server default. */
+    rate_limit_per_minute?: number;
   }): Observable<ApiKeyCreated> {
     return this.sdk.send(requests.admin.keys.create(payload));
+  }
+
+  /** What a new key gets when no limit is named (the deployment's configured default). */
+  keyDefaults(): Observable<ApiKeyDefaults> {
+    return this.sdk.send(requests.admin.keys.defaults());
   }
 
   revokeKey(id: number): Observable<unknown> {

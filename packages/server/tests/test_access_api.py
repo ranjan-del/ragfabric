@@ -114,3 +114,33 @@ def test_api_key_with_no_explicit_limit_inherits_the_configured_default(client, 
         assert explicit.json()["rate_limit_per_minute"] == 5
     finally:
         cfg.limits.rate_limit_per_minute = original
+
+
+def test_key_defaults_report_the_configured_rate_limit_to_admins_only(
+    client, admin_headers, auth_headers
+):
+    """The console shows the limit a key gets when none is named, so it reads it here."""
+    from ragfabric_core.runtime import get_config
+
+    cfg = get_config()
+    original = cfg.limits.rate_limit_per_minute
+    cfg.limits.rate_limit_per_minute = 23
+    try:
+        res = client.get("/api/admin/keys/defaults", headers=admin_headers)
+        assert res.status_code == 200
+        assert res.json() == {"rate_limit_per_minute": 23}
+        assert client.get("/api/admin/keys/defaults", headers=auth_headers).status_code == 403
+        assert client.get("/api/admin/keys/defaults").status_code == 401
+    finally:
+        cfg.limits.rate_limit_per_minute = original
+
+
+def test_a_key_rate_limit_must_be_a_positive_integer_within_range(client, admin_headers):
+    admin = client.get("/api/auth/me", headers=admin_headers).json()
+    for bad in (0, -1, 100001):
+        res = client.post(
+            "/api/admin/keys",
+            json={"name": "bad", "user_id": admin["id"], "rate_limit_per_minute": bad},
+            headers=admin_headers,
+        )
+        assert res.status_code == 422, bad

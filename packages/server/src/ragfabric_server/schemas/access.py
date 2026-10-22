@@ -79,6 +79,12 @@ class ApiKeyOut(BaseModel):
     expires_at: datetime | None
 
 
+class ApiKeyDefaults(BaseModel):
+    """What a new key gets when its request names no value."""
+
+    rate_limit_per_minute: int
+
+
 class ApiKeyCreated(ApiKeyOut):
     key: str
 

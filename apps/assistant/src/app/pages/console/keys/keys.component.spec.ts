@@ -215,4 +215,90 @@ describe('KeysComponent', () => {
     const revoked = http.expectOne('/api/admin/keys/4');
     expect(revoked.request.method).toBe('DELETE');
   });
+
+  describe('rate limit', () => {
+    function openCreate(defaults: { rate_limit_per_minute: number } | null = { rate_limit_per_minute: 60 }): void {
+      load();
+      if (defaults !== null) {
+        http.expectOne('/api/admin/keys/defaults').flush(defaults);
+      } else {
+        http.expectOne('/api/admin/keys/defaults').flush({ detail: 'Not Found' }, { status: 404, statusText: 'Not Found' });
+      }
+      el<HTMLButtonElement>('.keys-new button').click();
+      fixture.detectChanges();
+      type(el<HTMLInputElement>('.key-create input'), 'deploy-bot');
+      const select = el<HTMLSelectElement>('.key-create select');
+      select.value = '1';
+      select.dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+    }
+    const field = () => el<HTMLInputElement>('.key-rate-field input');
+    const submit = () => {
+      el<HTMLButtonElement>('.key-create-submit').click();
+      fixture.detectChanges();
+    };
+    const posts = () => http.match((r) => r.url === '/api/admin/keys' && r.method === 'POST');
+
+    it('test_the_list_shows_each_keys_rate_limit_in_its_own_column', () => {
+      load();
+      expect(el('.key-row .key-rate').textContent?.trim()).toBe('60 / min');
+    });
+
+    it('test_the_form_shows_the_servers_default_and_says_empty_means_default', () => {
+      openCreate({ rate_limit_per_minute: 45 });
+      expect(el('.key-rate-field').textContent).toContain('Leave empty for the default of 45 per minute.');
+      // A text field with a numeric keyboard: a number input would turn text it cannot read into "empty", which means the default.
+      expect(field().type).toBe('text');
+      expect(field().getAttribute('inputmode')).toBe('numeric');
+    });
+
+    it('test_without_a_defaults_endpoint_no_default_number_is_invented', () => {
+      openCreate(null);
+      expect(el('.key-rate-field').textContent).toContain('Leave empty to use the server default.');
+      expect(el('.key-rate-field').textContent).not.toMatch(/\d+ per minute/);
+    });
+
+    it('test_empty_sends_no_limit_so_the_server_default_applies', () => {
+      openCreate();
+      submit();
+      const [req] = posts();
+      expect('rate_limit_per_minute' in req.request.body).toBeFalse();
+    });
+
+    it('test_a_valid_number_is_sent_as_an_integer', () => {
+      openCreate();
+      type(field(), ' 5 ');
+      submit();
+      const [req] = posts();
+      expect(req.request.body.rate_limit_per_minute).toBe(5);
+    });
+
+    for (const bad of ['0', '-3', '2.5', '1e3', 'abc', '100001']) {
+      it(`test_${bad.replace(/\W/g, '_')}_is_refused_with_a_reason_and_nothing_is_sent`, () => {
+        openCreate();
+        type(field(), bad);
+        submit();
+        expect(posts().length).toBe(0);
+        expect(el('.key-rate-field .field-error').textContent).toMatch(/whole number|limit/);
+        expect(field().getAttribute('aria-invalid')).toBe('true');
+      });
+    }
+
+    it('test_the_form_says_the_limit_cannot_be_changed_after_creation', () => {
+      openCreate();
+      expect(el('.key-rate-note').textContent).toContain('The API cannot change it afterwards');
+    });
+
+    it('test_reopening_the_form_clears_the_limit_and_its_error', () => {
+      openCreate();
+      type(field(), '0');
+      submit();
+      el<HTMLButtonElement>('.modal-foot .btn-secondary').click();
+      fixture.detectChanges();
+      el<HTMLButtonElement>('.keys-new button').click();
+      fixture.detectChanges();
+      expect(field().value).toBe('');
+      expect(document.querySelector('.key-rate-field .field-error')).toBeNull();
+    });
+  });
 });

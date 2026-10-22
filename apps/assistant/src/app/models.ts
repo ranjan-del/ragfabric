@@ -6,6 +6,7 @@ export type {
   AnalyticsOverview,
   Answer as AnswerResponse,
   ApiKeyCreated,
+  ApiKeyDefaults,
   ApiKeyItem,
   Citation,
   Collection,
