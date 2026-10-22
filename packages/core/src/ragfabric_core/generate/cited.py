@@ -56,9 +56,13 @@ NO_EVIDENCE_ANSWER = f"I {NO_EVIDENCE} an answer to that in the documents provid
 # what generate_cited_answer actually asks the model to do.
 SYSTEM_PROMPT = (
     "You answer strictly from the numbered passages provided. "
+    "Passages may come from different documents, years or versions: use the passage "
+    "that matches what the question asks. "
     "Cite every claim with the passage number in square brackets, for example [1]. "
     "Quote verbatim only, inside double quotation marks; paraphrase everything else. "
-    "If the passages do not answer the question, reply exactly: "
+    "Answer whenever any passage contains the information asked for, even if other "
+    "passages disagree or are irrelevant. "
+    "Only if no passage answers the question, reply exactly: "
     f"{NO_EVIDENCE_ANSWER}"
 )
 

@@ -175,6 +175,8 @@ class AgenticRAGStrategy:
             # other strategies leave this empty because they have no parts.
             sub_questions=run.sub_question_reports(),
             subgraph=run.subgraph,
+            stop_reason=run.stop_reason,
+            stop_detail=run.stop_detail,
         )
 
 

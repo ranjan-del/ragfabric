@@ -12,6 +12,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from ragfabric_core.generate.cited import (
+    NO_EVIDENCE_ANSWER,
     CitedAnswer,
     DatedSubQuestion,
     DroppedClaim,
@@ -99,7 +100,7 @@ def generate_for_result(query: str, result, llm: LLMProvider) -> Generated:
             sub_question_evidence=sub_question_evidence_from(result.sub_questions, result.chunks),
         )
         return Generated(
-            text=agentic.text,
+            text=_with_budget_note(agentic.text, result, empty=agentic.generator != "llm"),
             input_tokens=agentic.input_tokens,
             output_tokens=agentic.output_tokens,
             # Exactly one call, or none at all on the empty-pool path.
@@ -113,6 +114,31 @@ def generate_for_result(query: str, result, llm: LLMProvider) -> Generated:
         input_tokens=cited.input_tokens,
         output_tokens=cited.output_tokens,
         llm_calls=cited_llm_calls(cited),
+    )
+
+
+def _with_budget_note(text: str, result, *, empty: bool) -> str:
+    """Say so when the agent was cut short by a cap, instead of presenting a partial answer as whole.
+
+    The stop is a ``budget`` stop (iterations, model calls, cost or wall clock)
+    and the detail names which. With evidence, the answer stands on what was
+    gathered and says it may be incomplete. With none, the reason replaces a
+    bare "could not find", which would read as a statement about the documents
+    when the search simply ran out of budget.
+    """
+    if result.stop_reason != "budget":
+        return text
+    detail = result.stop_detail or "a limit was reached"
+    if empty:
+        # Keeps the refusal sentence so everything that recognises a refusal still
+        # does, and adds the reason after it.
+        return (
+            f"{NO_EVIDENCE_ANSWER} The search stopped before it found any evidence "
+            f"({detail}). Try again, ask a narrower question or raise the agentic limits."
+        )
+    return (
+        f"{text} Note: the search stopped early ({detail}), so this answer uses the evidence "
+        "found so far and may be incomplete."
     )
 
 

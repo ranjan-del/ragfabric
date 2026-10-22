@@ -68,7 +68,7 @@ Two stages, cheap first.
 | Identifier | `identifiers()` in `stores/boosting.py`, the same function the identifier boost uses | Vectorless |
 | Quoted phrase | `phrases()` in `stores/boosting.py` | Vectorless |
 | Relation phrase | A spoken form of a configured relation type ("reports to", "owns") together with at least one named entity | Graph |
-| Comparison, aggregation or several questions | Whole words or phrases such as compare, versus, vs, how many, total, or more than one question mark. "Totally" and "subtotal" do not count | Agentic |
+| Comparison, aggregation or several questions | Whole words or phrases such as compare, versus, vs, how many (unless a unit follows, as in "how many days", which is a lookup), total, or more than one question mark. "Totally" and "subtotal" do not count | Agentic |
 | None of these, and 15 words or fewer | The default | The first available of Traditional, Vectorless, Graph, Agentic |
 
 ### The decisive rule

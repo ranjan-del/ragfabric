@@ -149,6 +149,11 @@ class RetrievalResult(BaseModel):
     # The routing decision, set only by the auto strategy. None for every
     # strategy a caller names directly, the same additive move as subgraph.
     router: RouterDecision | None = None
+    # Why a strategy that decides its own effort stopped (the agent: ``resolved``,
+    # ``budget`` or ``no_progress``) and the detail naming the cap that fired.
+    # None for every strategy that does one fixed pass.
+    stop_reason: str | None = None
+    stop_detail: str | None = None
 
 
 @runtime_checkable

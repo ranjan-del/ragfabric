@@ -114,3 +114,34 @@ def test_the_stream_without_a_router_prints_no_line(monkeypatch):
     result = runner.invoke(app, ["ask", "q", "--token", "t"])
     assert result.exit_code == 0, result.output
     assert "Strategy:" not in result.stdout
+
+
+def _timeouts(monkeypatch) -> list:
+    import ragfabric_sdk.client as sdk_client
+
+    seen: list = []
+    real_client = sdk_client.httpx.Client
+
+    def fake_client(*args, **kwargs):
+        seen.append(kwargs.get("timeout"))
+        kwargs["transport"] = httpx.MockTransport(lambda request: httpx.Response(200, json=_ANSWER))
+        return real_client(*args, **kwargs)
+
+    monkeypatch.setattr(sdk_client.httpx, "Client", fake_client)
+    return seen
+
+
+def test_ask_waits_longer_than_the_agents_own_wall_clock_cap(monkeypatch):
+    """The agent may spend 30 s searching and then needs a model call to answer, so
+    a 30 s client timeout gave up before the server could return its budget stop."""
+    seen = _timeouts(monkeypatch)
+    result = runner.invoke(app, ["ask", "q", "--token", "t", "--no-stream"])
+    assert result.exit_code == 0, result.output
+    assert seen and seen[0] >= 120
+
+
+def test_ask_timeout_can_be_set(monkeypatch):
+    seen = _timeouts(monkeypatch)
+    result = runner.invoke(app, ["ask", "q", "--token", "t", "--no-stream", "--timeout", "45"])
+    assert result.exit_code == 0, result.output
+    assert seen[0] == 45

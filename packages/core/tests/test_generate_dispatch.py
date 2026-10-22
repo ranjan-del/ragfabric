@@ -79,3 +79,66 @@ def test_the_server_reexports_the_same_objects():
     assert search.Generated is dispatch.Generated
     assert search.uses_graph_path is dispatch.uses_graph_path
     assert search._cited_llm_calls is dispatch.cited_llm_calls
+
+
+def _agentic_answer(monkeypatch, text="ten days [1]"):
+    from ragfabric_core.generate.cited import AgenticAnswer
+
+    monkeypatch.setattr(
+        dispatch,
+        "generate_agentic_answer",
+        lambda query, chunks, llm, sub_question_evidence: AgenticAnswer(
+            text=text, model="m", generator="llm"
+        ),
+    )
+
+
+def _agentic_result(**extra):
+    return _result(
+        StrategyName.AGENTIC,
+        sub_questions=[SubQuestionReport(text="leave", status="open", chunk_ids=[1])],
+        **extra,
+    )
+
+
+def test_a_budget_stop_says_so_in_the_answer(monkeypatch):
+    _agentic_answer(monkeypatch)
+    result = _agentic_result(
+        stop_reason="budget", stop_detail="max_latency_ms of 30000 reached after 31000ms"
+    )
+
+    text = dispatch.generate_for_result("q", result, OfflineLLMProvider()).text
+
+    assert text.startswith("ten days [1]")
+    assert "stopped" in text and "max_latency_ms of 30000" in text
+
+
+def test_a_budget_stop_with_no_evidence_gives_the_reason_not_a_bare_refusal(monkeypatch):
+    result = _agentic_result(stop_reason="budget", stop_detail="max_latency_ms of 30000 reached")
+    result = result.model_copy(update={"chunks": []})
+
+    text = dispatch.generate_for_result("q", result, OfflineLLMProvider()).text
+
+    assert "max_latency_ms of 30000" in text
+    assert "any evidence" in text
+    assert "could not find" in text  # still recognised as a refusal
+
+
+def test_a_resolved_agentic_answer_gets_no_note(monkeypatch):
+    _agentic_answer(monkeypatch)
+    result = _agentic_result(stop_reason="resolved", stop_detail="every sub-question is answered")
+
+    text = dispatch.generate_for_result("q", result, OfflineLLMProvider()).text
+
+    assert text == "ten days [1]"
+
+
+def test_the_system_prompt_lets_a_model_choose_between_conflicting_versions():
+    """Two policy versions in one context made llama3.1:8b refuse a question that the
+    matching passage answers, so the prompt says to use the matching passage and to
+    refuse only when no passage answers."""
+    from ragfabric_core.generate.cited import NO_EVIDENCE_ANSWER, SYSTEM_PROMPT
+
+    assert "different documents, years or versions" in SYSTEM_PROMPT
+    assert "Only if no passage answers" in SYSTEM_PROMPT
+    assert SYSTEM_PROMPT.endswith(NO_EVIDENCE_ANSWER)
