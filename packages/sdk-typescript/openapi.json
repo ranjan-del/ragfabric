@@ -96,6 +96,11 @@
             "title": "Question",
             "type": "string"
           },
+          "refused": {
+            "default": false,
+            "title": "Refused",
+            "type": "boolean"
+          },
           "router": {
             "anyOf": [
               {

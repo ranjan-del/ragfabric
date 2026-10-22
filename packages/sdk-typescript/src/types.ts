@@ -128,7 +128,7 @@ export interface CitationsEvent {
 
 export interface DoneEvent {
   event: 'done';
-  data: { run_id: number; latency_ms: number; usage: Usage };
+  data: { run_id: number; latency_ms: number; usage: Usage; refused?: boolean };
 }
 
 /** An event this SDK does not know, passed through rather than dropped. */

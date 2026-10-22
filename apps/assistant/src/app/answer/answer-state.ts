@@ -33,16 +33,21 @@ export class AnswerState {
   readonly error = signal<string | null>(null);
 
   /**
-   * The answer is the server's "could not find" admission with no source
-   * cited. The API has no refusal flag, so this reads the same signal the
-   * evaluation judge reads: the contract's phrase and no citation marker.
+   * The server declined to answer. The `done` event carries an explicit `refused`
+   * flag, which is used when present. A server that predates the flag does not send
+   * it, so the old reading (the contract's phrase and no citation marker) is kept
+   * as the fallback.
    */
-  readonly refused = computed(
-    () =>
-      this.status() === 'done' &&
-      this.text().toLowerCase().includes('could not find') &&
-      !/\[\d+\]/.test(this.text()),
-  );
+  readonly refused = computed(() => {
+    if (this.status() !== 'done') {
+      return false;
+    }
+    const flag = this.done()?.refused;
+    if (typeof flag === 'boolean') {
+      return flag;
+    }
+    return this.text().toLowerCase().includes('could not find') && !/\[\d+\]/.test(this.text());
+  });
 
   /** Why a refusal happened, in wording safe to show, or null when the API gave none. */
   readonly refusalReason = computed<string | null>(() => {

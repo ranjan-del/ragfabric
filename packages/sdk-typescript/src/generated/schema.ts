@@ -26,6 +26,7 @@ export interface AnswerResponse {
   fallback_from?: string | null;
   highlights: Highlight[];
   question: string;
+  refused?: boolean;
   router?: RouterDecisionOut | null;
   source_document?: SourceDocument | null;
   strategy?: string | null;
