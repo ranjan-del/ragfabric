@@ -218,4 +218,41 @@ describe('AskComponent', () => {
     fixture.detectChanges();
     expect(text('[data-test="error"]')).toBe('The agentic strategy needs a language model.');
   });
+
+  it('test_a_graph_answer_shows_its_walked_path_and_turns_edge_markers_into_chips', () => {
+    const graph = {
+      nodes: [
+        { id: 1, name: 'Anjali Rao', entity_type: 'person', depth: 0 },
+        { id: 2, name: 'Rohan Iyer', entity_type: 'person', depth: 1 },
+      ],
+      edges: [
+        { id: 11, source_id: 1, target_id: 2, relation_type: 'REPORTS_TO', walked_as: 'REPORTS_TO', reversed: false, confidence: 0.9, source_chunk_ids: [11] },
+      ],
+      truncated: false,
+    };
+    const req = ask('Who does Anjali report to?', 'manual', 'graph');
+    finish(req, [
+      ['retrieval', retrieval({ strategy: 'graph', subgraph: graph, router: null })],
+      ['token', { text: 'Anjali Rao reports to Rohan Iyer [E 1] [1].' }],
+      ['citations', { citations: CITATIONS }],
+      ['done', { run_id: 3, latency_ms: 5, usage: {} }],
+    ]);
+
+    expect(el('[data-test="edge-marker"]')?.tagName).toBe('BUTTON');
+    expect((el('[data-test="graph-path"]') as HTMLDetailsElement).open).toBeFalse();
+    expect(text('[data-test="edge"]')).toContain('Anjali Rao reports to Rohan Iyer');
+    expect(text('[data-test="edge-source"]')).toBe('it-runbook.md');
+  });
+
+  it('test_a_graph_answer_that_found_nothing_says_why_in_plain_words', () => {
+    const req = ask('Who is the Moon king?', 'manual', 'graph');
+    finish(req, [
+      ['retrieval', retrieval({ chunks: 0, strategy: 'graph', subgraph: { nodes: [], edges: [], truncated: false, empty_reason: 'no_graph_coverage' }, router: null })],
+      ['token', { text: 'I could not find that in the documents.' }],
+      ['citations', { citations: [] }],
+      ['done', { run_id: 4, latency_ms: 5, refused: true, usage: {} }],
+    ]);
+
+    expect(text('[data-test="graph-empty"]')).toContain('No knowledge graph covers these documents yet.');
+  });
 });

@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 import { RagFabricError, Run } from '@ragfabric/sdk';
 
 import { count, ms, percent, score, usd } from '../../answer/format';
+import { walkedEdges } from '../../answer/graph';
 import { describeError } from '../../services/http-error';
 import { RunDetailsService } from '../../services/run-details.service';
 import { RunService } from '../../services/run.service';
@@ -95,9 +96,9 @@ import { waterfall } from './waterfall';
             <p class="muted">{{ g.nodes.length }} entities, {{ g.edges.length }} relationships walked@if (g.truncated) {, cut by the node budget}.</p>
             @if (g.empty_reason) {<p data-test="empty-reason">Nothing walked: {{ g.empty_reason }}</p>}
             <ul class="edges" data-test="graph-path">
-              @for (e of g.edges; track e.id) {
-                <li>{{ nodeName(g.nodes, e.source_id) }} <code>{{ e.walked_as }}</code> {{ nodeName(g.nodes, e.target_id) }}
-                  <span class="muted">(confidence {{ score(e.confidence) }})</span></li>
+              @for (e of walkedEdges(g); track e.edge.id) {
+                <li>{{ e.from }} <code>{{ e.relation }}</code> {{ e.to }}
+                  <span class="muted">(confidence {{ score(e.edge.confidence) }})</span></li>
               }
             </ul>
           }
@@ -182,6 +183,7 @@ export class TraceComponent implements OnChanges {
   readonly count = count;
   readonly usd = usd;
   readonly score = score;
+  readonly walkedEdges = walkedEdges;
 
   readonly bars = computed(() => {
     const r = this.run();
@@ -221,9 +223,5 @@ export class TraceComponent implements OnChanges {
 
   attributes(attrs: Record<string, unknown> | undefined): [string, string][] {
     return Object.entries(attrs ?? {}).map(([k, v]) => [k, String(v)]);
-  }
-
-  nodeName(nodes: readonly { id: number; name: string }[], id: number): string {
-    return nodes.find((n) => n.id === id)?.name ?? `#${id}`;
   }
 }

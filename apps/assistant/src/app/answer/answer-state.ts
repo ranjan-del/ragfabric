@@ -7,11 +7,7 @@ import {
   SupersededEvent,
 } from '@ragfabric/sdk';
 
-const GRAPH_REASONS: Record<string, string> = {
-  no_graph_coverage: 'No knowledge graph covers these documents yet.',
-  no_entity_matched: 'No entity in the question matched the knowledge graph.',
-  no_walkable_edges: 'The matched entities have no relationships to follow.',
-};
+import { emptyGraphReason } from './graph';
 
 export type AnswerStatus = 'idle' | 'running' | 'done' | 'failed';
 
@@ -55,9 +51,9 @@ export class AnswerState {
       return null;
     }
     const retrieval = this.retrieval();
-    const graph = retrieval?.subgraph?.empty_reason;
+    const graph = emptyGraphReason(retrieval?.subgraph);
     if (graph) {
-      return GRAPH_REASONS[graph] ?? 'The knowledge graph had nothing to answer from.';
+      return graph;
     }
     if (retrieval && retrieval.chunks === 0) {
       return 'No passages matched this question.';
