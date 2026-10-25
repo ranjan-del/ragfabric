@@ -12,8 +12,8 @@
 > three-way `switch_strategy`, described below. `auto` (see [routing.md](routing.md)) can send a
 > question here, and falls back to Traditional when the agent returns zero usable evidence.
 >
-> Retrieval quality (whether an answer is correct, complete or faithful to its sources) is
-> **not measured**; Phase 8 measures it.
+> Quality is measured on MultiHop-RAG in Phase 11 (25 October 2026); see
+> [Measured behaviour and next steps](#measured-behaviour-and-next-steps).
 
 See [concepts/agentic-loops.md](concepts/agentic-loops.md) for the mental model, and
 [ADR 0010](adr/0010-repair-policy-and-termination.md) for the repair policy and the three stop
@@ -297,7 +297,49 @@ database.
 - **Latency is variable and higher than a single-shot strategy**, which is the cost of deciding
   how much work to do while doing it. The router in Phase 7 exists so this strategy is used
   only when a question needs it.
-- **No quality figure exists.** Whether six moves recover more questions than one, and whether
-  the agent retrieves better than the two strategies it wraps, are measurements. Per
-  [ADR 0004](adr/0004-measurement-first-no-fabricated-numbers.md) no number for either appears
-  anywhere in this repository until Phase 8 produces one.
+- **On a small local model it does worse than the strategies it wraps.** Measured below: with
+  `llama3.2:3b` it spends its time budget searching, finds about the same evidence, and then
+  answers from a larger pool, which a 3B model handles badly.
+
+## Measured behaviour and next steps
+
+One run on MultiHop-RAG, 100 documents and 50 questions, answering model `llama3.2:3b` on a
+laptop, judge `llama3.1:8b`, commit `d7838b4`. Agentic is run 24 and traditional is run 20 in batch
+`p11-mh100q50-l32` ([MultiHop-RAG results](benchmarks/results/multihop-rag.md)). Recall, refusals
+and correctness are the runs' stored summaries; the other rows are computed from their stored per
+question rows.
+
+| Measure | Traditional | Agentic |
+|---|---|---|
+| Model calls per question (mean) | 1.3 | 4.9 |
+| Time spent retrieving (median) | 72 ms | 31,681 ms |
+| Stopped by `max_latency_ms` (30,000 ms) | n/a | 27 of 50 |
+| Recall | 0.38 | 0.40 |
+| Passages given to the answer call (mean) | 5 | 11.6 |
+| Input tokens of the answer call (median) | 934 | 4,546 |
+| Refusals | 21 of 50 | 27 of 50 |
+| Correctness | 0.66 | 0.53 |
+| Questions where it beat / lost to traditional | | 8 / 14 |
+
+What this says: the loop's design holds up (it stops for a recorded reason, within its budget,
+and never loops), but on this model the extra searching finds almost no extra evidence, and the
+answer call then reads more than twice as many passages. Half of the questions reached the time
+cap. Agentic has not yet been run with a large or cloud answering model, where each call is faster
+and a long prompt is handled better, so these figures describe the small local case only.
+
+Next steps, in order of expected effect for the effort:
+
+1. **Cap and rank the evidence before answering.** Rerank the pooled passages against the original
+   question and pass the best 5 to 8, so the answer prompt stays near a single shot prompt's size.
+2. **Fall back to the single shot answer.** When the loop stops on budget, or the answer is a
+   refusal while traditional would answer, return the wrapped strategy's answer, so agentic is never
+   worse than the strategy it wraps.
+3. **Start single shot, escalate only when needed.** Run the wrapped strategy first and enter the
+   loop only when the assessment finds a sub-question unanswered; easy questions then cost one
+   retrieval and one answer.
+4. **Run sub-question retrieval and assessment concurrently**, so fewer questions reach the cap.
+5. **Carry what one hop found into the next query** (bridge entities), which is the multi-hop gain
+   the loop exists for.
+
+Each change is measured on the same batch with `llama3.2:3b` and with one larger model, and both
+numbers are published (D18).

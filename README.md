@@ -124,9 +124,11 @@ budget. The agent can call semantic search, lexical search and fetch-full-docume
 tools, judges whether the evidence answers the question, rewrites the query when it does not, and verifies
 the final answer against the evidence. Every step is recorded in the trace with its calls, tokens and cost.
 
-Strong on multi part, comparative and vague questions. Highest and most variable latency and cost. The
+Built for multi part, comparative and vague questions. Highest and most variable latency and cost. The
 hard engineering problem is stopping correctly, which is why the budget and the evidence evaluation are
-first class.
+first class. Measured on a small local model it does worse than Traditional, because it spends its time
+budget searching and then answers from too many passages; the figures and the planned fixes are in
+[docs/agentic-rag.md](docs/agentic-rag.md#measured-behaviour-and-next-steps).
 
 ### Graph RAG
 
@@ -294,9 +296,54 @@ own questions over your own corpus.
 
 ## Benchmark results
 
-Results are generated, never typed: see [docs/benchmarks/latest.md](docs/benchmarks/latest.md), written
-by `make eval` with the commit, models, judge and date that produced it. It is one run on one setup, not
-a general claim (ADR 0004).
+Every number below comes from a stored run, named by its run id, on one laptop (Apple M1, 16 GB), with
+the commit each ran on recorded in the full tables. Each is one run on a small sample, not a general
+claim (ADR 0004).
+Full tables: [comparison](docs/benchmarks/comparison.md), [model sweep](docs/benchmarks/results/model-sweep.md),
+the [latest shipped-set run](docs/benchmarks/latest.md), and a [feature comparison with the wider
+market](docs/benchmarks/landscape.md) from published documentation.
+
+**With a strong cloud model.** The 24 shipped questions, retrieved by RagFabric and answered by two cloud
+models from the exported prompts (runs 7 to 10), against the local `llama3.1:8b` on the same retrieval
+(runs 1 and 2). The shipped questions were written alongside the system, so they favour it.
+
+| Strategy | Answering model | Correctness | Citation |
+|---|---|---|---|
+| Traditional | Claude Sonnet 5.5 | 0.97 | 0.92 |
+| Traditional | Claude Haiku 5.5 | 0.91 | 0.92 |
+| Traditional | `llama3.1:8b` (local) | 0.83 | 0.92 |
+| Vectorless | Claude Sonnet 5.5 | 0.94 | 0.92 |
+| Vectorless | Claude Haiku 5.5 | 0.93 | 1.00 |
+| Vectorless | `llama3.1:8b` (local) | 0.87 | 0.92 |
+
+**With a small local model, against LlamaIndex and LangChain.** MultiHop-RAG, 100 documents and 50
+questions that each need two or more documents, answered by `llama3.2:3b` and judged by `llama3.1:8b`
+(runs 20 to 24, 43 and 44). The two frameworks search RagFabric's own chunks with the same embedding
+model, so their retrieval matches Traditional.
+
+| Target | Hit | MRR | Correctness | Citation | Refusals | p50 |
+|---|---|---|---|---|---|---|
+| Traditional | 0.71 | 0.59 | 0.66 | 0.30 | 21 | 5.2 s |
+| Vectorless | 0.78 | 0.65 | 0.65 | 0.38 | 21 | 4.2 s |
+| Traditional with cross encoder rerank | 0.83 | 0.67 | 0.52 | 0.26 | 26 | 4.3 s |
+| Auto (router) | 0.73 | 0.57 | 0.66 | 0.36 | 22 | 6.0 s |
+| Agentic | 0.66 | 0.49 | 0.53 | 0.22 | 27 | 40.7 s |
+| LlamaIndex | 0.71 | 0.59 | 0.63 | n/a | 0 | 5.3 s |
+| LangChain | 0.71 | 0.59 | 0.72 | n/a | 0 | 5.4 s |
+
+What it says:
+
+- **Finding documents is strong**, and on the BEIR samples vector search found a relevant document for
+  0.88 to 1.00 of questions (runs 25, 30 and 35) in tens of milliseconds.
+- **Answer quality depends mostly on the model.** A strong cloud model gives accurate, well cited
+  answers; a 3B local model gives fair answers and weak citations on hard questions.
+- **RagFabric refuses rather than answer without a source.** That costs correctness on a small model:
+  LangChain, which never refuses and gives no citations, scored higher here.
+- **Agentic needs work on small models**: it is the slowest and scored lowest
+  ([why, and the fixes](docs/agentic-rag.md#measured-behaviour-and-next-steps)).
+- **Not run yet**: the full BEIR tiers, FinanceBench, the model sweep, the access leak test and the
+  graph tiers. Phase 11 is paused at a checkpoint and resumes from the same batches
+  ([resuming](docs/benchmarks/README.md#resuming-the-runs)).
 
 ## Documentation
 
@@ -576,7 +623,11 @@ extra installed, because Ollama is served through the OpenAI compatible client; 
 - Pre alpha. Only v1 features are usable today; everything else is a plan with a phase number.
 - The four strategies need a real LLM and embedding provider. Ollama is the free path; quality depends on the local model.
 - Graph RAG quality is bounded by extraction quality, and extraction costs one LLM call per chunk at index time.
-- Agentic RAG latency is variable by design. The budget caps it, but it will always be the slowest.
+- Agentic RAG latency is variable by design. The budget caps it, but it will always be the slowest. On a
+  3B local model it also scores below Traditional today (see [Benchmark results](#benchmark-results)).
+- Graph RAG refuses when the model leaves out citation markers, so on small models it answers few questions.
+- Answer quality depends mostly on the answering model: a 3B or 8B local model gives fair answers and
+  weak citations on hard questions, a strong cloud model gives much better ones on the same retrieval.
 - Single workspace per install. Multi tenancy is not planned before v1.0.
 - Evaluation with an LLM judge has its own bias; the deterministic citation check is the ground truth for citations.
 
@@ -605,7 +656,7 @@ Every flagship repository documents the same ten things. Status shows what exist
 | README | [README.md](README.md) | Written |
 | Architecture | [docs/architecture.md](docs/architecture.md) | Written |
 | Design decisions | [docs/adr/](docs/adr/) | Written |
-| Benchmarks | [docs/benchmarks/README.md](docs/benchmarks/README.md) | Partial (one recorded run) |
+| Benchmarks | [docs/benchmarks/README.md](docs/benchmarks/README.md) | Partial (Phase 11 paused at a checkpoint on 25 October 2026) |
 | Failure cases | [docs/failure-cases.md](docs/failure-cases.md) | Partial |
 | Evaluation | [docs/evaluation.md](docs/evaluation.md) | Written |
 | Trade-offs | [docs/trade-offs.md](docs/trade-offs.md) | Partial |

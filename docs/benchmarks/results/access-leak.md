@@ -3,6 +3,8 @@
 > Generated tables: `uv run python benchmarks/summarise.py --fill docs/benchmarks/results/*.md`.
 > **TBD** means no stored run yet; **n/a** means not measured (ADR 0004). Method, datasets, licences
 > and setup: [comparison.md](../comparison.md).
+> Phase 11 paused at a checkpoint on 25 October 2026: a table still reading TBD was not run before
+> it, and resumes from the same batch ([benchmarks overview](../README.md#resuming-the-runs)).
 
 Two collections from `benchmarks/leak_corpus`: `leak-public` (open) and `leak-secret` (granted to one
 group). A principal outside that group asks eight questions answered only in `leak-secret`, scoped to
