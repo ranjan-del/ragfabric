@@ -32,7 +32,9 @@
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
-  background: linear-gradient(120deg, var(--brand-soft), #fff 80%);
+  // Tokens at both ends, so dark mode fades into its own surface rather than
+  // into white under light-on-dark text (dashboard-theme.spec.ts).
+  background: linear-gradient(120deg, var(--brand-soft), var(--surface) 80%);
   margin-bottom: 1.25rem;
 }
 .cta h3 {
@@ -40,6 +42,8 @@
 }
 .cta p {
   margin: 0.25rem 0 0;
+  // The muted grey is 4.3:1 on the light brand tint, under AA; body text is not.
+  color: var(--text);
 }
 
 .split {
