@@ -136,3 +136,31 @@ def test_a_quote_in_no_passage_at_all_is_not_given_a_passage():
             'It says "an invented sentence here" [1].', chunks("Something else.", "Other text.")
         )
     assert "appears in passage" not in exc.value.reason
+
+
+# A reply that is only markers, "[1]", passed the contract: it cites a passage that
+# exists and quotes nothing, yet it says nothing. llama3.2:3b gave exactly that for the
+# quickstart's own sample question, and the user saw "[1]" as the answer.
+
+
+@pytest.mark.parametrize("answer", ["[1]", " [1] [2]. ", "[1]\n"])
+def test_an_answer_of_markers_alone_is_a_violation(answer):
+    from ragfabric_core.generate.contract import assert_answer_has_words
+
+    with pytest.raises(CitationViolation) as exc:
+        assert_answer_has_words(answer)
+    assert "only citation markers" in exc.value.reason
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Staff get 24 days [1].",
+        "[1] Up to 10 days carry forward.",
+        "I could not find an answer to that in the documents provided.",
+    ],
+)
+def test_an_answer_with_words_passes_the_words_check(answer):
+    from ragfabric_core.generate.contract import assert_answer_has_words
+
+    assert_answer_has_words(answer)

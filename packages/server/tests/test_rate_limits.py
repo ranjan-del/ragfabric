@@ -10,6 +10,11 @@ from ragfabric_core import runtime
 from ragfabric_core.testing.fixtures import make_txt
 
 
+@pytest.fixture(autouse=True)
+def _fixed_window(limiter_clock):
+    """Every test here counts within one window; see ``limiter_clock``."""
+
+
 @pytest.fixture()
 def limits():
     cfg = runtime.get_config().limits
