@@ -41,7 +41,7 @@ def test_admin_manages_groups_grants_and_keys(client, admin_headers, auth_header
     )
 
 
-def test_api_key_is_shown_once_and_authenticates(client, admin_headers):
+def test_api_key_is_shown_once_and_authenticates(client, admin_headers, limiter_clock):
     admin = client.get("/api/auth/me", headers=admin_headers).json()
     created = client.post(
         "/api/admin/keys",

@@ -91,9 +91,23 @@ describe('adminGuard', () => {
       token: 'token-1',
       isAdmin: signal(false),
       user: signal(null),
-      loadProfile: () => throwError(() => new Error('401')),
+      loadProfile: () => throwError(() => Object.assign(new Error('401'), { status: 401 })),
     } as unknown as Partial<AuthService>);
     (run(adminGuard) as Observable<unknown>).subscribe((r) => (outcome = r));
     expect(urlOf(outcome)).toBe('/login');
+  });
+
+  it('sends a directly opened admin route to /dashboard, not /login, when the profile fails for another reason', () => {
+    for (const status of [429, 500, 0]) {
+      configure({
+        token: 'token-1',
+        isAdmin: signal(false),
+        user: signal(null),
+        loadProfile: () => throwError(() => Object.assign(new Error(String(status)), { status })),
+      } as unknown as Partial<AuthService>);
+      let outcome: unknown;
+      (run(adminGuard) as Observable<unknown>).subscribe((r) => (outcome = r));
+      expect(urlOf(outcome)).withContext(`status ${status}`).toBe('/dashboard');
+    }
   });
 });

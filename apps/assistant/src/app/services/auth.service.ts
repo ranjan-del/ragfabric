@@ -55,10 +55,23 @@ export class AuthService {
       .pipe(tap((user) => this._user.set(user)));
   }
 
-  /** Restore the session on app start if a token is present. */
+  /**
+   * Restore the session on app start if a token is present.
+   *
+   * Only a 401 means the token is no good. A rate limit (429), a server error or
+   * a dropped connection says nothing about the token, so it is kept and the
+   * next request tries again; signing out on those sent a user to /login after
+   * one busy minute.
+   */
   restore(): void {
     if (this.token) {
-      this.loadProfile().subscribe({ error: () => this.logout() });
+      this.loadProfile().subscribe({
+        error: (error: unknown) => {
+          if (isUnauthorized(error)) {
+            this.logout();
+          }
+        },
+      });
     }
   }
 
@@ -66,4 +79,9 @@ export class AuthService {
     localStorage.removeItem(TOKEN_KEY);
     this._user.set(null);
   }
+}
+
+/** Whether an error is the server refusing the token itself (401), not any other failure. */
+export function isUnauthorized(error: unknown): boolean {
+  return (error as { status?: unknown } | null)?.status === 401;
 }
