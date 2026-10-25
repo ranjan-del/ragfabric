@@ -13,7 +13,9 @@ winner behind a query router. Bring your own model, database and hosting.
 
 | If you want to | Read |
 |---|---|
+| Understand what it does and what the numbers mean, in plain words | [How it works](how-it-works.md) |
 | Run it on a laptop and ask a first question | [Quick start](getting-started.md) |
+| See how well it works and how it compares | [Benchmark comparison](benchmarks/comparison.md), [RAG landscape](benchmarks/landscape.md) |
 | Understand why there is more than one way to retrieve | [Concepts](concepts/ingestion.md), then [Trade-offs](trade-offs.md) |
 | Pick a strategy | [Traditional](traditional-rag.md), [Vectorless](vectorless-rag.md), [Agentic](agentic-rag.md), [Graph](graph-rag.md), and the [Router](routing.md) that chooses between them |
 | Keep a folder or a Google Drive in sync | [Connectors](connectors.md) |
