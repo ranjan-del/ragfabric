@@ -32,7 +32,9 @@ GUIDE = """Strategies:
 
 Reply as {"query_type": one of simple_factual, exact_match, relationship, multi_hop,
 comparison, aggregation, compound, ambiguous, "strategy": one of the allowed strategies,
-"confidence": a number from 0 to 1, "reasoning": one short sentence for the user}."""
+"confidence": a number from 0 to 1, "reasoning": one short sentence for the user on
+why that strategy suits the question}. You have not read the documents, so never answer the
+question in the reasoning and never state a fact about its subject."""
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s")
 
 
