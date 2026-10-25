@@ -12,42 +12,133 @@
   <img alt="Release: v0.4.0, v1.0 in progress" src="https://img.shields.io/badge/release-v0.4.0%2C%20v1.0%20in%20progress-yellow">
 </p>
 
-> **Status: v0.4.0 released; v1.0 in progress.** The four strategies and the query router are released
-> (v0.4.0). On `main` and not yet released: the evaluation harness (Phase 8), the assistant UI and
-> TypeScript SDK (Phase 9), hardening, connectors and the docs site (Phase 10), and the public benchmarks,
-> paused at a checkpoint on 25 October 2026 (Phase 11). See [ROADMAP.md](ROADMAP.md) for what exists and
-> what is next; nothing in this README claims a feature the roadmap does not mark as shipped.
-> New here? Start with [How RagFabric works, in plain words](docs/how-it-works.md). Repository renamed
-> from `enterprise-rag-knowledge-assistant` to `ragfabric` on 2026-09-13; old links redirect.
-> Documentation lives in [docs/](docs/README.md).
+> **Status.** This repository uses three states everywhere: **Released** (in a tagged release and
+> exercised end to end), **Implemented, validation pending** (the code is on `main`, but a release, a
+> live integration run or quality evidence is still missing) and **Planned** (not built yet). The
+> latest release is **v0.4.0**: the four strategies and the query router. Evaluation, the assistant
+> UI, the TypeScript SDK, hardening, connectors, deployment guides and the public benchmarks are
+> implemented on `main` with validation pending. See [Status at a glance](#status-at-a-glance) and
+> [ROADMAP.md](ROADMAP.md). Repository renamed from `enterprise-rag-knowledge-assistant` to
+> `ragfabric` on 2026-09-13; old links redirect.
+
+## At a glance
+
+RagFabric answers questions from your own documents with numbered, checkable citations. It runs four
+retrieval strategies behind one interface, routes each question to one of them, refuses an answer it
+cannot cite, and measures accuracy, latency and cost on your own corpus. Everything runs on your own
+machine with a local model; hosted models through an API key are implemented, with no live run recorded
+yet. New here? Read
+[How RagFabric works, in plain words](docs/how-it-works.md).
+
+```mermaid
+flowchart LR
+    D[Documents] --> I[Ingest: clean, chunk, index]
+    I --> S[(PostgreSQL: vectors, keywords, graph, access)]
+    Q[Question] --> R{Router}
+    R --> T[Traditional] & V[Vectorless] & G[Graph] & A[Agentic]
+    S --> T & V & G & A
+    T & V & G & A --> P[Passages the asker may see]
+    P --> M[Model writes the answer]
+    M --> C{Every claim cited?}
+    C -- yes --> O[Answer, citations, trace]
+    C -- no --> F[Repair, or refuse]
+```
+
+![Ask: the router's choice, the answer and its citations](docs/images/ask.png)
+
+| Compare: one question, four strategies | Citation viewer: the exact passage |
+|---|---|
+| ![Compare page](docs/images/compare.png) | ![Citation viewer](docs/images/citation.png) |
+
+**One benchmark.** MultiHop-RAG, 100 documents and 50 questions that each need two or more documents,
+answering model `llama3.2:3b` and judge `llama3.1:8b` on one laptop, 25 October 2026 (runs 20 to 24,
+43 and 44). LlamaIndex and LangChain search the same chunks with the same embeddings.
+
+| Target | Hit | Correctness | Citation | Refusals |
+|---|---|---|---|---|
+| RagFabric Traditional | 0.71 | 0.66 | 0.30 | 21 |
+| RagFabric Vectorless | 0.78 | 0.65 | 0.38 | 21 |
+| RagFabric Auto | 0.73 | 0.66 | 0.36 | 22 |
+| LlamaIndex | 0.71 | 0.63 | n/a | 0 |
+| LangChain | 0.71 | 0.72 | n/a | 0 |
+
+RagFabric refuses rather than answer without a source, which costs correctness on a 3B model; with a
+strong cloud model on the shipped questions it scored 0.91 to 0.97. Full tables, method and losses:
+[Benchmark results](#benchmark-results), [evaluation method](docs/evaluation.md),
+[Limitations](#limitations).
+
+**Quick start on a clean machine** (Python 3.13 and [uv](https://docs.astral.sh/uv/); no Docker, database
+or API key needed):
+
+```bash
+git clone https://github.com/ranjan-del/ragfabric.git && cd ragfabric
+uv sync
+uv run ragfabric quickstart     # config, SQLite, sample documents, a first cited answer
+uv run ragfabric doctor         # checks every part and names the fix for anything missing
+```
+
+Without a model it runs in offline mode (extractive answers); add a local or hosted model with the
+[setup guide](docs/setup.md).
+
+## Status at a glance
+
+| Area | State | Evidence and what is missing |
+|---|---|---|
+| Ingestion: PDF, DOCX, PPTX, TXT, CSV, Markdown; cleaning, chunking, page numbers | Released (v0.1.0) | Unit and end to end tests; used in every benchmark run |
+| Access control: groups, collection grants, document overrides, API keys with rate limits, audit log | Released (v0.1.0) | Filter applied inside every store query, covered by tests; the benchmark leak test is built but not run yet |
+| Traditional RAG: pgvector or Chroma, rerankers, citation contract, streaming | Released (v0.1.0) | Benchmarked on MultiHop-RAG and BEIR samples |
+| Vectorless RAG: BM25 and PostgreSQL full text with fusion | Released (v0.1.0) | Benchmarked on MultiHop-RAG and BEIR samples |
+| Agentic RAG: bounded plan, retrieve, assess, repair loop | Released (v0.2.0) | Benchmarked: slower than Traditional and lower scores on a 3B model; fixes planned |
+| Graph RAG: extraction, entity resolution, access checked traversal in PostgreSQL | Released (v0.3.0) | Refuses often on small models; graph benchmark tiers not run yet |
+| Query router: auto and manual, fallbacks, reasoning | Released (v0.4.0) | Measured on 50 held-out questions: better than Traditional alone |
+| CLI: quickstart, doctor, strategies, ingest, ask, eval | Released (v0.4.0) on GitHub | Quickstart verified from a clean folder; PyPI still holds 0.3.1, the 0.4.0 upload is pending |
+| Local model through Ollama, on the same machine | Released (v0.1.0) | The default; used for every benchmark run |
+| Hosted models with an API key: OpenAI, Anthropic | Implemented, validation pending | Code in every release since v0.1.0, tested with fakes only; no live run with a key is recorded |
+| Any OpenAI compatible endpoint (vLLM, LM Studio, a hosted gateway) | Planned | `llm.base_url` is read only for Ollama today; the OpenAI provider always calls OpenAI |
+| Evaluation harness, metrics, `ragfabric eval`, dashboards data | Implemented, validation pending | On `main`; v0.5.0 is not tagged yet |
+| Web app: dashboard, documents, collections, Ask, Compare, Trace, Evaluation, analytics, admin, console | Implemented, validation pending | On `main`; checked page by page at desktop and phone widths in light and dark on 25 October 2026; ships with v1.0.0 |
+| TypeScript SDK `@ragfabric/sdk` | Implemented, validation pending | On `main`, used by the app and tested; not published to npm |
+| Hardening: rate limits, upload validation, request ids, JSON logs | Implemented, validation pending | On `main` and tested; ships with v1.0.0 |
+| Watched folder connector | Implemented, validation pending | Verified against a real folder; ships with v1.0.0 |
+| Google Drive connector | Implemented, validation pending | Tested with fake HTTP only; no real Drive account has been connected |
+| Self hosting on one server: Docker Compose, Caddy HTTPS, local model profile | Implemented, validation pending | Run end to end on a workstation; not yet run on a public server |
+| Render, Railway and static host deployment | Implemented, validation pending | Guides written from each provider's documentation; nothing has been deployed |
+| Documentation site and release automation | Implemented, validation pending | The site builds in strict mode; its deploy and the PyPI upload are switched off |
+| Public benchmarks against LlamaIndex and LangChain | Implemented, validation pending | MultiHop-RAG 100 and BEIR 100 and 1,000 measured; larger tiers, FinanceBench, model sweep, leak test and graph tiers paused at a checkpoint |
+| Agentic improvements: ranked evidence, fallback, single shot first, parallel search, multi-hop queries | Planned | Diagnosis and plan in [docs/agentic-rag.md](docs/agentic-rag.md#measured-behaviour-and-next-steps) |
+| More providers (Gemini, Azure OpenAI, Bedrock; Voyage and Cohere embeddings) | Planned | |
+| OIDC and SAML sign-in, multi tenant workspaces, multi collection filters on the API | Planned | |
+| More connectors (Slack, Jira and others), Graph community summaries, a Helm chart | Planned | |
 
 ---
 
 ## Table of contents
 
-1. [What it is](#what-it-is)
-   - [How it works, in plain words](docs/how-it-works.md)
-2. [Why multiple RAG architectures exist](#why-multiple-rag-architectures-exist)
-3. [The four strategies](#the-four-strategies)
-4. [How to choose a RAG architecture](#how-to-choose-a-rag-architecture)
-5. [Query router](#query-router)
-6. [Architecture](#architecture)
-7. [Everything is configurable](#everything-is-configurable)
-8. [Access control](#access-control)
-9. [Observability](#observability)
-10. [Evaluation methodology](#evaluation-methodology)
-11. [Benchmark results](#benchmark-results)
-12. [Technology stack](#technology-stack)
-13. [Installation](#installation)
-14. [Configuration](#configuration)
-15. [Example queries](#example-queries)
-16. [Repository layout](#repository-layout)
-17. [What works today](#what-works-today)
-18. [Limitations](#limitations)
-19. [Roadmap and future improvements](#roadmap-and-future-improvements)
-20. [Project documentation](#project-documentation)
-21. [Contributing](#contributing)
-22. [License](#license)
+1. [At a glance](#at-a-glance) and [Status at a glance](#status-at-a-glance)
+2. [What it is](#what-it-is), and [How it works, in plain words](docs/how-it-works.md)
+3. [Why multiple RAG architectures exist](#why-multiple-rag-architectures-exist)
+4. [The four strategies](#the-four-strategies)
+5. [How to choose a RAG architecture](#how-to-choose-a-rag-architecture)
+6. [Query router](#query-router)
+7. [Architecture](#architecture)
+8. [Everything is configurable](#everything-is-configurable)
+9. [Access control](#access-control)
+10. [Data and storage](#data-and-storage)
+11. [The web app](#the-web-app)
+12. [Observability](#observability)
+13. [Evaluation methodology](#evaluation-methodology)
+14. [Benchmark results](#benchmark-results)
+15. [Technology stack](#technology-stack)
+16. [Installation](#installation), and the [setup guide](docs/setup.md) for models and hosting
+17. [Configuration](#configuration)
+18. [Example queries](#example-queries)
+19. [Repository layout](#repository-layout)
+20. [What works today](#what-works-today)
+21. [Limitations](#limitations)
+22. [Roadmap and future improvements](#roadmap-and-future-improvements)
+23. [Project documentation](#project-documentation)
+24. [Contributing](#contributing)
+25. [License](#license)
 
 ---
 
@@ -237,8 +328,8 @@ number of retrieval and LLM calls, tokens, latency, a trace and an optional `fal
 citation checking, metrics and evaluation run the same code regardless of which strategy produced it.
 That is what makes the comparison fair.
 
-Phase 1 shipped this interface, the provider and store interfaces, the configuration and cost modules,
-the platform tables and the compose profiles; the four strategies arrive in the following phases.
+All four strategies, the router and the agent implement this interface today; the detailed layering,
+request flow and data model are in [docs/architecture.md](docs/architecture.md).
 
 Dependency direction is strict: UIs depend on the SDK, the SDK on the HTTP contract, the server on the
 engine, the engine on its own interfaces. Provider and store implementations plug in from outside.
@@ -248,19 +339,19 @@ engine, the engine on its own interfaces. Provider and store implementations plu
 One `ragfabric.yaml` plus environment variables for secrets. Each row is an interface with at least two
 implementations, so swapping is configuration, not code.
 
-| Concern | Interface | Planned implementations |
+| Concern | Interface | Implementations (state) |
 |---|---|---|
-| LLM | `LLMProvider` | OpenAI, Anthropic, Ollama, any OpenAI compatible endpoint |
-| Embeddings | `EmbeddingProvider` | OpenAI, Ollama, offline hashing (tests) |
-| Reranker | `Reranker` | none, LLM rerank, cross encoder |
-| Vector store | `VectorStore` | PostgreSQL pgvector, Chroma |
-| Lexical store | `LexicalStore` | PostgreSQL full text, in process BM25 |
-| Graph store | none, walked directly in the relational schema | PostgreSQL recursive CTEs, or disabled |
-| Relational DB | SQLAlchemy | PostgreSQL, SQLite for development |
-| Cache and rate limits | `Cache` | Redis, in memory |
-| Auth | `AuthProvider` | Local users with JWT, API keys; OIDC later |
-| Document sources | `Connector` | Upload, watched folder; Drive, Slack, Jira later |
-| Telemetry export | OpenTelemetry | OTLP to any backend, off by default |
+| LLM | `LLMProvider` | Ollama on the same machine (released) or on another server (implemented, validation pending); OpenAI and Anthropic with an API key (implemented, no live run recorded); offline test double (released). Any OpenAI compatible endpoint (planned) |
+| Embeddings | `EmbeddingProvider` | Ollama (released); OpenAI (implemented, no live run recorded); offline hashing for tests (released) |
+| Reranker | `Reranker` | none, LLM rerank, cross encoder (released) |
+| Vector store | `VectorStore` | PostgreSQL pgvector, Chroma (released) |
+| Lexical store | `LexicalStore` | PostgreSQL full text, BM25 in SQL, in process BM25 (released) |
+| Graph store | none, walked directly in the relational schema | PostgreSQL recursive CTEs, or disabled (released) |
+| Relational DB | SQLAlchemy | PostgreSQL, SQLite for development (released) |
+| Cache and rate limits | `Cache` | Redis, in memory (released) |
+| Auth | `AuthProvider` | Local users with JWT, API keys (released); OIDC and SAML (planned) |
+| Document sources | `Connector` | Upload (released); watched folder, Google Drive (implemented, validation pending); Slack, Jira and others (planned) |
+| Telemetry export | OpenTelemetry | OTLP to any backend, off by default (released) |
 
 ## Access control
 
@@ -272,6 +363,48 @@ UI, so replacing the UI cannot remove it. The admin console manages all of this.
 
 A collection with no grants is open to every signed in user; the first grant restricts it to its
 grantees.
+
+## Data and storage
+
+Everything lives in one PostgreSQL database (version 18 with the pgvector extension); SQLite works for
+development and the quickstart. The schema is created and upgraded only by Alembic migrations
+(`ragfabric db upgrade`), currently nine, ending at `0009_connector_items`, and CI applies them against a
+real PostgreSQL on every pull request.
+
+| Group | Tables |
+|---|---|
+| Documents | `collections`, `documents`, `chunks`, `ingestion_runs`, `connector_items` |
+| Search indexes | `chunk_embeddings` (vectors, HNSW index, 768 dimensions), `chunk_search` (full text), `term_stats` and `corpus_stats` (BM25) |
+| Knowledge graph | `entities`, `relationships`, `entity_sources`, `relationship_sources`, `entity_merges` |
+| Access | `users`, `groups`, `group_members`, `collection_grants`, `document_overrides`, `api_keys`, `audit_log` |
+| Questions and answers | `conversations`, `messages`, `retrieval_runs`, `sources`, `query_logs` |
+| Evaluation | `evaluation_runs`, `evaluation_results` |
+
+Chroma can replace pgvector for vectors (`vector_store.kind: chroma`), and Redis holds rate limit
+counters and, when indexing is queued, the ingestion queue. Uploaded originals are kept on disk under
+`ingestion.uploads_dir`. The embedding dimension is pinned by migration 0004, so changing to a model
+of another dimension needs a migration ([docs/configuration.md](docs/configuration.md)).
+
+## The web app
+
+An Angular app (`apps/assistant`) that reaches the server only through the TypeScript SDK. State:
+implemented, validation pending (on `main`, ships with v1.0.0).
+
+| Page | What it is for |
+|---|---|
+| Login | Sign in; the session survives a rate limit or a server error and ends only on a 401 |
+| Dashboard | Recent questions, top documents and a starting point for asking |
+| Documents | Upload, list and remove documents, and download an original |
+| Collections | Create collections and see what each holds |
+| Ask | Ask in auto or manual mode; the router's choice and reason, the streamed answer and clickable citations |
+| Compare | One question through all four strategies side by side, with sources, time, calls, tokens and cost |
+| Trace | One run as a waterfall of steps, with timings, counts, routing and sources |
+| Evaluation | The latest measured batch, scores by question type and the live dashboards |
+| Analytics | Counts of documents, collections, indexed chunks, users and questions, and the most indexed documents |
+| Admin | The user list with each user's status and actions |
+| Console (admins) | Users, groups, grants, API keys and their rate limits, and the answering and embedding model settings |
+
+How to read each page: [docs/assistant.md](docs/assistant.md).
 
 ## Observability
 
@@ -385,6 +518,9 @@ Frameworks are used where they pay for themselves. Retrieval logic is written ou
 than hidden behind a single library call.
 
 ## Installation
+
+Connecting a local or hosted model, running the web app, hosting it for others and using the API
+and SDKs are all in the [setup guide](docs/setup.md), with the state of each option.
 
 ### Five minute start
 
@@ -501,23 +637,24 @@ Manual mode lets you force any strategy on any query and compare the four side b
 ## Repository layout
 
 ```
-packages/core            engine: strategies, router, ingestion, evaluation, access policy, interfaces
-packages/server          FastAPI application
-packages/cli             ragfabric command
-packages/sdk-python      typed client
-packages/sdk-typescript  typed client (@ragfabric/sdk)
-apps/assistant           reference UI (Angular): Ask, Compare, Trace, Evaluation, and the admin console under /console
-docker-compose.yml       lite default, full profile adds Chroma
-deploy/docker            api and ui Dockerfiles, nginx config
-docs                     concepts, guides, ADRs, design, benchmarks
-examples                 minimal integrations
+packages/core            engine: strategies, router, agent, graph, ingestion, evaluation, access policy, providers, stores, migrations
+packages/server          FastAPI application: REST and SSE API, auth, rate limits
+packages/cli             the ragfabric command (published to PyPI as ragfabric)
+packages/sdk-python      typed Python client, HTTP only
+packages/sdk-typescript  typed TypeScript client (@ragfabric/sdk), generated from the OpenAPI spec
+apps/assistant           the web app (Angular), including the admin console under /console
+benchmarks               public benchmark runners, LlamaIndex and LangChain adapters, the leak test, summarise.py
+deploy/docker            API and web app images, nginx configuration
+deploy/compose           production compose stack with Caddy for HTTPS and optional local model and connectors
+deploy/render            RagFabric configuration for the Render Blueprint (render.yaml at the root)
+docs                     guides, concepts, strategies, ADRs, design, benchmarks, learning notes
+scripts                  release tooling (version bump)
+docker-compose.yml       development stack: lite by default, full adds Chroma, workers adds the queue worker
+ragfabric.example.yaml   every configuration key, annotated
 ```
 
-`packages/core`, `packages/server`, `packages/cli`, `packages/sdk-python`, `packages/sdk-typescript`,
-`apps/assistant`, `docker-compose.yml`, `deploy/docker` and `docs` exist today. The admin console lives
-inside `apps/assistant` rather than as a separate `apps/console`. `examples` is created by the phase that
-ships it. The evaluation corpus and questions live in `packages/core/src/ragfabric_core/evaluation/data/`
-so a pip install has them.
+The evaluation corpus and questions live in `packages/core/src/ragfabric_core/evaluation/data/` so an
+installed package has them.
 
 Design details: [docs/design/2026-09-13-ragfabric-design.md](docs/design/2026-09-13-ragfabric-design.md)
 and the ADRs in [docs/adr](docs/adr).
@@ -648,17 +785,18 @@ extra installed, because Ollama is served through the OpenAI compatible client; 
 
 See [ROADMAP.md](ROADMAP.md) and [CHANGELOG.md](CHANGELOG.md).
 
-| Release | Theme |
-|---|---|
-| v0.1.0 | Initial RAG engine: interfaces, providers, ingestion, access control, Traditional and Vectorless RAG, CLI, Python SDK, console |
-| v0.2.0 | Agentic retrieval with a plain Python state machine, not LangGraph |
-| v0.3.0 | Graph retrieval on PostgreSQL recursive CTEs |
-| v0.4.0 | Adaptive router with fallbacks, the agent routing each sub-question across all four strategies, terminal experience |
-| v0.5.0 | Evaluation framework, dashboards, generated benchmarks |
-| v1.0.0 | Production release: reference UI with Compare and Trace, TypeScript SDK, connectors, hardening, docs site, deployment guides, public benchmarks against widely used RAG tools with a fix wave |
+| Release | Theme | State |
+|---|---|---|
+| v0.1.0 | Initial RAG engine: interfaces, providers, ingestion, access control, Traditional and Vectorless RAG, CLI, Python SDK, console | Released 22 September 2026 |
+| v0.2.0 | Agentic retrieval with a plain Python state machine, not LangGraph | Released 26 September 2026 |
+| v0.3.0 | Graph retrieval on PostgreSQL recursive CTEs (v0.3.1 added PyPI packaging) | Released 26 September 2026 |
+| v0.4.0 | Adaptive router with fallbacks, the agent routing each sub-question across all four strategies, terminal experience | Released 7 October 2026 (on GitHub; PyPI upload pending) |
+| v0.5.0 | Evaluation framework, dashboards, generated benchmarks | Implemented, validation pending: on `main`, not tagged |
+| v1.0.0 | Production release: web app with Compare and Trace, TypeScript SDK, connectors, hardening, docs site, deployment guides, public benchmarks with a fix wave | Implemented, validation pending: on `main`; benchmarks paused at a checkpoint, Drive and hosted deployments not yet validated, npm and PyPI not published |
 
-Later: OIDC and SAML, multi tenant workspaces, more connectors and stores, community summaries for Graph
-RAG, a Helm chart.
+Planned after v1.0.0: any OpenAI compatible endpoint, more providers, OIDC and SAML, multi tenant
+workspaces, more connectors and stores, community summaries for Graph RAG, a Helm chart, and the
+agentic improvements in [docs/agentic-rag.md](docs/agentic-rag.md#measured-behaviour-and-next-steps).
 
 ## Project documentation
 

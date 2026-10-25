@@ -4,9 +4,10 @@
 retrieval architectures, measure accuracy, latency and cost on your own corpus, then serve the
 winner behind a query router. Bring your own model, database and hosting.
 
-> Status: pre-release, built in the open phase by phase. Each page carries a status line saying what
-> has shipped and what has not. The [roadmap](https://github.com/ranjan-del/ragfabric/blob/main/ROADMAP.md)
-> is the record of what exists. No number on this site comes from anything but a recorded run
+> Status: the latest release is v0.4.0. Pages use three states: **Released** (in a tagged release and
+> exercised end to end), **Implemented, validation pending** (on `main`, with a release, a live run or
+> quality evidence still missing) and **Planned**. The
+> [roadmap](https://github.com/ranjan-del/ragfabric/blob/main/ROADMAP.md) is the record of what exists. No number on this site comes from anything but a recorded run
 > ([ADR 0004](adr/0004-measurement-first-no-fabricated-numbers.md)).
 
 ## Start here
@@ -15,6 +16,7 @@ winner behind a query router. Bring your own model, database and hosting.
 |---|---|
 | Understand what it does and what the numbers mean, in plain words | [How it works](how-it-works.md) |
 | Run it on a laptop and ask a first question | [Quick start](getting-started.md) |
+| Connect a local or hosted model, host it for others, and use it | [Setup guide](setup.md) |
 | See how well it works and how it compares | [Benchmark comparison](benchmarks/comparison.md), [RAG landscape](benchmarks/landscape.md) |
 | Understand why there is more than one way to retrieve | [Concepts](concepts/ingestion.md), then [Trade-offs](trade-offs.md) |
 | Pick a strategy | [Traditional](traditional-rag.md), [Vectorless](vectorless-rag.md), [Agentic](agentic-rag.md), [Graph](graph-rag.md), and the [Router](routing.md) that chooses between them |
