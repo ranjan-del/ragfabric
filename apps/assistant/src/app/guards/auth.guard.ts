@@ -2,7 +2,7 @@ import { inject } from '@angular/core';
 import { CanActivateFn, Router } from '@angular/router';
 import { catchError, map, of } from 'rxjs';
 
-import { AuthService } from '../services/auth.service';
+import { AuthService, isUnauthorized } from '../services/auth.service';
 
 /** Allow the route only when a token is present; otherwise send to /login. */
 export const authGuard: CanActivateFn = () => {
@@ -31,7 +31,9 @@ export const adminGuard: CanActivateFn = () => {
   if (auth.token && auth.user?.() == null) {
     return auth.loadProfile().pipe(
       map((user) => (user.role === 'admin' ? true : dashboard)),
-      catchError(() => of(router.createUrlTree(['/login']))),
+      // A refused token goes to /login. Any other failure (a rate limit, a server
+      // error) is not a reason to sign anyone out, so it goes to the dashboard.
+      catchError((error: unknown) => of(isUnauthorized(error) ? router.createUrlTree(['/login']) : dashboard)),
     );
   }
   return dashboard;
