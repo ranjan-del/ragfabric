@@ -133,6 +133,24 @@ def assert_citation_contract(answer: str, chunks: list[RetrievedChunk]) -> None:
             raise CitationViolation(reason)
 
 
+def assert_answer_has_words(answer: str) -> None:
+    """Refuse a reply that is citation markers and nothing else, such as "[1]".
+
+    Kept apart from ``assert_citation_contract`` on purpose: that function also
+    scores citation validity in evaluation, and this check is about whether the
+    generator produced an answer at all, not whether its citations are sound. A
+    bare "[1]" cites a real passage and quotes nothing, so the contract passes it,
+    yet it tells the reader nothing. llama3.2:3b replied exactly that to the
+    quickstart's own sample question. The graph contract already treats such a
+    piece as no claim (ruling R33); the single shot and agentic paths now agree.
+    """
+    if not any(char.isalnum() for char in _MARKER_RE.sub("", answer)):
+        raise CitationViolation(
+            "the answer is only citation markers, with no words: write the answer itself "
+            "and put the passage number after it"
+        )
+
+
 def _passage_holding(quote: str, chunks: list[RetrievedChunk]) -> int | None:
     """The 1-based number of the first retrieved chunk that holds ``quote``, if any."""
     wanted = _flat(quote)
