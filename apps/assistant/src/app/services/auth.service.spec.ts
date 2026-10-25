@@ -122,6 +122,32 @@ describe('AuthService', () => {
       expect(service.token).toBeNull();
       expect(service.isAuthenticated()).toBeFalse();
     });
+
+    // Found with Playwright: a 429 from /auth/me during a page reload signed the
+    // user out, and every page after it went to /login. Only the server saying
+    // the token is no good (401) ends the session; a rate limit, a server error
+    // or a dropped connection leaves the token for the next request.
+    for (const [status, statusText] of [
+      [429, 'Too Many Requests'],
+      [500, 'Server Error'],
+      [503, 'Service Unavailable'],
+    ] as const) {
+      it(`keeps the token when the profile request fails with ${status}`, () => {
+        localStorage.setItem('rag_token', 'still-good');
+        service.restore();
+        backend.expectOne(`${API}/auth/me`).flush({}, { status, statusText });
+
+        expect(service.token).toBe('still-good');
+      });
+    }
+
+    it('keeps the token when the server cannot be reached', () => {
+      localStorage.setItem('rag_token', 'still-good');
+      service.restore();
+      backend.expectOne(`${API}/auth/me`).error(new ProgressEvent('error'));
+
+      expect(service.token).toBe('still-good');
+    });
   });
 
   it('clears the token and the user on logout', () => {
