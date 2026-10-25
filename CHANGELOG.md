@@ -117,6 +117,23 @@ Phase 9 (assistant UI and TypeScript SDK) and Phase 10 (hardening, connectors, d
   character snippet. (#79)
 - `refused` on the ask response, on `/api/search/query` and on the streamed `done` event, set by the
   code that decides a refusal, so clients no longer guess a refusal from the answer text. (#79)
+- Ask and Compare show the walked graph path under a graph answer: the entities reached and each
+  relationship in marker order, with its relation, extraction confidence (or "not measured") and
+  source. Every `[E k]` marker is a chip that opens the edge and the chunks that back it; a marker
+  the walk does not have stays plain text. Empty states come from the API's `empty_reason`. Trace
+  reads an edge in its walked direction. (#86)
+- The console sets a per-key rate limit when it creates a key and lists each key's limit. Empty means
+  the server default, read from the new admin only `GET /api/admin/keys/defaults`. A limit cannot be
+  changed after creation; the form and `docs/operations.md` say to create a new key and revoke the
+  old one. (#87)
+- `ragfabric eval export-prompts` writes, without calling a model, the retrieved passages, the ground
+  truth and the exact messages a normal run sends, for `traditional` and `vectorless`.
+  `ragfabric eval import-answers` scores answers written elsewhere with the same metrics and judge
+  and stores them as `external:<label>`. Missing, duplicate, unknown and unreadable answers are
+  counted errors, never zeros. Provenance (who answered, prompt file SHA-256, export date and commit)
+  is stored and shown by `eval report`, `eval show` and `benchmarks/summarise.py`. On 6 shipped
+  questions with the lexical judge, an import of a normal run's answers gave identical values on every
+  metric. `benchmarks/external/ANSWER_INSTRUCTIONS.md` (#90)
 
 ### Fixed
 
@@ -179,8 +196,21 @@ Phase 9 (assistant UI and TypeScript SDK) and Phase 10 (hardening, connectors, d
 - Large documents index on Ollama: embeddings are sent in batches of 64 inputs. Ollama's embedding
   runner fails on a request of about 288 inputs or more, so nine of the ten FinanceBench filings
   (444 to 1,718 chunks) failed to ingest; all ten now do. (#84)
+- A number, code or quote cited to a passage that does not hold it is moved, with no model call, to
+  the retrieved passage that does; two equally good holders, or a quote that cannot be placed, go to
+  the repair retry. Computed totals and years are left alone. `citation_correct` fails the same
+  misattribution. On the 24 shipped questions with `llama3.1:8b` (22 October 2026), citation
+  correctness under the new metric rose from 0.833 to 0.917 on traditional and from 0.875 to 0.917 on
+  vectorless; only markers moved. The streaming ask route is unchanged. (#89)
 
 ### Changed
+
+- Faithfulness is judged per claim (`judge-v2`): the judge gives a true or false verdict for each
+  claim of the answer and the supported share is computed in code, instead of a score written before
+  its reason. Against 73 hand labelled answers (`llama3.1:8b` judge, 22 October 2026) agreement rose
+  from 61 of 73 to 68 of 72, and supported answers scored 0 fell from 10 to 1; only 4 answers are
+  labelled unsupported, so the set measures sensitivity poorly. Faithfulness stored before and after
+  this change is not comparable; each run stores its prompt version. (#88)
 
 - Karma builds with the esbuild based `builderMode: application`, so the app can compile the SDK
   from source

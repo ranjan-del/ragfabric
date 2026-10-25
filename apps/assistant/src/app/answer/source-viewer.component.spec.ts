@@ -35,6 +35,13 @@ describe('SourceViewerComponent', () => {
     fixture.detectChanges();
   }
   const q = (s: string) => fixture.nativeElement.querySelector(s) as HTMLElement | null;
+  // The original is read with blob.text(), which resolves when the browser gets to it; a fixed
+  // sleep failed on a busy CI runner, so wait until the read has finished.
+  async function settled(): Promise<void> {
+    for (let i = 0; i < 200 && fixture.componentInstance.expanding(); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
 
   it('test_a_cut_text_snippet_can_be_widened_to_show_the_cited_fact', async () => {
     expect(AT).toBe(0);
@@ -43,7 +50,7 @@ describe('SourceViewerComponent', () => {
 
     q('[data-test="expand"]')!.click();
     http.expectOne('/api/documents/9/download').flush(new Blob([FULL]));
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settled();
     fixture.detectChanges();
 
     expect(q('[data-test="snippet"]')?.textContent).toContain('Aisha Bello leads Data Platform.');
@@ -95,7 +102,7 @@ describe('SourceViewerComponent', () => {
     open(CITATION);
     q('[data-test="expand"]')!.click();
     http.expectOne('/api/documents/9/download').flush(new Blob(['a different file']));
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settled();
     fixture.detectChanges();
     expect(q('[role="alert"]')?.textContent).toContain('could not be found');
   });
