@@ -81,3 +81,19 @@ def test_a_reasoning_that_is_blank_is_a_violation_not_a_reply():
     outcome = classify("q", signals(), llm=RecordingLLM(reply(reasoning="   ")), available=ALL)
     assert outcome.reply is None and outcome.llm_calls == 1
     assert outcome.violation is not None and "reasoning was empty" in outcome.violation.error
+
+
+def test_the_prompt_asks_for_a_reason_for_the_strategy_never_an_answer():
+    """The classifier never sees a document, so any fact in its reasoning is invented.
+
+    llama3.2:3b, asked "How many days of sick leave do employees get, and what are
+    the core working hours?", gave as reasoning "The company provides 5 days of sick
+    leave and core working hours are from 9:00 AM to 5:00 PM" in 4 of 4 runs (the
+    documents say 12 days and 10:00 to 16:00), and the Ask page showed it above the
+    cited answer.
+    """
+    llm = RecordingLLM(reply())
+    classify("How many days of sick leave?", signals(), llm=llm, available=ALL)
+    prompt = " ".join("\n".join(m.content for m in llm.prompts[0]).lower().split())
+    assert "why that strategy suits the question" in prompt
+    assert "never answer the question" in prompt
