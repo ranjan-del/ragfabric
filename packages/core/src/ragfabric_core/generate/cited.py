@@ -31,6 +31,7 @@ from ragfabric_core.generate.attribution import assert_number_attribution, repai
 from ragfabric_core.generate.contract import (
     NO_EVIDENCE,
     CitationViolation,
+    assert_answer_has_words,
     assert_citation_contract,
 )
 from ragfabric_core.graph.citations import (
@@ -169,6 +170,7 @@ def generate_cited_answer(
         attribution = repair_attribution(completion.text, chunks)
         text = attribution.text
         try:
+            assert_answer_has_words(text)
             assert_citation_contract(text, chunks)
             assert_number_attribution(text, chunks)
         except CitationViolation as exc:
@@ -252,6 +254,8 @@ def generate_cited_answer(
 EFFECTIVE_DATE_KEY = "effective_date"
 
 _MARKER_ONLY = re.compile(r"\[\d+\]")
+# Why a piece with markers and no words was dropped, on the agentic and graph paths alike.
+MARKER_ONLY_REASON = "citation markers with no claim"
 _SENTENCE_END = frozenset(".!?")
 
 
@@ -354,7 +358,14 @@ def drop_unsupported_claims(
     dropped: list[DroppedClaim] = []
     for claim in split_claims(answer):
         if not _carries_words(claim):
-            kept.append(claim)
+            # split_claims joins a trailing marker onto the claim before it, so a
+            # word-less piece here stands alone: a bare "[1]" asserts nothing and
+            # is dropped like the graph path drops it (ruling R33). Stray spaces or
+            # punctuation with no marker are kept, as they always were.
+            if _MARKER_ONLY.search(claim):
+                dropped.append(DroppedClaim(text=claim.strip(), reason=MARKER_ONLY_REASON))
+            else:
+                kept.append(claim)
             continue
         try:
             assert_citation_contract(claim, chunks)
@@ -450,7 +461,7 @@ def apply_agentic_contract(
     so is the honest form of it.
     """
     kept, dropped = drop_unsupported_claims(repair_attribution(text, chunks).text, chunks)
-    if not kept:
+    if not _carries_words(kept):
         kept = NO_EVIDENCE_ANSWER
     reports = dated_sub_questions(sub_question_evidence, chunks)
     note = dated_sources_note(reports)
@@ -568,7 +579,6 @@ GRAPH_SYSTEM_PROMPT = (
 
 # The recorded reason for a fragment of [n] markers carrying no words: there is
 # no claim for the markers to cite, so it is dropped rather than kept verbatim.
-MARKER_ONLY_REASON = "citation markers with no claim"
 
 
 class GraphAnswer(BaseModel):
