@@ -48,7 +48,10 @@ import { percent } from './format';
               <div><dt>Expected cost</dt><dd>{{ d.expected_cost_level }}</dd></div>
               <div><dt>Expected latency</dt><dd>{{ d.expected_latency_level }}</dd></div>
             </dl>
-            <p class="reasoning" data-test="reasoning">{{ d.reasoning }}</p>
+            <p class="reasoning">
+              <span class="muted reasoning-label" data-test="reasoning-label">Why this strategy:</span>
+              <span data-test="reasoning">{{ d.reasoning }}</span>
+            </p>
           } @else {
             <p class="muted" data-test="no-decision">The server did not report a routing decision.</p>
           }
@@ -65,6 +68,7 @@ import { percent } from './format';
     .router-facts dt { font-size: 0.75rem; color: var(--text-muted); }
     .router-facts dd { margin: 0; }
     .reasoning { margin: 0; }
+    .reasoning-label { margin-right: 0.35em; }
     .fallback { margin: 0; }
     .small { font-size: 0.8rem; margin: 0; }
   `,

@@ -116,6 +116,9 @@ describe('AskComponent', () => {
     expect(text('[data-test="source"]')).toBe('classifier');
     expect(text('[data-test="confidence"]')).toContain('90%');
     expect(text('[data-test="reasoning"]')).toBe('The question names an exact code.');
+    // Labelled as the router's reason, not shown bare above the answer, where a
+    // model's invented fact read as the answer itself.
+    expect(text('[data-test="reasoning-label"]')).toBe('Why this strategy:');
 
     finish(req, [
       ['retrieval', retrieval()],

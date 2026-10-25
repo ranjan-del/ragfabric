@@ -193,3 +193,48 @@ def test_the_question_comes_after_the_passages_so_a_small_model_still_sees_it():
     llm = ScriptedLLM("The hotel limit is 180 US dollars per night [1].")
     generate_cited_answer(question, chunks("The hotel limit is 180 US dollars per night."), llm)
     assert llm.prompts[0].rstrip().endswith(question)
+
+
+def test_an_answer_of_markers_alone_is_retried_with_the_reason():
+    llm = ScriptedLLM("[1]", "Up to 10 days carry forward [1].")
+    out = generate_cited_answer(
+        "how much leave carries forward",
+        chunks("Up to 10 days of unused annual leave carry forward."),
+        llm,
+    )
+    assert out.text == "Up to 10 days carry forward [1]."
+    assert out.retried is True
+    assert "only citation markers" in llm.prompts[1]
+
+
+def test_markers_alone_twice_fall_back_to_the_extractive_answer():
+    llm = ScriptedLLM("[1]", "[1]")
+    out = generate_cited_answer(
+        "how much leave carries forward",
+        chunks("Up to 10 days of unused annual leave carry forward."),
+        llm,
+    )
+    assert out.generator == "extractive"
+    assert out.text.strip() != "[1]"
+
+
+def test_the_agentic_contract_does_not_keep_an_answer_of_markers_alone():
+    from ragfabric_core.generate.cited import (
+        MARKER_ONLY_REASON,
+        NO_EVIDENCE_ANSWER,
+        apply_agentic_contract,
+    )
+
+    out = apply_agentic_contract("[1]", chunks("Up to 10 days of unused leave carry forward."))
+    assert out.text == NO_EVIDENCE_ANSWER
+    assert [d.reason for d in out.dropped_claims] == [MARKER_ONLY_REASON]
+
+
+def test_the_agentic_contract_still_keeps_a_trailing_marker_with_its_claim():
+    from ragfabric_core.generate.cited import apply_agentic_contract
+
+    out = apply_agentic_contract(
+        "Up to 10 days carry forward. [1]", chunks("Up to 10 days of unused leave carry forward.")
+    )
+    assert out.text == "Up to 10 days carry forward. [1]"
+    assert out.dropped_claims == []

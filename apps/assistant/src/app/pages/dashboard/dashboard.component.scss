@@ -32,7 +32,9 @@
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
-  background: linear-gradient(120deg, var(--brand-soft), #fff 80%);
+  // Tokens at both ends, so dark mode fades into its own surface rather than
+  // into white under light-on-dark text (dashboard-theme.spec.ts).
+  background: linear-gradient(120deg, var(--brand-soft), var(--surface) 80%);
   margin-bottom: 1.25rem;
 }
 .cta h3 {
@@ -40,11 +42,16 @@
 }
 .cta p {
   margin: 0.25rem 0 0;
+  // The muted grey is 4.3:1 on the light brand tint, under AA; body text is not.
+  color: var(--text);
 }
 
 .split {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  // minmax(0, ...) rather than 1fr: a 1fr track is at least as wide as its
+  // min-content, and a nowrap question is one long line, so one question made
+  // the whole card wider than a phone screen.
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 1rem;
 }
 .panel {
@@ -62,6 +69,7 @@
   flex-direction: column;
 }
 .list li {
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -73,6 +81,7 @@
   border-bottom: none;
 }
 .q-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -86,7 +95,7 @@
     grid-template-columns: repeat(2, 1fr);
   }
   .split {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 @media (max-width: 480px) {
