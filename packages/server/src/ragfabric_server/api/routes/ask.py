@@ -66,7 +66,11 @@ from ragfabric_core.generate.cited import (
     generate_cited_answer,
     sub_question_evidence_from,
 )
-from ragfabric_core.generate.contract import CitationViolation, assert_citation_contract
+from ragfabric_core.generate.contract import (
+    CitationViolation,
+    assert_answer_has_words,
+    assert_citation_contract,
+)
 from ragfabric_core.models.access import AuditLog
 from ragfabric_core.models.document import QueryLog
 from ragfabric_core.models.runs import RetrievalRun, Source
@@ -464,6 +468,7 @@ def ask(
             # nothing, which the done event shows as null (ADR 0004).
             in_tokens, out_tokens = stream_usage.input_tokens, stream_usage.output_tokens
             try:
+                assert_answer_has_words(text)
                 assert_citation_contract(text, result.chunks)
             except CitationViolation:
                 # Streaming cannot be retried in place: the client already
