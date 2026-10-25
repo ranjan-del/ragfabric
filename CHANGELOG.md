@@ -220,6 +220,12 @@ Phase 9 (assistant UI and TypeScript SDK) and Phase 10 (hardening, connectors, d
 
 ### Changed
 
+- **Phase 11 results at the 25 October 2026 checkpoint.** The comparison and results pages are
+  filled from stored runs: MultiHop-RAG 100 documents and 50 questions for every strategy, LlamaIndex
+  and LangChain (`llama3.2:3b`), BEIR retrieval on SciFact and FiQA 100 and SciFact 1,000, and the
+  shipped questions answered by two cloud models from RagFabric's exported prompts. The remaining
+  tiers are paused and resume from the same batches. The agentic page records its measured
+  behaviour on a small model and the planned fixes, and the fix wave lists the new findings
 - Faithfulness is judged per claim (`judge-v2`): the judge gives a true or false verdict for each
   claim of the answer and the supported share is computed in code, instead of a score written before
   its reason. Against 73 hand labelled answers (`llama3.1:8b` judge, 22 October 2026) agreement rose

@@ -248,10 +248,13 @@ decisions: `docs/plans/2026-10-10-phase-11-benchmarks.md`.
       (Microsoft GraphRAG, LightRAG) and platforms (RAGFlow, R2R) deferred, with the reason recorded
 - [x] Access leak test: forbidden chunks retrieved and unfilled slots, per target
 - [ ] Benchmark runs: MultiHop-RAG and BEIR 100 document tiers, FinanceBench 10 filings, BEIR 1,000
-      and full tiers, graph tiers, model sweep (`qwen2.5:1.5b`, `llama3.2:3b`, `llama3.1:8b`)
+      and full tiers, graph tiers, model sweep (`qwen2.5:1.5b`, `llama3.2:3b`, `llama3.1:8b`).
+      Paused at a checkpoint on 25 October 2026: MultiHop-RAG 100 (every strategy, LlamaIndex and
+      LangChain), SciFact and FiQA 100 and SciFact 1,000 are done; the rest resumes from the same batches
 - [ ] Fix wave: every loss recorded, fixed test first where possible, affected batches rerun and both
       numbers published (fixes so far: Ollama context window, graph extraction salvage, agentic first
-      retrieval, streamed token counts, citation retry)
+      retrieval, streamed token counts, citation retry, marker-only answers, router reasoning; open:
+      agentic time budget and evidence pool on small models)
 - [ ] `docs/benchmarks/comparison.md` and `docs/benchmarks/results/` filled from stored runs by
       `benchmarks/summarise.py --fill`. Per ADR 0004, a number is one dated run on a named setup,
       never a general claim. NFCorpus results stay marked pending licence confirmation

@@ -3,13 +3,15 @@
 > Generated tables: `uv run python benchmarks/summarise.py --fill docs/benchmarks/results/*.md`.
 > **TBD** means no stored run yet; **n/a** means not measured (ADR 0004). Method, datasets, licences
 > and setup: [comparison.md](../comparison.md).
+> Phase 11 paused at a checkpoint on 25 October 2026: a table still reading TBD was not run before
+> it, and resumes from the same batch ([benchmarks overview](../README.md#resuming-the-runs)).
 
 Licence as stated by the source: CC BY-NC 4.0 (Hugging Face card `PatronusAI/financebench`; the
 GitHub repository has no licence file). **Non-commercial use only.** Open sample, 10 filings and the
 questions on them, the original SEC filing PDFs. Expected sources are whole filings (the dataset's
 evidence is a page), so retrieval metrics are at document level.
 
-Contention (D19): TBD.
+Contention (D19): not run before the 25 October 2026 checkpoint.
 
 Ingest check, 22 October 2026 (`ragfabric eval import financebench --limit 10 --seed 11`, then
 `ragfabric eval corpus`, `llama3.1-8b.yaml`, PostgreSQL, `nomic-embed-text` on Ollama 0.34.0): all 10

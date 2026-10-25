@@ -108,6 +108,7 @@ nav:
       - Benchmarks:
           - Overview: benchmarks/README.md
           - Comparison: benchmarks/comparison.md
+          - RAG landscape: benchmarks/landscape.md
           - Access leak test: benchmarks/results/access-leak.md
           - BEIR retrieval: benchmarks/results/beir.md
           - FinanceBench: benchmarks/results/financebench.md
