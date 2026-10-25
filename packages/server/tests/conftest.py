@@ -181,6 +181,24 @@ class _FakeCitingLLM:
 
 
 @pytest.fixture()
+def limiter_clock(monkeypatch: pytest.MonkeyPatch) -> float:
+    """Hold the rate limiter's clock in the middle of one minute window.
+
+    The limiter counts per calendar minute, so a test that sends a few slow
+    requests (each login hashes a password) could cross a minute boundary on a
+    busy runner, start a fresh count and miss the expected 429. Only the
+    limiter's clock is fixed; tokens and logs keep the real time.
+    """
+    from types import SimpleNamespace
+
+    from ragfabric_core.auth import ratelimit
+
+    fixed = 1_800_000_030.0  # 30 seconds into a window
+    monkeypatch.setattr(ratelimit, "time", SimpleNamespace(time=lambda: fixed))
+    return fixed
+
+
+@pytest.fixture()
 def client() -> Iterator[TestClient]:
     """A TestClient backed by a fresh database and empty vector index.
 
