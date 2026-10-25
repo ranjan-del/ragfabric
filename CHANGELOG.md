@@ -220,6 +220,15 @@ Phase 9 (assistant UI and TypeScript SDK) and Phase 10 (hardening, connectors, d
 
 ### Changed
 
+- **One status vocabulary across the repository.** README, ROADMAP and the docs index use three
+  states: Released, Implemented (validation pending) and Planned, and say what evidence is missing.
+  The README opens with an overview, a diagram, screenshots, one benchmark table and a clean machine
+  quickstart, and gains Status at a glance, Data and storage and The web app sections. ROADMAP marks
+  v0.1.0 released, records the router and reranker measurements, lists what is left before v1.0.0
+  and what is planned. New `docs/setup.md` covers models, running, using and hosting
+- **Corrected: `llm.base_url` is read only for Ollama.** The example configuration, the configuration
+  and providers guides and the production configuration said any OpenAI compatible endpoint works
+  through it; the OpenAI provider always calls OpenAI. Such endpoints are now listed as planned
 - **Documentation for newcomers.** `docs/how-it-works.md` explains the tool, its pages and the
   benchmark metrics in plain words. The README status, router, install, What works today and
   Limitations sections now match `main`; the install notes that PyPI holds 0.3.1, which predates

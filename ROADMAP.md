@@ -3,16 +3,26 @@
 RagFabric is built in eleven phases grouped into six releases. Each phase is a GitHub issue under a
 milestone; this file is the human readable summary and is updated when a phase closes.
 
-| Release | Theme | Phases |
-|---|---|---|
-| v0.1.0 | Initial RAG engine | 1, 2, 3, 4 |
-| v0.2.0 | Agentic retrieval | 5 |
-| v0.3.0 | Graph retrieval | 6 |
-| v0.4.0 | Adaptive router | 7 |
-| v0.5.0 | Evaluation framework | 8 |
-| v1.0.0 | Production release | 9, 10, 11 |
+| Release | Theme | Phases | State |
+|---|---|---|---|
+| v0.1.0 | Initial RAG engine | 1, 2, 3, 4 | Released 22 September 2026 |
+| v0.2.0 | Agentic retrieval | 5 | Released 26 September 2026 |
+| v0.3.0 | Graph retrieval | 6 | Released 26 September 2026 (v0.3.1, PyPI packaging, the same day) |
+| v0.4.0 | Adaptive router | 7 | Released 7 October 2026 on GitHub; the PyPI upload is pending (PyPI holds 0.3.1) |
+| v0.5.0 | Evaluation framework | 8 | Implemented, validation pending: on `main`, not tagged |
+| v1.0.0 | Production release | 9, 10, 11 | Implemented, validation pending: Phases 9 and 10 on `main`; Phase 11 benchmarks paused at a checkpoint on 25 October 2026 |
+| after v1.0.0 | See [Later](#later) | | Planned |
 
-Legend: `[x]` merged to main, `[~]` in progress, `[ ]` not started.
+Three states are used across the repository:
+
+- **Released**: in a tagged release and exercised end to end.
+- **Implemented, validation pending**: the code is on `main`, but a release, a live integration run
+  or quality evidence is still missing. Each such item says what is missing.
+- **Planned**: not built yet.
+
+A checkbox records only whether the work is merged: `[x]` merged to `main`, `[~]` partly done, `[ ]`
+not done. A ticked box is not a claim that the item is released or production ready; the state above
+and the notes on each item say that.
 
 ## What exists today (inherited v1, all on `main`)
 
@@ -65,7 +75,7 @@ Legend: `[x]` merged to main, `[~]` in progress, `[ ]` not started.
 - [ ] Multi collection metadata filters (single collection only since Phase 3). Not shipped in
       Phase 4: `AccessFilter.collection_ids` takes a list in core, but `SearchRequest` and
       `AskRequest` still expose a single `collection_id`, so the API surface is unchanged.
-- [ ] **Release v0.1.0**
+- [x] **Release v0.1.0**: tagged `v0.1.0` with a GitHub release on 2026-09-22
 
 ## v0.2.0 Agentic retrieval
 
@@ -167,7 +177,9 @@ Phase 6 merged to main on 2026-09-25 as PR #40 (rebase-merge); `[x]` below means
 7a (the router and the agent's reach to all four strategies) and 7b (the terminal experience) are
 built and released as v0.4.0 on 2026-10-07. See
 [ADR 0013](docs/adr/0013-router-as-a-strategy.md) and
-[ADR 0014](docs/adr/0014-signals-override-the-planner.md). Router quality is not measured yet.
+[ADR 0014](docs/adr/0014-signals-override-the-planner.md). Router quality was first measured on 25
+October 2026: on 50 held-out MultiHop-RAG questions `auto` scored 0.55 correctness against 0.40 for
+Traditional (batch `h2-heldout-before`).
 
 - [x] `RouterDecision` with user-safe reasoning, and a confidence only when a classifier reported one
 - [x] Feature signals plus classifier, AUTO and MANUAL modes
@@ -207,29 +219,39 @@ built and released as v0.4.0 on 2026-10-07. See
 - [x] Retrieval metrics: precision, recall, hit rate, MRR
 - [x] Generation metrics: correctness, faithfulness, context relevance, citation correctness
 - [x] System metrics: latency split, calls, tokens, cost. Complexity score documented as an engineering assessment
-- [x] Cross encoder reranking measured against llm and none (as `traditional+rerank=...` targets; the
-      cross encoder is skipped with a reason when the `rerank` extra is not installed, as it was in the
-      first recorded run, so that comparison is still to be run)
+- [x] Cross encoder reranking measured against llm and none (as `traditional+rerank=...` targets).
+      The first recorded run skipped the cross encoder because the `rerank` extra was not installed;
+      it was measured in Phase 11 (batch `p11-mh100q50-l32`), where it found more relevant documents
+      but scored lower on correctness
 - [x] `make eval` persists runs and regenerates `docs/benchmarks/latest.md`
 - [x] Console dashboards: latency percentiles, cost per day, calls per strategy, fallback rate, quality
       trend, **as data** (`GET /api/eval/dashboard`). The pages that draw them move to Phase 9 with the
       Evaluation page (design decision D17)
-- [ ] **Release v0.5.0**
+- [ ] **Release v0.5.0**. State: implemented, validation pending; the code is on `main`, the tag waits
+      for the owner
 
 ## v1.0.0 Production release
 
 ### Phase 9: Assistant UI, TypeScript SDK
+
+State: implemented, validation pending. Merged to `main` in #67; every page checked at desktop and
+phone widths in light and dark on 25 October 2026, with the bugs found fixed in #97 to #101. Ships with
+v1.0.0; the SDK is not yet published to npm.
+
 - [x] Console dashboard pages over the Phase 8 data (`/api/eval/dashboard`, `/api/eval/runs`)
 - [x] Ask with router card and clickable citations, Compare (four strategies side by side), Trace, Evaluation pages
 - [x] `@ragfabric/sdk` generated from the OpenAPI spec, apps use only the SDK (prepared for npm, publishing is an owner action)
 
 ### Phase 10: Hardening, docs, deployment
-Built on `feat/phase-10-hardening` (design `docs/plans/2026-10-10-phase-10-hardening.md`). Releases
-nothing: v1.0.0 is Phase 11.
+State: implemented, validation pending. Merged to `main` in #68 (design
+`docs/plans/2026-10-10-phase-10-hardening.md`). Releases nothing by itself: it ships with v1.0.0.
 - [x] End-to-end tests, rate limiting, file validation, structured logging
-- [x] Connectors: watched folder, Google Drive (Drive tested with fake HTTP only; no real account used)
+- [x] Connectors: watched folder (verified against a real folder) and Google Drive. Validation
+      pending for Drive: tested with fake HTTP only, no real Drive account has been connected
 - [x] Docs site, deployment guides, release automation (repository already renamed to `ragfabric`).
-      The site deploy and the PyPI upload are built switched off; the owner switches them on
+      Validation pending: the site builds in strict mode but is not deployed; the single VM stack,
+      including its local model profile, was run on a workstation, not on a public server; the Render,
+      Railway and static host guides have not been deployed; the PyPI upload is switched off
 
 ### Phase 11: Public benchmarks and fix wave (added on 2026-09-30)
 
@@ -237,6 +259,10 @@ Phase 8 builds the measuring instrument and measures RagFabric against itself. T
 outward: the same questions, run through RagFabric and through widely used RAG tools, published with
 the losses as well as the wins, then a fix wave on whatever the comparison exposes. Design and
 decisions: `docs/plans/2026-10-10-phase-11-benchmarks.md`.
+
+State: implemented, validation pending. Merged to `main` in #69, results filled in #103; the runs are
+paused at a checkpoint on 25 October 2026 and resume from the same batches
+([resuming](docs/benchmarks/README.md#resuming-the-runs)).
 
 - [x] Dataset importers (standard library only, cached downloads, deterministic sampling, licence
       recorded as each source states it): SciFact, NFCorpus, FiQA-2018 (BEIR), MultiHop-RAG,
@@ -246,7 +272,7 @@ decisions: `docs/plans/2026-10-10-phase-11-benchmarks.md`.
 - [x] Comparison targets LlamaIndex and LangChain over RagFabric's own chunks, same embedding and
       answering models, pinned versions outside the workspace dependencies. Haystack, graph tools
       (Microsoft GraphRAG, LightRAG) and platforms (RAGFlow, R2R) deferred, with the reason recorded
-- [x] Access leak test: forbidden chunks retrieved and unfilled slots, per target
+- [x] Access leak test: forbidden chunks retrieved and unfilled slots, per target (built; not run yet)
 - [ ] Benchmark runs: MultiHop-RAG and BEIR 100 document tiers, FinanceBench 10 filings, BEIR 1,000
       and full tiers, graph tiers, model sweep (`qwen2.5:1.5b`, `llama3.2:3b`, `llama3.1:8b`).
       Paused at a checkpoint on 25 October 2026: MultiHop-RAG 100 (every strategy, LlamaIndex and
@@ -255,11 +281,36 @@ decisions: `docs/plans/2026-10-10-phase-11-benchmarks.md`.
       numbers published (fixes so far: Ollama context window, graph extraction salvage, agentic first
       retrieval, streamed token counts, citation retry, marker-only answers, router reasoning; open:
       agentic time budget and evidence pool on small models)
-- [ ] `docs/benchmarks/comparison.md` and `docs/benchmarks/results/` filled from stored runs by
+- [~] `docs/benchmarks/comparison.md` and `docs/benchmarks/results/` filled from stored runs by
       `benchmarks/summarise.py --fill`. Per ADR 0004, a number is one dated run on a named setup,
       never a general claim. NFCorpus results stay marked pending licence confirmation
 - [ ] **Release v1.0.0**, first production deployment
 
+## What is left before v1.0.0
+
+Validation of what is already implemented, in the order it unblocks the release:
+
+- [ ] Tag v0.5.0 (Phase 8 is on `main`)
+- [ ] Resume the paused benchmarks: the remaining BEIR tiers, FinanceBench, the model sweep, the access
+      leak test and the graph tiers
+- [ ] A recorded live run with a hosted model and an API key (OpenAI, Anthropic); today they are tested
+      with fakes only
+- [ ] Connect a real Google Drive account and record the run
+- [ ] Run the single VM stack, including the local model profile, on a public server, and deploy one
+      hosted route (Render or Railway)
+- [ ] Deploy the documentation site, upload the CLI to PyPI and the SDK to npm
+- [ ] Tag v1.0.0
+
 ## Later
-- OIDC and SAML, multi-tenant workspaces, more connectors (Slack, Jira, Confluence, S3), more stores
-  (Qdrant, Weaviate, OpenSearch), community summaries for Graph RAG, Helm chart.
+
+Planned, not built:
+
+- Any OpenAI compatible endpoint (vLLM, LM Studio, hosted gateways): `llm.base_url` is read only for
+  Ollama today, and the OpenAI provider always calls OpenAI
+- Agentic improvements measured in Phase 11: ranked and capped evidence, fallback to the single shot
+  answer, single shot first with escalation, parallel sub-question search, multi-hop queries
+  ([docs/agentic-rag.md](docs/agentic-rag.md#measured-behaviour-and-next-steps))
+- More providers: Gemini, Azure OpenAI, Bedrock; Voyage and Cohere embeddings
+- OIDC and SAML, multi-tenant workspaces, multi collection filters on the API, more connectors (Slack,
+  Jira, Confluence, S3), more stores (Qdrant, Weaviate, OpenSearch), community summaries for Graph RAG,
+  Helm chart.

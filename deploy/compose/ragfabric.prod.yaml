@@ -6,7 +6,7 @@
 llm:
   provider: ollama
   model: llama3.2:3b
-  base_url: http://ollama:11434/v1     # the ollama profile; or an OpenAI compatible endpoint
+  base_url: http://ollama:11434/v1     # the ollama profile, or an Ollama server elsewhere
 
 embeddings:
   provider: ollama

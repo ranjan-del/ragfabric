@@ -9,10 +9,11 @@ plus tests; adding one never touches the strategies.
 
 | Provider | Status | Notes |
 |---|---|---|
-| Ollama | Phase 1 (shipped) | **Default** since Phase 3 (`llama3.2:3b`). Local, no key, the free path; served through the OpenAI compatible provider, so `ragfabric[openai]` is still an installed extra for an Ollama-only deployment |
-| OpenAI | Phase 1 (shipped) | Also serves any OpenAI compatible endpoint via `base_url`; optional extra `ragfabric[openai]` |
-| Anthropic | Phase 1 (shipped) | Claude models; optional extra `ragfabric[anthropic]`. Temperature is not forwarded to Anthropic models: current Claude models reject it while adaptive thinking is active |
-| Gemini, Azure OpenAI, Bedrock | later | Contributions welcome once the interface is stable |
+| Ollama | Released | **Default** since Phase 3 (`llama3.2:3b`). Local, or on another machine through `llm.base_url`; no key, the free path; served through the OpenAI compatible provider, so `ragfabric[openai]` is still an installed extra for an Ollama-only deployment |
+| OpenAI | Implemented, validation pending | Calls OpenAI with `OPENAI_API_KEY`; optional extra `ragfabric[openai]`. Tested with fakes; no live run is recorded. `llm.base_url` is not read for this provider |
+| Anthropic | Implemented, validation pending | Claude models with `ANTHROPIC_API_KEY`; tested with fakes, no live run is recorded; optional extra `ragfabric[anthropic]`. Temperature is not forwarded to Anthropic models: current Claude models reject it while adaptive thinking is active |
+| Any OpenAI compatible endpoint (vLLM, LM Studio, hosted gateways) | Planned | Needs `llm.base_url` and a key passed to the OpenAI client; today `base_url` is read only for Ollama |
+| Gemini, Azure OpenAI, Bedrock | Planned | Contributions welcome once the interface is stable |
 
 The interface exposes `complete(messages, *, model=None, max_tokens=1024, temperature=0.0,
 json_schema=None) -> Completion` and, since Phase 3, `stream(messages, *, max_tokens) -> Iterator[str]`
@@ -42,10 +43,10 @@ the machine has the memory. Embeddings still use `/v1`.
 
 | Provider | Status | Notes |
 |---|---|---|
-| Ollama (`nomic-embed-text` and others) | Phase 1 (shipped) | **Default** since Phase 3. Local |
-| OpenAI `text-embedding-3-*` | Phase 1 (shipped) | Asked for `embeddings.dim` dimensions (Phase 10), so `dim: 768` fits the column migration 0004 pins |
-| Offline hashing | Phase 1 (shipped) | Test double from v1, deterministic, no network. Not for production use |
-| Voyage, Cohere, sentence transformers | later | |
+| Ollama (`nomic-embed-text` and others) | Released | **Default** since Phase 3. Local, or on another machine through `embeddings.base_url` |
+| OpenAI `text-embedding-3-*` | Implemented, validation pending | Tested with fakes; no live run is recorded. Asked for `embeddings.dim` dimensions (Phase 10), so `dim: 768` fits the column migration 0004 pins |
+| Offline hashing | Released | Test double from v1, deterministic, no network. Not for production use |
+| Voyage, Cohere, sentence transformers | Planned | |
 
 Changing the embedding model requires re-indexing: edit `embeddings.provider` / `embeddings.model` in
 `ragfabric.yaml`, then run `ragfabric reindex`, which re-embeds the whole corpus under the newly active

@@ -146,8 +146,9 @@ Backend on `http://localhost:8000` (OpenAPI at `/docs`), frontend on `http://loc
 
 This is the exact sequence that was run and captured end to end against a fresh database, no API key,
 no paid account, using the CLI directly against the containers above rather than the full compose
-build (the containerized `api`/`worker` images currently fail to start under the shipped Ollama
-default because they omit the `openai` extra; see [troubleshooting.md](troubleshooting.md)).
+build. (Images built before the API Dockerfile installed the `openai` extra fail to start under the
+shipped Ollama default; images built from current `main` include it. See
+[troubleshooting.md](troubleshooting.md).)
 
 ```bash
 docker compose --profile lite up -d postgres redis

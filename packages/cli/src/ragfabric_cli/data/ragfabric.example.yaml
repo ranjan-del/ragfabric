@@ -1,5 +1,5 @@
 # ragfabric.example.yaml
-# Phase 1: validated by `ragfabric config validate`; the API starts reading this file in Phase 2.
+# Read by the API, the CLI and the workers; `ragfabric config validate` checks it.
 # Copy to ragfabric.yaml and edit. Every key is optional; defaults are shown.
 # Secrets never go here: OPENAI_API_KEY, ANTHROPIC_API_KEY, DATABASE_URL and JWT_SECRET
 # come from the environment (.env.example lists them).
@@ -7,14 +7,14 @@
 llm:                          # the chat model provider
   provider: ollama            # openai | anthropic | ollama | offline
   model: llama3.2:3b          # openai default: gpt-5.4-mini, anthropic default: claude-sonnet-5
-  base_url: http://localhost:11434/v1   # any OpenAI compatible endpoint
+  base_url: http://localhost:11434/v1   # ollama only: the Ollama server, local or on another machine
   num_ctx: 8192               # ollama only: context window per call; null = model default
 
 embeddings:                   # the embedding model provider
   provider: ollama            # openai | ollama | offline
   model: nomic-embed-text     # 768 dimensions, pinned by migration 0004
   dim: 768                    # must match the migration; see docs/configuration.md
-  base_url: http://localhost:11434/v1   # any OpenAI compatible endpoint
+  base_url: http://localhost:11434/v1   # ollama only: the Ollama server, local or on another machine
 
 reranker:                     # optional second pass over retrieved chunks
   kind: none                  # none | llm | cross_encoder

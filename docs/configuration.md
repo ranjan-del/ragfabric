@@ -25,7 +25,7 @@
 llm:
   provider: ollama            # openai | anthropic | ollama | offline
   model: llama3.2:3b          # openai default: gpt-5.4-mini, anthropic default: claude-sonnet-5
-  base_url: http://localhost:11434/v1   # ollama or any OpenAI compatible endpoint
+  base_url: http://localhost:11434/v1   # ollama only: the Ollama server, local or on another machine
   num_ctx: 8192               # ollama only: context window sent on every call (null = model default)
 
 embeddings:
@@ -142,7 +142,7 @@ Installed with `uv sync --extra <name>` or `pip install 'ragfabric[<name>]'`.
 
 | Extra | Needed for | Notes |
 |---|---|---|
-| `openai` | `llm.provider: openai` or `ollama`, `embeddings.provider: openai` or `ollama` | **Ollama is served through the same OpenAI compatible client** (`providers/openai_compat.py`), because Ollama exposes an OpenAI compatible chat and embeddings API at `/v1`. An Ollama-only deployment, including the shipped default configuration, still needs this extra installed; only a deployment using none of OpenAI, Azure, vLLM, LM Studio or Ollama can skip it. Forgetting it fails at process start with `ProviderError: ollama: openai is not installed` |
+| `openai` | `llm.provider: openai` or `ollama`, `embeddings.provider: openai` or `ollama` | **Ollama is served through the same OpenAI compatible client** (`providers/openai_compat.py`), because Ollama exposes an OpenAI compatible chat and embeddings API at `/v1`. An Ollama-only deployment, including the shipped default configuration, still needs this extra installed; only a deployment using neither OpenAI nor Ollama can skip it. Forgetting it fails at process start with `ProviderError: ollama: openai is not installed` |
 | `anthropic` | `llm.provider: anthropic` | The `anthropic` SDK |
 | `chroma` | `vector_store.kind: chroma` | The `chromadb` client |
 | `rerank` | `reranker.kind: cross_encoder` | `sentence-transformers`, which pulls in `torch`; the model itself is downloaded lazily, on the first rerank call, not at process start |
