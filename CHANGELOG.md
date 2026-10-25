@@ -137,6 +137,21 @@ Phase 9 (assistant UI and TypeScript SDK) and Phase 10 (hardening, connectors, d
 
 ### Fixed
 
+- An answer of citation markers alone, such as `[1]`, is no longer accepted as an answer. Single shot
+  generation retries with the reason and then falls back to the extractive answer, a streamed answer
+  is superseded, and the agentic contract drops a standalone marker (the graph path's rule R33) and
+  refuses when nothing with words is left (#97)
+- The dashboard's Recent questions and Top documents cards stay inside a phone screen; one long
+  question made them 728 px wide at 390 px and cut off every confidence badge (#98)
+- The dashboard's call to action card is readable in the dark theme: it faded into white under light
+  text (1.2:1 and 2.4:1) and now fades into the theme's surface (#99)
+- A 429, a server error or a dropped connection on `/auth/me` during a page load no longer signs the
+  user out; only a 401 ends the session, and the admin guard sends other failures to the dashboard
+  (#100)
+- The router's classifier is asked why its strategy suits the question and never to answer it; with
+  llama3.2:3b its reasoning had stated invented facts, which the Ask page showed bare above the cited
+  answer. The Ask page now labels the sentence "Why this strategy:". The prompt change moves some
+  routing decisions (#101)
 - Opening an admin page directly (a reload or a pasted link to `/console` or `/evaluation`) no
   longer sends an admin to the dashboard: the admin guard waits for the profile when a token is
   present and the profile has not loaded yet
