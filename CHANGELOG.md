@@ -220,6 +220,10 @@ Phase 9 (assistant UI and TypeScript SDK) and Phase 10 (hardening, connectors, d
 
 ### Changed
 
+- **Documentation for newcomers.** `docs/how-it-works.md` explains the tool, its pages and the
+  benchmark metrics in plain words. The README status, router, install, What works today and
+  Limitations sections now match `main`; the install notes that PyPI holds 0.3.1, which predates
+  `quickstart`, and give the source install until 0.4.0 is published
 - **Phase 11 results at the 25 October 2026 checkpoint.** The comparison and results pages are
   filled from stored runs: MultiHop-RAG 100 documents and 50 questions for every strategy, LlamaIndex
   and LangChain (`llama3.2:3b`), BEIR retrieval on SciFact and FiQA 100 and SciFact 1,000, and the

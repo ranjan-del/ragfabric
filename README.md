@@ -9,19 +9,24 @@
 <p align="center">
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache%202.0-blue.svg"></a>
   <a href="https://github.com/ranjan-del/ragfabric/actions"><img alt="CI" src="https://github.com/ranjan-del/ragfabric/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="Status: pre-alpha" src="https://img.shields.io/badge/status-pre--alpha-orange">
+  <img alt="Release: v0.4.0, v1.0 in progress" src="https://img.shields.io/badge/release-v0.4.0%2C%20v1.0%20in%20progress-yellow">
 </p>
 
-> **Status: planning and early build.** The repository currently contains the v1 single strategy
-> assistant (working, tested, offline first). RagFabric is being built on top of it phase by phase.
-> See [ROADMAP.md](ROADMAP.md) for what exists and what is next. Nothing in this README claims a feature
-> that is not marked as shipped in the roadmap. Repository renamed from `enterprise-rag-knowledge-assistant` to `ragfabric` on 2026-09-13; old links redirect. Documentation lives in [docs/](docs/README.md).
+> **Status: v0.4.0 released; v1.0 in progress.** The four strategies and the query router are released
+> (v0.4.0). On `main` and not yet released: the evaluation harness (Phase 8), the assistant UI and
+> TypeScript SDK (Phase 9), hardening, connectors and the docs site (Phase 10), and the public benchmarks,
+> paused at a checkpoint on 25 October 2026 (Phase 11). See [ROADMAP.md](ROADMAP.md) for what exists and
+> what is next; nothing in this README claims a feature the roadmap does not mark as shipped.
+> New here? Start with [How RagFabric works, in plain words](docs/how-it-works.md). Repository renamed
+> from `enterprise-rag-knowledge-assistant` to `ragfabric` on 2026-09-13; old links redirect.
+> Documentation lives in [docs/](docs/README.md).
 
 ---
 
 ## Table of contents
 
 1. [What it is](#what-it-is)
+   - [How it works, in plain words](docs/how-it-works.md)
 2. [Why multiple RAG architectures exist](#why-multiple-rag-architectures-exist)
 3. [The four strategies](#the-four-strategies)
 4. [How to choose a RAG architecture](#how-to-choose-a-rag-architecture)
@@ -37,7 +42,7 @@
 14. [Configuration](#configuration)
 15. [Example queries](#example-queries)
 16. [Repository layout](#repository-layout)
-17. [What works today (v1)](#what-works-today-v1)
+17. [What works today](#what-works-today)
 18. [Limitations](#limitations)
 19. [Roadmap and future improvements](#roadmap-and-future-improvements)
 20. [Project documentation](#project-documentation)
@@ -190,10 +195,12 @@ It returns:
 
 The reasoning is a short, user safe explanation. A signals decision has `confidence: null`, because a
 rule that fired is not a measurement. A classifier confidence is what the model reported and is
-uncalibrated until Phase 8. When a strategy returns no usable evidence, one fallback to Traditional
+not calibrated. When a strategy returns no usable evidence, one fallback to Traditional
 runs and the run records `fallback_from`. `auto` never exceeds the caller's `max_llm_calls`. The
 agent also uses the signals to correct its planner's tool choice, and can reach the graph through an
-opt-in `graph_search` tool. Whether the router chooses well is not yet measured. See
+opt-in `graph_search` tool. On 50 held-out MultiHop-RAG questions with `llama3.1:8b`, `auto` scored
+0.55 correctness against 0.40 for Traditional on the same retrieval (batch `h2-heldout-before`, runs 5
+and 6). See
 [docs/routing.md](docs/routing.md).
 
 ## Architecture
@@ -389,6 +396,10 @@ ragfabric quickstart
 ragfabric doctor
 ```
 
+PyPI currently holds 0.3.1, which predates `quickstart`; until 0.4.0 is published, install from a
+checkout instead: `git clone https://github.com/ranjan-del/ragfabric && cd ragfabric && uv sync`, then
+run the same commands with `uv run` in front.
+
 `ragfabric quickstart` works in the current directory (or `--dir PATH`). It writes `ragfabric.yaml`
 and `.env` from templates packaged with the install when they are missing, picks a model, sets up
 SQLite, migrates, ingests a small sample corpus, asks a sample question through a temporary server
@@ -459,7 +470,7 @@ network follow the production notes in docs/configuration.md.
 ## Configuration
 
 ```yaml
-# ragfabric.yaml (planned shape)
+# ragfabric.yaml (abridged; every key is annotated in ragfabric.example.yaml)
 llm:        { provider: openai, model: gpt-4.1-mini }
 embeddings: { provider: openai, model: text-embedding-3-small }
 vector_store:  { kind: pgvector }
@@ -511,9 +522,10 @@ so a pip install has them.
 Design details: [docs/design/2026-09-13-ragfabric-design.md](docs/design/2026-09-13-ragfabric-design.md)
 and the ADRs in [docs/adr](docs/adr).
 
-## What works today (v1)
+## What works today
 
-The current `main` is a complete single strategy assistant that runs offline with no API key:
+What each phase added, oldest first. The v1 base is a complete single strategy assistant that runs
+offline with no API key:
 
 - Ingestion for PDF, DOCX, PPTX, TXT, CSV and Markdown with page numbers and character spans that survive into citations
 - Chunking with overlap, a deterministic hashing embedder
@@ -561,12 +573,12 @@ Queries now run against `chunk_embeddings` (pgvector or Chroma) and `chunk_searc
 index queries used before this phase are gone. The Python test suite is 385 passed, 12 skipped (live
 provider and PostgreSQL/Chroma integration tests that run in CI, plus a `tiktoken` check).
 
-**Answer quality is not measured yet.** The engine produces a grounded, cited answer, and a real run
+**Phase 3 did not measure answer quality.** The engine produces a grounded, cited answer, and a real run
 against a local `llama3.2:3b` model confirms the mechanism works end to end, including the case where
 the model's first attempt omitted the citation marker entirely and the contract forced a repair. What
 this phase does not do is score whether answers are correct, complete or faithful across more than a
 single, deliberately simple test document; that measurement, with a real question set and a scoring
-harness, is Phase 8's job. Nothing here should be read as a quality claim.
+harness, came with Phase 8 and Phase 11; see [Benchmark results](#benchmark-results).
 
 Phase 8 (v0.5.0, unreleased) adds that harness: a shipped synthetic corpus and 24 questions in eight
 categories, retrieval metrics (precision, recall, hit rate, MRR), generation metrics from a fixed-rubric
@@ -577,7 +589,7 @@ estimated cost per answer, and a router-versus-best-strategy comparison. `ragfab
 the stored runs and the dashboard data. Every ask now records its model and estimated cost. See
 [docs/evaluation.md](docs/evaluation.md).
 
-Phase 9 (issue #10, on the phase branch for v1.0.0) adds the assistant pages and the TypeScript SDK:
+Phase 9 (on `main`, to be released in v1.0.0) adds the assistant pages and the TypeScript SDK:
 
 - **Ask**: AUTO or MANUAL, a router decision card (strategy, rule or classifier, confidence as
   reported, reasoning, fallback), the answer streamed token by token, corrected in place when the
@@ -594,7 +606,7 @@ Phase 9 (issue #10, on the phase branch for v1.0.0) adds the assistant pages and
 
 See [docs/assistant.md](docs/assistant.md) and ADR 0016.
 
-Phase 10 (hardening, on its branch, not yet released) makes it fit to run for other people:
+Phase 10 (hardening, on `main`, not yet released) makes it fit to run for other people:
 
 - Request ids on every response and structured JSON logs carrying them
 - Rate limits for signed-in users and per address on sign-in, alongside the per API key limit, with
@@ -620,7 +632,8 @@ extra installed, because Ollama is served through the OpenAI compatible client; 
 
 ## Limitations
 
-- Pre alpha. Only v1 features are usable today; everything else is a plan with a phase number.
+- Pre 1.0. v0.4.0 is the latest release; Phases 8 to 11 are on `main` and unreleased, and what is still
+  planned carries a phase number in [ROADMAP.md](ROADMAP.md).
 - The four strategies need a real LLM and embedding provider. Ollama is the free path; quality depends on the local model.
 - Graph RAG quality is bounded by extraction quality, and extraction costs one LLM call per chunk at index time.
 - Agentic RAG latency is variable by design. The budget caps it, but it will always be the slowest. On a

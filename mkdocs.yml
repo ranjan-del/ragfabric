@@ -64,6 +64,7 @@ validation:
 
 nav:
   - Home: index.md
+  - How it works: how-it-works.md
   - Quick start: getting-started.md
   - Concepts:
       - Ingestion: concepts/ingestion.md
